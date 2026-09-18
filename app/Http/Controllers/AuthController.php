@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 class AuthController extends Controller
@@ -19,13 +20,38 @@ class AuthController extends Controller
         try {
             $request->validate([
                 'id_token' => 'required|string',
+                'access_token' => 'nullable|string',
             ]);
 
-            // Extract email, name, and google_id from request or token payload
-            // (Assumes Flutter sends these alongside id_token or you extract them dynamically)
             $email = $request->input('email');
-            $name = $request->input('name', 'Google User');
-            $googleId = $request->input('google_id', 'google_' . uniqid());
+            $name = $request->input('name');
+            $googleId = $request->input('google_id');
+
+            // 1. If email wasn't passed directly, fetch profile from Google using the access_token
+            if (!$email && $request->filled('access_token')) {
+                // Added withoutVerifying() to fix local SSL certificate check errors (cURL error 60)
+                $googleResponse = Http::withoutVerifying()
+                    ->withToken($request->access_token)
+                    ->get('https://www.googleapis.com/oauth2/v3/userinfo');
+
+                if ($googleResponse->successful()) {
+                    $googleData = $googleResponse->json();
+                    $email = $googleData['email'] ?? null;
+                    $name = $googleData['name'] ?? 'Google User';
+                    $googleId = $googleData['sub'] ?? null;
+                }
+            }
+
+            // 2. Fallback: Parse the JWT id_token payload if email is still missing
+            if (!$email && $request->filled('id_token')) {
+                $tokenParts = explode('.', $request->id_token);
+                if (count($tokenParts) >= 2) {
+                    $payload = json_decode(base64_decode(str_replace(['-', '_'], ['+', '/'], $tokenParts[1])), true);
+                    $email = $payload['email'] ?? null;
+                    $name = $payload['name'] ?? 'Google User';
+                    $googleId = $payload['sub'] ?? null;
+                }
+            }
 
             if (!$email) {
                 return response()->json([
@@ -34,11 +60,13 @@ class AuthController extends Controller
                 ], 422);
             }
 
+            $googleId = $googleId ?? ('google_' . md5($email));
+
             // Find or create the user based on Google email
             $user = User::firstOrCreate(
                 ['email' => $email],
                 [
-                    'name' => $name,
+                    'name' => $name ?? 'Google User',
                     'google_id' => $googleId,
                     'password' => Hash::make(Str::random(24)), // Random secure password for social logins
                 ]

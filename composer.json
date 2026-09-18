@@ -9,6 +9,7 @@
         "firebase/php-jwt": "^7.1",
         "guzzlehttp/guzzle": "^7.2",
         "laravel/framework": "^11.0",
+        "laravel/sanctum": "^4.3",
         "laravel/socialite": "^5.0",
         "nesbot/carbon": "^2.72|^3.0",
         "ramsey/uuid": "^4.7"
