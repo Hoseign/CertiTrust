@@ -8,10 +8,57 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
+    /**
+     * Handle standard email and password login.
+     */
+    public function login(Request $request)
+    {
+        try {
+            $credentials = $request->validate([
+                'email' => ['required', 'email'],
+                'password' => ['required'],
+            ]);
+
+            if (!Auth::attempt($credentials)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Invalid email or password.',
+                ], 401);
+            }
+
+            $user = User::where('email', $request->email)->first();
+            $hasCertificate = DB::table('certificates')->where('email', $user->email)->exists();
+            $role = $user->role ?? 'student';
+
+            // Generate Sanctum token
+            $token = $user->createToken('CertiTrustMobileToken')->plainTextToken;
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Successfully logged in.',
+                'token' => $token,
+                'email' => $user->email,
+                'role' => $role,
+                'has_certificate' => $hasCertificate,
+                'user' => $user,
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Login Error: ' . $e->getMessage());
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Authentication failed on server.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
     /**
      * Handle Google Authentication from Flutter App
      */

@@ -16,15 +16,22 @@ use App\Http\Controllers\CertificateController;
 |
 */
 
-// Google Authentication Route
+// Authentication Routes
+Route::post('/login', [AuthController::class, 'login']);
 Route::post('/auth/google', [AuthController::class, 'googleLogin']);
-
-// Student ID Verification Route (Aligned with Flutter ApiService)
 Route::post('/auth/verify-student', [AuthController::class, 'verifyStudentId']);
 
-// Certificate Routes
+// Public Certificate Routes
 Route::get('/certificates', [CertificateController::class, 'index']);
 Route::get('/certificates/{code}', [CertificateController::class, 'show']);
-Route::post('/certificates', [CertificateController::class, 'store']);
-Route::post('/certificates/upload', [CertificateController::class, 'storeWithFile']);
-Route::post('/certificates/batch', [CertificateController::class, 'storeBatch']);
+
+// Protected Routes (Requires Sanctum Token)
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/user', function (Request $request) {
+        return $request->user();
+    });
+    
+    Route::post('/certificates', [CertificateController::class, 'store']);
+    Route::post('/certificates/upload', [CertificateController::class, 'storeWithFile']);
+    Route::post('/certificates/batch', [CertificateController::class, 'storeBatch']);
+});
