@@ -19,7 +19,6 @@ use App\Http\Controllers\CertificateController;
 // Authentication Routes
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/auth/google', [AuthController::class, 'googleLogin']);
-Route::post('/auth/verify-student', [AuthController::class, 'verifyStudentId']);
 
 // Public Certificate Routes
 Route::get('/certificates', [CertificateController::class, 'index']);
@@ -30,6 +29,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', function (Request $request) {
         return $request->user();
     });
+
+    Route::post('/auth/verify-student', [AuthController::class, 'verifyStudentId']);
     
     Route::post('/certificates', [CertificateController::class, 'store']);
     Route::post('/certificates/upload', [CertificateController::class, 'storeWithFile']);

@@ -66,39 +66,14 @@ class AuthController extends Controller
     {
         try {
             $request->validate([
-                'id_token' => 'required|string',
+                'id_token' => 'nullable|string|required_without:access_token',
                 'access_token' => 'nullable|string',
             ]);
 
-            $email = $request->input('email');
-            $name = $request->input('name');
-            $googleId = $request->input('google_id');
-
-            // 1. If email wasn't passed directly, fetch profile from Google using the access_token
-            if (!$email && $request->filled('access_token')) {
-                // Added withoutVerifying() to fix local SSL certificate check errors (cURL error 60)
-                $googleResponse = Http::withoutVerifying()
-                    ->withToken($request->access_token)
-                    ->get('https://www.googleapis.com/oauth2/v3/userinfo');
-
-                if ($googleResponse->successful()) {
-                    $googleData = $googleResponse->json();
-                    $email = $googleData['email'] ?? null;
-                    $name = $googleData['name'] ?? 'Google User';
-                    $googleId = $googleData['sub'] ?? null;
-                }
-            }
-
-            // 2. Fallback: Parse the JWT id_token payload if email is still missing
-            if (!$email && $request->filled('id_token')) {
-                $tokenParts = explode('.', $request->id_token);
-                if (count($tokenParts) >= 2) {
-                    $payload = json_decode(base64_decode(str_replace(['-', '_'], ['+', '/'], $tokenParts[1])), true);
-                    $email = $payload['email'] ?? null;
-                    $name = $payload['name'] ?? 'Google User';
-                    $googleId = $payload['sub'] ?? null;
-                }
-            }
+            $googleData = $this->resolveGoogleUser($request);
+            $email = $googleData['email'] ?? null;
+            $name = $googleData['name'] ?? 'Google User';
+            $googleId = $googleData['sub'] ?? null;
 
             if (!$email) {
                 return response()->json([
@@ -144,12 +119,57 @@ class AuthController extends Controller
         } catch (\Exception $e) {
             Log::error('Google Login Error: ' . $e->getMessage());
 
+            $status = $e instanceof \InvalidArgumentException ? 401 : 500;
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Authentication failed on server.',
                 'error' => $e->getMessage(),
-            ], 500);
+            ], $status);
         }
+    }
+
+    /**
+     * Validate the credential with Google and return its verified profile.
+     */
+    private function resolveGoogleUser(Request $request): array
+    {
+        if ($request->filled('id_token')) {
+            $response = Http::timeout(10)->get('https://oauth2.googleapis.com/tokeninfo', [
+                'id_token' => $request->string('id_token')->toString(),
+            ]);
+
+            if (!$response->successful()) {
+                throw new \InvalidArgumentException('Google ID token is invalid or expired.');
+            }
+
+            $data = $response->json();
+            $expectedClientId = (string) env('GOOGLE_CLIENT_ID');
+            if ($expectedClientId === '' || ($data['aud'] ?? null) !== $expectedClientId) {
+                throw new \InvalidArgumentException('Google ID token audience does not match this application.');
+            }
+
+            if (($data['email_verified'] ?? 'false') !== 'true') {
+                throw new \InvalidArgumentException('Google email address is not verified.');
+            }
+
+            return $data;
+        }
+
+        $response = Http::timeout(10)
+            ->withToken($request->string('access_token')->toString())
+            ->get('https://www.googleapis.com/oauth2/v3/userinfo');
+
+        if (!$response->successful()) {
+            throw new \InvalidArgumentException('Google access token is invalid or expired.');
+        }
+
+        $data = $response->json();
+        if (empty($data['email']) || ($data['email_verified'] ?? false) !== true) {
+            throw new \InvalidArgumentException('Google account email could not be verified.');
+        }
+
+        return $data;
     }
 
     /**
@@ -162,6 +182,13 @@ class AuthController extends Controller
                 'email' => 'required|email',
                 'student_id' => 'required|string',
             ]);
+
+            if ($request->user()->email !== $request->input('email')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The authenticated account does not match this email address.',
+                ], 403);
+            }
 
             // Query certificates table to verify the mapping between email and student ID
             $certificate = DB::table('certificates')
