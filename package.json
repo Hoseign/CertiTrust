@@ -1,10 +1,3 @@
-<<<<<<< HEAD
-"config": {
-    "optimize-autoloader": true,
-    "preferred-install": "dist",
-    "sort-packages": true
-}
-=======
 {
     "name": "laravel/laravel",
     "type": "project",
@@ -13,20 +6,15 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
-        "firebase/php-jwt": "^7.1",
-        "guzzlehttp/guzzle": "^7.2",
         "laravel/framework": "^11.0",
-        "laravel/sanctum": "^4.3",
-        "laravel/socialite": "^5.0",
-        "nesbot/carbon": "^2.72|^3.0",
-        "ramsey/uuid": "^4.7"
+        "laravel/tinker": "^2.9"
     },
     "require-dev": {
-        "fakerphp/faker": "^1.9.1",
-        "laravel/sail": "^1.18",
-        "mockery/mockery": "^1.4.4",
+        "fakerphp/faker": "^1.23",
+        "laravel/sail": "^1.26",
+        "mockery/mockery": "^1.6",
         "nunomaduro/collision": "^8.0",
-        "phpunit/phpunit": "^10.0"
+        "phpunit/phpunit": "^10.5"
     },
     "autoload": {
         "psr-4": {
@@ -48,31 +36,22 @@
         "post-update-cmd": [
             "@php artisan vendor:publish --tag=laravel-assets --ansi"
         ],
-        "post-root-package-dump": [
-            "@php artisan key:generate --ansi"
+        "post-root-package-install": [
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
         ],
         "post-create-project-cmd": [
-            "@php artisan storage:link"
+            "@php artisan key:generate --ansi"
         ]
     },
     "config": {
         "optimize-autoloader": true,
         "preferred-install": "dist",
         "sort-packages": true,
-        "platform": {
-            "php": "8.2.32"
-        },
         "allow-plugins": {
-            "pestphp/pest": true,
+            "pestphp/plugin": true,
             "php-http/discovery": true
-        },
-        "policy": {
-            "advisories": {
-                "block": false
-            }
         }
     },
     "minimum-stability": "stable",
     "prefer-stable": true
 }
->>>>>>> 4a917f4eaf0ade4ae3f9ed9d5ed6d401bd42a4af
