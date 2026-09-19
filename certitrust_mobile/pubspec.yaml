@@ -1,0 +1,35 @@
+name: certitrust_mobile
+description: "A new Flutter project for credential verification."
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  google_sign_in: ^6.3.0
+  http: ^1.2.2
+  shared_preferences: ^2.5.3
+  file_picker: ^8.3.7
+  go_router: ^14.8.1
+  supabase_flutter: ^2.16.0
+  crypto: ^3.0.5
+  qr_flutter: ^4.1.0
+  image_gallery_saver_plus: ^5.1.1
+  web: ^1.1.0
+  universal_html: ^2.2.4
+  mobile_scanner: ^5.2.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - web/assets/images/certitrustlogo.png
+    - web/assets/images/PSU_LOGO.png
+    - web/assets/images/UCU_LOGO.png

@@ -1,0 +1,1 @@
+export 'html_stub.dart' if (dart.library.js_interop) 'html_web.dart';
