@@ -9,9 +9,82 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use App\Models\User;
+use App\Models\Certificate;
 
 class CertificateController extends Controller
 {
+    public function index()
+    {
+        return response()->json(['data' => Certificate::query()->latest('issue_date')->get()]);
+    }
+
+    public function show(string $code)
+    {
+        $certificate = Certificate::where('certificate_code', $code)
+            ->orWhere('cert_hash', $code)
+            ->first();
+
+        return $certificate
+            ? response()->json(['data' => $certificate])
+            : response()->json(['message' => 'Certificate not found.'], 404);
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'student_id' => ['required', 'string', 'max:255'],
+            'student_name' => ['required', 'string', 'max:255'],
+            'student_email' => ['required', 'email'],
+            'degree' => ['required', 'string', 'max:255'],
+            'issue_date' => ['required', 'date'],
+            'cert_hash' => ['required', 'string', 'unique:certificates,cert_hash'],
+            'diploma_url' => ['nullable', 'url'],
+        ]);
+
+        $validated['certificate_code'] = 'CERT-' . strtoupper(Str::random(10));
+        $validated['recipient_name'] = $validated['student_name'];
+        $validated['course_or_event'] = $validated['degree'];
+        $validated['university_code'] = 'UCU';
+        $validated['status'] = 'Verified';
+
+        return response()->json(['data' => Certificate::create($validated)], 201);
+    }
+
+    public function storeBatch(Request $request)
+    {
+        $validated = $request->validate([
+            'certificates' => ['required', 'array', 'min:1'],
+            'certificates.*.student_id' => ['required', 'string', 'max:255'],
+            'certificates.*.student_name' => ['required', 'string', 'max:255'],
+            'certificates.*.student_email' => ['required', 'email'],
+            'certificates.*.degree' => ['required', 'string', 'max:255'],
+            'certificates.*.issue_date' => ['required', 'date'],
+            'certificates.*.cert_hash' => ['required', 'string'],
+            'certificates.*.diploma_url' => ['nullable', 'url'],
+        ]);
+
+        $records = collect($validated['certificates'])->map(function (array $certificate) {
+            return array_merge($certificate, [
+                'certificate_code' => 'CERT-' . strtoupper(Str::random(10)),
+                'recipient_name' => $certificate['student_name'],
+                'course_or_event' => $certificate['degree'],
+                'university_code' => 'UCU',
+                'status' => 'Verified',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        })->all();
+
+        DB::transaction(fn () => Certificate::insert($records));
+
+        return response()->json(['message' => 'Certificates issued.', 'count' => count($records)], 201);
+    }
+
+    public function storeWithFile(Request $request)
+    {
+        return $this->store($request);
+    }
+
     /**
      * Handle Google Authentication from Flutter App or Web
      */
