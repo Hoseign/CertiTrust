@@ -2,6 +2,16 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+class ApiRequestException implements Exception {
+  const ApiRequestException(this.statusCode, this.message);
+
+  final int statusCode;
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class ApiService {
   // Configured for local development network IP (Update back to Render URL for production release)
   static const String baseUrl = 'http://192.168.1.10:8000/api';
@@ -49,7 +59,18 @@ class ApiService {
     try {
       final response =
           await http.get(Uri.parse('$baseUrl/user'), headers: _getHeaders);
-      if (response.statusCode != 200) await logout();
+      if (response.statusCode != 200) {
+        await logout();
+        return;
+      }
+      final user = jsonDecode(response.body) as Map<String, dynamic>;
+      authEmail = user['email']?.toString();
+      authRole = user['role']?.toString() ?? 'student';
+      authUniversity = user['university_code']?.toString();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('auth_email', authEmail ?? '');
+      await prefs.setString('auth_role', authRole ?? 'student');
+      await prefs.setString('auth_university', authUniversity ?? '');
     } catch (_) {
       // Keep the cached session when the API is temporarily offline.
     }
@@ -184,7 +205,10 @@ class ApiService {
         await prefs.setString('auth_university', authUniversity ?? '');
         return jsonResponse;
       } else {
-        throw 'Server error [${response.statusCode}]: ${jsonResponse['message'] ?? response.body}';
+        throw ApiRequestException(
+          response.statusCode,
+          jsonResponse['message']?.toString() ?? 'Authentication failed.',
+        );
       }
     } catch (e) {
       print('Auth error: $e');

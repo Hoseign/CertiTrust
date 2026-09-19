@@ -31,6 +31,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _handleGoogleSignIn() async {
     setState(() => _isLoading = true);
+    String? signedInEmail;
 
     try {
       await _googleSignIn.signOut();
@@ -61,6 +62,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       final email = authResult['email'].toString().trim().toLowerCase();
+      signedInEmail = email;
       final String role = authResult['role'] ?? 'student';
       final bool isRegisteredInCertificates =
           authResult['has_certificate'] ?? false;
@@ -91,15 +93,29 @@ class _LoginScreenState extends State<LoginScreen> {
         if (mounted) setState(() => _isLoading = false);
         return;
       }
-      debugPrint('================ GOOGLE SIGN-IN ERROR ================');
-      debugPrint('$e');
+
+      if (e is ApiRequestException && e.statusCode == 403) {
+        if (mounted) {
+          _showErrorDialog(
+            'Google Account Warning',
+            signedInEmail == null
+                ? 'This Google account is not registered to any certificate '
+                    'record in the system.'
+                : 'Your Google account ($signedInEmail) is not registered to '
+                    'any certificate record in the system.',
+          );
+        }
+        return;
+      }
+
+      debugPrint('Google sign-in failed: $e');
       debugPrint('$stackTrace');
-      debugPrint('======================================================');
 
       if (mounted) {
         _showErrorDialog(
-          'Login Exception Details',
-          'Error:\n$e\n\nStackTrace:\n$stackTrace',
+          'Sign-In Failed',
+          'We could not complete Google sign-in. Please try again. If the '
+              'problem continues, check that the API server is running.',
         );
       }
     } finally {

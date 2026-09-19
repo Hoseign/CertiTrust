@@ -221,7 +221,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   '/profile',
                   '/askq'
                 ];
-          if (index != 0) context.go(destination[index]);
+          context.go(destination[index]);
         },
       ),
     );

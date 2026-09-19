@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'dart:async';
 import '../../services/api_service.dart';
 
 class RecordsScreen extends StatefulWidget {
@@ -128,16 +129,29 @@ class _ChatScreenState extends State<ChatScreen> {
   Map<String, dynamic>? _selectedStudent;
   late Future<List<Map<String, dynamic>>> _items;
   late Future<List<Map<String, dynamic>>> _presence;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _items = widget.isAdmin ? ApiService.getChatContacts() : ApiService.getChatMessages();
     _presence = ApiService.getChatPresence();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted) return;
+      setState(() {
+        _presence = ApiService.getChatPresence();
+        _items = widget.isAdmin && _selectedStudent == null
+            ? ApiService.getChatContacts()
+            : _selectedStudent == null
+                ? ApiService.getChatMessages()
+                : ApiService.getChatMessagesForStudent(_selectedStudent!['id'].toString());
+      });
+    });
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     _controller.dispose();
     _searchController.dispose();
     super.dispose();
@@ -284,7 +298,7 @@ class _RoleNav extends StatelessWidget {
             : const [BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'), BottomNavigationBarItem(icon: Icon(Icons.folder), label: 'Records'), BottomNavigationBarItem(icon: Icon(Icons.qr_code_scanner), label: 'Verify'), BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'), BottomNavigationBarItem(icon: Icon(Icons.help), label: 'AskQ')],
         onTap: (index) {
           final routes = isAdmin ? const ['/dashboard', '/records', '/issue', '/verify', '/ansq'] : const ['/dashboard', '/records', '/verify', '/profile', '/askq'];
-          if (index != 0) context.push(routes[index]);
+          context.go(routes[index]);
         },
       );
 }
