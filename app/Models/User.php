@@ -25,6 +25,7 @@ class User extends Authenticatable
         'password',
         'google_id', // 3. Added so Google ID can be mass-assigned
         'role',      // 4. Added so user role can be handled
+        'university_code',
     ];
 
     /**

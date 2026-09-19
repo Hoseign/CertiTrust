@@ -13,9 +13,13 @@ use App\Models\Certificate;
 
 class CertificateController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        return response()->json(['data' => Certificate::query()->latest('issue_date')->get()]);
+        $query = Certificate::query()->latest('issue_date');
+        if ($request->user()?->university_code) {
+            $query->where('university_code', $request->user()->university_code);
+        }
+        return response()->json(['data' => $query->get()]);
     }
 
     public function show(string $code)
@@ -39,12 +43,19 @@ class CertificateController extends Controller
             'issue_date' => ['required', 'date'],
             'cert_hash' => ['required', 'string', 'unique:certificates,cert_hash'],
             'diploma_url' => ['nullable', 'url'],
+            'university_code' => ['nullable', 'in:UCU,PSU'],
         ]);
 
+        $universityCode = $request->user()?->university_code;
+        if (!$universityCode || ($validated['university_code'] ?? $universityCode) !== $universityCode) {
+            return response()->json(['message' => 'This admin is not authorized to issue for that school.'], 403);
+        }
+
         $validated['certificate_code'] = 'CERT-' . strtoupper(Str::random(10));
+        $validated['email'] = $validated['student_email'];
         $validated['recipient_name'] = $validated['student_name'];
         $validated['course_or_event'] = $validated['degree'];
-        $validated['university_code'] = 'UCU';
+        $validated['university_code'] = $universityCode;
         $validated['status'] = 'Verified';
 
         return response()->json(['data' => Certificate::create($validated)], 201);
@@ -61,14 +72,39 @@ class CertificateController extends Controller
             'certificates.*.issue_date' => ['required', 'date'],
             'certificates.*.cert_hash' => ['required', 'string'],
             'certificates.*.diploma_url' => ['nullable', 'url'],
+            'certificates.*.university_code' => ['nullable', 'in:UCU,PSU'],
         ]);
 
-        $records = collect($validated['certificates'])->map(function (array $certificate) {
+        $universityCode = $request->user()?->university_code;
+        if (!$universityCode) {
+            return response()->json(['message' => 'A registered school admin is required to issue credentials.'], 403);
+        }
+        $certificates = collect($validated['certificates']);
+        if ($certificates->contains(fn (array $certificate) => ($certificate['university_code'] ?? $universityCode) !== $universityCode)) {
+            return response()->json(['message' => 'This admin is not authorized to issue for that school.'], 403);
+        }
+        $studentIds = $certificates->pluck('student_id');
+        if (Certificate::where('university_code', $universityCode)->whereIn('student_id', $studentIds)->exists()) {
+            return response()->json(['message' => 'A student with one of these Student IDs has already been uploaded.'], 422);
+        }
+
+        $fileNames = $certificates->map(fn (array $certificate) => $certificate['diploma_url'] ?? null)
+            ->filter()
+            ->map(fn (string $url) => basename(parse_url($url, PHP_URL_PATH) ?: $url));
+        $existingFileNames = Certificate::where('university_code', $universityCode)
+            ->pluck('diploma_url')->filter()
+            ->map(fn (string $url) => basename(parse_url($url, PHP_URL_PATH) ?: $url));
+        if ($fileNames->duplicates()->isNotEmpty() || $existingFileNames->intersect($fileNames)->isNotEmpty()) {
+            return response()->json(['message' => 'One of the diploma image names has already been used.'], 422);
+        }
+
+        $records = $certificates->map(function (array $certificate) use ($universityCode) {
             return array_merge($certificate, [
+                'email' => $certificate['student_email'],
                 'certificate_code' => 'CERT-' . strtoupper(Str::random(10)),
                 'recipient_name' => $certificate['student_name'],
                 'course_or_event' => $certificate['degree'],
-                'university_code' => 'UCU',
+                'university_code' => $universityCode,
                 'status' => 'Verified',
                 'created_at' => now(),
                 'updated_at' => now(),

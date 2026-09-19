@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CertificateController;
+use App\Http\Controllers\ChatController;
 
 /*
 |--------------------------------------------------------------------------
@@ -20,8 +21,7 @@ use App\Http\Controllers\CertificateController;
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/auth/google', [AuthController::class, 'googleLogin']);
 
-// Public Certificate Routes
-Route::get('/certificates', [CertificateController::class, 'index']);
+// Public verification is available by code; certificate lists require a school-scoped session.
 Route::get('/certificates/{code}', [CertificateController::class, 'show']);
 
 // Protected Routes (Requires Sanctum Token)
@@ -35,4 +35,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/certificates', [CertificateController::class, 'store']);
     Route::post('/certificates/upload', [CertificateController::class, 'storeWithFile']);
     Route::post('/certificates/batch', [CertificateController::class, 'storeBatch']);
+    Route::get('/certificates', [CertificateController::class, 'index']);
+    Route::get('/chat/messages', [ChatController::class, 'index']);
+    Route::get('/chat/contacts', [ChatController::class, 'contacts']);
+    Route::get('/chat/presence', [ChatController::class, 'presence']);
+    Route::post('/chat/messages', [ChatController::class, 'store']);
+    Route::post('/user/presence', function (Request $request) {
+        $request->user()->forceFill(['last_seen_at' => now()])->save();
+        return response()->json(['last_seen_at' => $request->user()->last_seen_at]);
+    });
 });

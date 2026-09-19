@@ -13,6 +13,15 @@ use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
+    private function universityForEmail(string $email): ?string
+    {
+        return match (strtolower($email)) {
+            'certitrust256@gmail.com' => 'UCU',
+            'randygonzales2024@gmail.com' => 'PSU',
+            default => null,
+        };
+    }
+
     /**
      * Handle standard email and password login.
      */
@@ -32,7 +41,10 @@ class AuthController extends Controller
             }
 
             $user = User::where('email', $request->email)->first();
-            $hasCertificate = DB::table('certificates')->where('email', $user->email)->exists();
+            $hasCertificate = DB::table('certificates')
+                ->where('email', $user->email)
+                ->orWhere('student_email', $user->email)
+                ->exists();
             $role = $user->role ?? 'student';
 
             // Generate Sanctum token
@@ -44,6 +56,7 @@ class AuthController extends Controller
                 'token' => $token,
                 'email' => $user->email,
                 'role' => $role,
+                'university_code' => $user->university_code,
                 'has_certificate' => $hasCertificate,
                 'user' => $user,
             ], 200);
@@ -84,6 +97,19 @@ class AuthController extends Controller
 
             $googleId = $googleId ?? ('google_' . md5($email));
 
+            $adminUniversity = $this->universityForEmail($email);
+            $certificateQuery = DB::table('certificates')
+                ->where(function ($query) use ($email) {
+                    $query->where('email', $email)->orWhere('student_email', $email);
+                });
+            $hasCertificate = $certificateQuery->exists();
+            if ($adminUniversity === null && !$hasCertificate) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This Google account is not registered to an issued credential.',
+                ], 403);
+            }
+
             // Find or create the user based on Google email
             $user = User::firstOrCreate(
                 ['email' => $email],
@@ -94,14 +120,20 @@ class AuthController extends Controller
                 ]
             );
 
+            $adminUniversity = $this->universityForEmail($email);
+            if ($adminUniversity !== null && ($user->role !== 'admin' || $user->university_code !== $adminUniversity)) {
+                $user->forceFill(['role' => 'admin', 'university_code' => $adminUniversity])->save();
+            }
+
             // If user exists but google_id wasn't set, update it
             if (!$user->google_id) {
                 $user->update(['google_id' => $googleId]);
             }
 
-            // Check if user is registered in your certificates table
-            $hasCertificate = DB::table('certificates')->where('email', $email)->exists();
             $role = $user->role ?? 'student';
+            if ($adminUniversity === null && !$user->university_code) {
+                $user->forceFill(['university_code' => $certificateQuery->value('university_code')])->save();
+            }
 
             // Generate a Sanctum token for API authentication
             $token = $user->createToken('CertiTrustMobileToken')->plainTextToken;
@@ -112,6 +144,7 @@ class AuthController extends Controller
                 'token' => $token,
                 'email' => $user->email,
                 'role' => $role,
+                'university_code' => $user->university_code,
                 'has_certificate' => $hasCertificate,
                 'user' => $user,
             ], 200);
@@ -135,7 +168,7 @@ class AuthController extends Controller
     private function resolveGoogleUser(Request $request): array
     {
         if ($request->filled('id_token')) {
-            $response = Http::timeout(10)->get('https://oauth2.googleapis.com/tokeninfo', [
+            $response = $this->googleHttp()->get('https://oauth2.googleapis.com/tokeninfo', [
                 'id_token' => $request->string('id_token')->toString(),
             ]);
 
@@ -156,7 +189,7 @@ class AuthController extends Controller
             return $data;
         }
 
-        $response = Http::timeout(10)
+        $response = $this->googleHttp()
             ->withToken($request->string('access_token')->toString())
             ->get('https://www.googleapis.com/oauth2/v3/userinfo');
 
@@ -170,6 +203,13 @@ class AuthController extends Controller
         }
 
         return $data;
+    }
+
+    private function googleHttp()
+    {
+        return Http::timeout(10)->withOptions([
+            'verify' => filter_var(env('GOOGLE_VERIFY_SSL', true), FILTER_VALIDATE_BOOLEAN),
+        ]);
     }
 
     /**
@@ -192,7 +232,10 @@ class AuthController extends Controller
 
             // Query certificates table to verify the mapping between email and student ID
             $certificate = DB::table('certificates')
-                ->where('email', $request->email)
+                ->where(function ($query) use ($request) {
+                    $query->where('email', $request->email)
+                        ->orWhere('student_email', $request->email);
+                })
                 ->where('student_id', $request->student_id)
                 ->first();
 
