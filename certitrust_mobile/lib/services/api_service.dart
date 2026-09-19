@@ -3,9 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  // Configured for local development network IP (Update back to Render URL for production release)
-  static const String baseUrl = 'http://192.168.1.10:8000/api';
-  // static const String baseUrl = 'https://certitrust-yhzl.onrender.com/api';
+  static const String baseUrl = 'https://certitrust-yhzl.onrender.com/api';
 
   // Session token storage after successful authentication
   static String? authToken;
