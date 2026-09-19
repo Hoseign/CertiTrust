@@ -1,0 +1,12 @@
+.git
+.env
+**/.env
+CertiTrust/vendor
+CertiTrust/storage/logs/*
+CertiTrust/storage/framework/cache/*
+CertiTrust/storage/framework/sessions/*
+CertiTrust/storage/framework/views/*
+certitrust_mobile/build
+certitrust_mobile/.dart_tool
+certitrust_mobile/android/.gradle
+certitrust_mobile/ios/Pods
