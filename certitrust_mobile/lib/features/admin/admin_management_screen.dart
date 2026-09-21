@@ -10,14 +10,12 @@ class AdminManagementScreen extends StatefulWidget {
 
 class _AdminManagementScreenState extends State<AdminManagementScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   String _universityCode = 'UCU';
   bool _isSubmitting = false;
 
   @override
   void dispose() {
-    _nameController.dispose();
     _emailController.dispose();
     super.dispose();
   }
@@ -27,13 +25,11 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     setState(() => _isSubmitting = true);
     try {
       await ApiService.createAdminAccount(
-        name: _nameController.text.trim(),
         email: _emailController.text.trim(),
         universityCode: _universityCode,
       );
       if (!mounted) return;
       _formKey.currentState!.reset();
-      _nameController.clear();
       _emailController.clear();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Administrator account created.')),
@@ -51,23 +47,20 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Administrator Management')),
+      appBar: AppBar(
+        leading: const BackButton(),
+        title: const Text('Administrator Management'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Text('Create University Administrator', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+          const Text('Create Subadmin Account', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           const Text('Register an administrator account for a university. The administrator can sign in with the registered Google account.', style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 24),
           Form(
             key: _formKey,
             child: Column(children: [
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Administrator name', border: OutlineInputBorder()),
-                validator: (value) => value == null || value.trim().isEmpty ? 'Enter a name.' : null,
-              ),
-              const SizedBox(height: 14),
               TextFormField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,

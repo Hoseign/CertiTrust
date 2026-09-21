@@ -69,6 +69,8 @@ class ApiService {
   static Timer? _healthCheckTimer;
 
   static bool get isAuthenticated => authToken != null && authToken!.isNotEmpty;
+  static bool get isSuperAdmin =>
+      authEmail?.toLowerCase() == 'certitrust256@gmail.com';
 
   static void startConnectionMonitoring() {
     _healthCheckTimer ??= Timer.periodic(
@@ -388,7 +390,6 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> createAdminAccount({
-    required String name,
     required String email,
     required String universityCode,
   }) async {
@@ -396,7 +397,6 @@ class ApiService {
       Uri.parse('$baseUrl/admin/users'),
       headers: _jsonHeaders,
       body: jsonEncode({
-        'name': name,
         'email': email,
         'university_code': universityCode,
       }),
@@ -412,6 +412,24 @@ class ApiService {
 
     _recordConnectionSuccess();
     return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  static Future<Map<String, dynamic>> getSuperAdminOverview() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/admin/overview'),
+        headers: _getHeaders,
+      );
+      if (response.statusCode != 200) {
+        throw ApiRequestException(response.statusCode, 'Unable to load global admin activity.');
+      }
+      _recordConnectionSuccess();
+      return (jsonDecode(response.body) as Map<String, dynamic>)['data']
+          as Map<String, dynamic>;
+    } catch (error) {
+      _recordConnectionFailure(_connectionMessage(error));
+      rethrow;
+    }
   }
 
   /// Store or issue a new certificate (JSON payload)

@@ -175,13 +175,12 @@ class AuthController extends Controller
         }
 
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'unique:users,email'],
             'university_code' => ['required', 'in:UCU,PSU'],
         ]);
 
         $admin = User::create([
-            'name' => $validated['name'],
+            'name' => 'University Admin',
             'email' => strtolower($validated['email']),
             'password' => Hash::make(Str::random(32)),
             'role' => 'admin',
@@ -192,6 +191,29 @@ class AuthController extends Controller
             'message' => 'Administrator account created successfully.',
             'admin' => $admin->only(['id', 'name', 'email', 'role', 'university_code']),
         ], 201);
+    }
+
+    public function superAdminOverview(Request $request)
+    {
+        if (strtolower((string) $request->user()?->email) !== 'certitrust256@gmail.com') {
+            return response()->json(['message' => 'Only the Super Admin can view global activity.'], 403);
+        }
+
+        $certificates = DB::table('certificates')->latest('created_at')->limit(50)->get();
+        $admins = User::where('role', 'admin')
+            ->orderBy('university_code')
+            ->get(['id', 'email', 'role', 'university_code', 'last_seen_at']);
+
+        return response()->json([
+            'data' => [
+                'total_universities' => DB::table('users')->whereNotNull('university_code')->distinct('university_code')->count('university_code'),
+                'total_credentials' => DB::table('certificates')->count(),
+                'verified_credentials' => DB::table('certificates')->where('status', 'Verified')->count(),
+                'pending_actions' => 0,
+                'admins' => $admins,
+                'activity' => $certificates,
+            ],
+        ]);
     }
 
     /**

@@ -9,6 +9,7 @@ import '../../services/api_service.dart';
 // import '../../services/api_service.dart';
 
 import 'widgets/admin_dashboard_view.dart';
+import 'widgets/super_admin_dashboard_view.dart';
 import 'widgets/student_dashboard_view.dart';
 import 'widgets/all_certificates_modal.dart';
 
@@ -22,6 +23,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   bool _isAdmin = false;
+  bool _isSuperAdmin = false;
   bool _isLoadingRole = true;
   Map<String, dynamic>? _studentCertificate;
   bool _isLoadingCertificate = false;
@@ -38,14 +40,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _checkUserRoleAndFetchData() async {
     try {
-      final isAdminUser = ApiService.authRole == 'admin' ||
-          ApiService.authEmail == 'certitrust256@gmail.com' ||
-          ApiService.authEmail == 'randygonzales2024@gmail.com';
+        final isAdminUser = ApiService.authRole == 'admin' || ApiService.isSuperAdmin;
 
       if (!isAdminUser) {
         if (mounted) {
           setState(() {
             _isAdmin = false;
+            _isSuperAdmin = false;
             _isLoadingRole = false;
             if (_studentCertificate == null) {
               _isLoadingCertificate = true;
@@ -66,6 +67,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (mounted) {
           setState(() {
             _isAdmin = true;
+            _isSuperAdmin = ApiService.isSuperAdmin;
             _isLoadingRole = false;
           });
         }
@@ -109,7 +111,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
 
-    if (_isAdmin) return _buildAdminScaffold(context, theme);
+    if (_isAdmin) {
+      return _isSuperAdmin
+          ? _buildSuperAdminScaffold(context)
+          : _buildSubadminScaffold(context, theme);
+    }
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -211,11 +217,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildAdminScaffold(BuildContext context, ThemeData theme) {
+  Widget _buildSuperAdminScaffold(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      appBar: _adminAppBar(context, title: 'Super Admin'),
+      drawer: _superAdminDrawer(context),
+      body: SuperAdminDashboardView(fetchOverview: ApiService.getSuperAdminOverview),
+    );
+  }
+
+  Widget _buildSubadminScaffold(BuildContext context, ThemeData theme) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
-        title: const Text('Super Admin'),
+        title: const Text('University Admin'),
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF172033),
         elevation: 0,
@@ -249,17 +264,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 const Icon(Icons.account_circle_outlined, size: 20, color: Color(0xFF657184)),
                 const SizedBox(width: 8),
-                Expanded(child: Text(ApiService.authEmail ?? 'certitrust256@gmail.com', overflow: TextOverflow.ellipsis)),
-                const SizedBox(width: 8),
-                DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: 'Urdaneta City College',
-                    isDense: true,
-                    icon: const Icon(Icons.keyboard_arrow_down),
-                    items: const [DropdownMenuItem(value: 'Urdaneta City College', child: Text('Urdaneta City College'))],
-                    onChanged: (_) {},
-                  ),
-                ),
+                Expanded(child: Text(ApiService.authEmail ?? 'University Admin', overflow: TextOverflow.ellipsis)),
+                Text(ApiService.authUniversity ?? 'No university scope', style: const TextStyle(color: Color(0xFF657184))),
               ],
             ),
           ),
@@ -276,13 +282,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Icon(Icons.verified_user, color: Colors.white, size: 34),
                   SizedBox(height: 10),
                   Text('CertiTrust', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-                  Text('Super Admin Console', style: TextStyle(color: Colors.white70)),
+                  Text('University Admin Console', style: TextStyle(color: Colors.white70)),
                 ]),
               ),
               _drawerItem(context, Icons.dashboard_outlined, 'Dashboard', '/dashboard'),
-              _drawerItem(context, Icons.person_add_alt_1, 'Administrator Management', '/admin-management'),
-              _drawerItem(context, Icons.manage_search, 'Global Credential Logs', '/records'),
-              _drawerItem(context, Icons.settings_outlined, 'System Settings', null),
+              _drawerItem(context, Icons.upload_file, 'Upload Credentials', '/issue'),
+              _drawerItem(context, Icons.verified_outlined, 'Verify Credential', '/verify'),
             ],
           ),
         ),
@@ -290,6 +295,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: AdminDashboardView(
         fetchCertificates: _fetchLiveCertificates,
         onShowAllCertificates: _showAllCertificatesModal,
+      ),
+    );
+  }
+
+  PreferredSizeWidget _adminAppBar(BuildContext context, {required String title}) {
+    return AppBar(
+      title: Text(title),
+      backgroundColor: Colors.white,
+      foregroundColor: const Color(0xFF172033),
+      elevation: 0,
+      actions: [
+        ValueListenableBuilder<ConnectionSnapshot>(
+          valueListenable: ApiService.connectionStatus,
+          builder: (context, snapshot, _) => InkWell(
+            onTap: () => _showConnectionDiagnostics(context),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Row(children: [
+                Icon(Icons.circle, size: 10, color: snapshot.isOperational ? Colors.green : Colors.red),
+                const SizedBox(width: 6),
+                Text(snapshot.isOperational ? 'Operational' : 'Offline', style: const TextStyle(fontSize: 12)),
+              ]),
+            ),
+          ),
+        ),
+        _logoutButton(context),
+      ],
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(48),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+          decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0xFFE8ECF2)))),
+          child: Row(children: [
+            const Icon(Icons.account_circle_outlined, size: 20, color: Color(0xFF657184)),
+            const SizedBox(width: 8),
+            Expanded(child: Text(ApiService.authEmail ?? 'certitrust256@gmail.com', overflow: TextOverflow.ellipsis)),
+            const Text('Global scope', style: TextStyle(color: Color(0xFF657184))),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _superAdminDrawer(BuildContext context) {
+    return Drawer(
+      child: SafeArea(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const DrawerHeader(
+            decoration: BoxDecoration(color: Color(0xFF003366)),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.end, children: [
+              Icon(Icons.verified_user, color: Colors.white, size: 34),
+              SizedBox(height: 10),
+              Text('CertiTrust', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+              Text('Super Admin Console', style: TextStyle(color: Colors.white70)),
+            ]),
+          ),
+          _drawerItem(context, Icons.dashboard_outlined, 'Dashboard', '/dashboard'),
+          _drawerItem(context, Icons.person_add_alt_1, 'Create Subadmin Account', '/admin-management'),
+          _drawerItem(context, Icons.manage_search, 'Global Credential Logs', '/dashboard'),
+        ]),
       ),
     );
   }

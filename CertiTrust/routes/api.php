@@ -31,6 +31,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::post('/admin/users', [AuthController::class, 'createAdmin']);
+    Route::get('/admin/overview', [AuthController::class, 'superAdminOverview']);
 
     Route::post('/auth/verify-student', [AuthController::class, 'verifyStudentId']);
     

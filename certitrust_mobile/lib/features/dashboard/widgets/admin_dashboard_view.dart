@@ -26,7 +26,7 @@ class AdminDashboardView extends StatelessWidget {
             children: [
               const Text('Dashboard', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF172033))),
               const SizedBox(height: 4),
-              const Text('Register university administrators and monitor system activity across CertiTrust.', style: TextStyle(color: Color(0xFF657184))),
+              const Text('Upload student credentials for your university and verify records.', style: TextStyle(color: Color(0xFF657184))),
               const SizedBox(height: 20),
               LayoutBuilder(builder: (context, constraints) {
                 final columns = constraints.maxWidth > 650 ? 4 : 2;
@@ -80,15 +80,11 @@ class AdminDashboardView extends StatelessWidget {
                               ),
               ),
               const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => context.push('/admin-management'),
-                  icon: const Icon(Icons.person_add_alt_1),
-                  label: const Text('Register university administrator'),
-                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-                ),
-              ),
+              Row(children: [
+                Expanded(child: OutlinedButton.icon(onPressed: () => context.push('/issue'), icon: const Icon(Icons.upload_file), label: const Text('Upload credentials'))),
+                const SizedBox(width: 12),
+                Expanded(child: OutlinedButton.icon(onPressed: () => context.push('/verify'), icon: const Icon(Icons.verified_outlined), label: const Text('Verify'))),
+              ]),
             ],
           ),
         );
