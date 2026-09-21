@@ -17,6 +17,28 @@ use App\Http\Controllers\ChatController;
 |
 */
 
+// API Health / Root Route
+Route::get('/', function () {
+    return response()->json([
+        'status' => 'ok',
+        'message' => 'CertiTrust API is running.',
+        'version' => '1.0.0',
+        'endpoints' => [
+            'login' => '/api/login',
+            'google' => '/api/auth/google',
+            'certificates' => '/api/certificates/{code}',
+            'health' => '/api/health',
+        ],
+    ]);
+});
+
+Route::get('/health', function () {
+    return response()->json([
+        'status' => 'ok',
+        'message' => 'Healthy',
+    ]);
+});
+
 // Authentication Routes
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/auth/google', [AuthController::class, 'googleLogin']);
