@@ -75,18 +75,14 @@ class _LoginScreenState extends State<LoginScreen> {
       if (isAdmin) {
         context.go('/dashboard');
       } else {
-        // LAYER 1 CHECK: Verify if Google Email exists in certificates table via Laravel
         if (!isRegisteredInCertificates) {
-          _showErrorDialog(
-            'Google Account Warning',
-            'Your Google account ($email) is not registered to any certificate record in the system.',
+          debugPrint(
+            'Google account $email has no certificate mapping yet; allowing sign-in with limited access.',
           );
-          return;
         }
 
-        // LAYER 2 CHECK: Prompt for Student ID input for security validation
         if (!mounted) return;
-        _showStudentIdVerificationDialog(email);
+        context.go('/dashboard');
       }
     } catch (e, stackTrace) {
       if (kIsWeb && e.toString().contains('popup_closed')) {

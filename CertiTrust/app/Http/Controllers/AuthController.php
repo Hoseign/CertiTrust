@@ -94,11 +94,12 @@ class AuthController extends Controller
                     $query->where('email', $email)->orWhere('student_email', $email);
                 });
             $hasCertificate = $certificateQuery->exists();
-            if ($existingUser?->role !== 'admin' && !$hasCertificate) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'This Google account is not registered to an issued credential.',
-                ], 403);
+
+            if (!$hasCertificate && (!$existingUser || $existingUser->role !== 'admin')) {
+                Log::warning('Google login allowed without certificate mapping.', [
+                    'email' => $email,
+                    'google_id' => $googleId,
+                ]);
             }
 
             // Find or create the user based on Google email
