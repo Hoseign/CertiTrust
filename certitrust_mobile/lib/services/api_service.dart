@@ -50,7 +50,9 @@ class ApiService {
   // Override with CERTITRUST_API_URL when using a device tunnel or deployed API.
   static const String baseUrl = String.fromEnvironment(
     'CERTITRUST_API_URL',
-    defaultValue: 'http://192.168.1.28:8000/api',
+    defaultValue: bool.fromEnvironment('dart.vm.product')
+        ? 'http://192.168.1.28:8000/api'
+        : 'http://127.0.0.1:8000/api',
   );
   // static const String baseUrl = 'https://certitrust-yhzl.onrender.com/api';
 
