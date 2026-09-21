@@ -47,12 +47,43 @@ class ConnectionSnapshot {
 }
 
 class ApiService {
-  // Use the public API by default so the app works across Wi-Fi and mobile networks.
-  // Override with CERTITRUST_API_URL only for local development.
-  static const String baseUrl = String.fromEnvironment(
-    'CERTITRUST_API_URL',
-    defaultValue: 'https://certitrust-yhzl.onrender.com/api',
-  );
+  static const String _productionApiUrl =
+      'https://certitrust-yhzl.onrender.com/api';
+  static const String _localNetworkApiUrl = 'http://172.20.10.3:8000/api';
+
+  // Production builds should always target the public Render API. Local network
+  // addresses are only used when explicitly requested for development.
+  static String get baseUrl {
+    const override = String.fromEnvironment('CERTITRUST_API_URL');
+    if (override.isNotEmpty) {
+      return normalizeBaseUrl(override);
+    }
+
+    const useLocalApi = bool.fromEnvironment(
+      'CERTITRUST_USE_LOCAL_API',
+      defaultValue: false,
+    );
+
+    if (useLocalApi && !kIsWeb) {
+      return normalizeBaseUrl(_localNetworkApiUrl);
+    }
+
+    return _productionApiUrl;
+  }
+
+  static String normalizeBaseUrl(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return _productionApiUrl;
+
+    final lower = trimmed.toLowerCase();
+    if (lower.contains('localhost') ||
+        lower.contains('127.0.0.1') ||
+        lower.contains('::1')) {
+      return _productionApiUrl;
+    }
+
+    return trimmed.replaceAll(RegExp(r'/+$'), '');
+  }
 
   // Session token storage after successful authentication
   static String? authToken;
