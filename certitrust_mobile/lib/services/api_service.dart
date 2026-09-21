@@ -47,14 +47,12 @@ class ConnectionSnapshot {
 }
 
 class ApiService {
-  // Override with CERTITRUST_API_URL when using a device tunnel or deployed API.
+  // Use the public API by default so the app works across Wi-Fi and mobile networks.
+  // Override with CERTITRUST_API_URL only for local development.
   static const String baseUrl = String.fromEnvironment(
     'CERTITRUST_API_URL',
-    defaultValue: bool.fromEnvironment('dart.vm.product')
-        ? 'http://192.168.1.28:8000/api'
-        : 'http://127.0.0.1:8000/api',
+    defaultValue: 'https://certitrust-yhzl.onrender.com/api',
   );
-  // static const String baseUrl = 'https://certitrust-yhzl.onrender.com/api';
 
   // Session token storage after successful authentication
   static String? authToken;
