@@ -47,8 +47,11 @@ class ConnectionSnapshot {
 }
 
 class ApiService {
-  // Configured for the development machine on the local Wi-Fi network.
-  static const String baseUrl = 'http://192.168.1.28:8000/api';
+  // Override with CERTITRUST_API_URL when using a device tunnel or deployed API.
+  static const String baseUrl = String.fromEnvironment(
+    'CERTITRUST_API_URL',
+    defaultValue: 'http://192.168.1.28:8000/api',
+  );
   // static const String baseUrl = 'https://certitrust-yhzl.onrender.com/api';
 
   // Session token storage after successful authentication
