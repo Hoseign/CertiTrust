@@ -109,25 +109,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
 
+    if (_isAdmin) return _buildAdminScaffold(context, theme);
+
     return Scaffold(
-      backgroundColor: _isAdmin ? theme.scaffoldBackgroundColor : Colors.white,
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text('CertiTrust Dashboard'),
         backgroundColor: theme.colorScheme.primary,
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Sign Out',
-            onPressed: () async {
-              await Supabase.instance.client.auth.signOut();
-              await ApiService.logout();
-              if (context.mounted) {
-                context.go('/');
-              }
-            },
-          ),
-        ],
+        actions: [_logoutButton(context)],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
@@ -174,16 +164,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             const SizedBox(height: 32),
-            if (!_isAdmin)
-              StudentDashboardView(
-                isLoadingCertificate: _isLoadingCertificate,
-                studentCertificate: _studentCertificate,
-              )
-            else
-              AdminDashboardView(
-                fetchCertificates: _fetchLiveCertificates,
-                onShowAllCertificates: _showAllCertificatesModal,
-              ),
+            StudentDashboardView(
+              isLoadingCertificate: _isLoadingCertificate,
+              studentCertificate: _studentCertificate,
+            ),
           ],
         ),
       ),
@@ -225,5 +209,163 @@ class _DashboardScreenState extends State<DashboardScreen> {
         },
       ),
     );
+  }
+
+  Widget _buildAdminScaffold(BuildContext context, ThemeData theme) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      appBar: AppBar(
+        title: const Text('Super Admin'),
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF172033),
+        elevation: 0,
+        actions: [
+          ValueListenableBuilder<ConnectionSnapshot>(
+            valueListenable: ApiService.connectionStatus,
+            builder: (context, snapshot, _) => InkWell(
+              onTap: () => _showConnectionDiagnostics(context),
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Row(
+                  children: [
+                    Icon(Icons.circle, size: 10, color: snapshot.isOperational ? Colors.green : Colors.red),
+                    const SizedBox(width: 6),
+                    Text(snapshot.isOperational ? 'Operational' : 'Offline', style: const TextStyle(fontSize: 12)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          _logoutButton(context),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(58),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+            decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0xFFE8ECF2)))),
+            child: Row(
+              children: [
+                const Icon(Icons.account_circle_outlined, size: 20, color: Color(0xFF657184)),
+                const SizedBox(width: 8),
+                Expanded(child: Text(ApiService.authEmail ?? 'certitrust256@gmail.com', overflow: TextOverflow.ellipsis)),
+                const SizedBox(width: 8),
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: 'Urdaneta City College',
+                    isDense: true,
+                    icon: const Icon(Icons.keyboard_arrow_down),
+                    items: const [DropdownMenuItem(value: 'Urdaneta City College', child: Text('Urdaneta City College'))],
+                    onChanged: (_) {},
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      drawer: Drawer(
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const DrawerHeader(
+                decoration: BoxDecoration(color: Color(0xFF003366)),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.end, children: [
+                  Icon(Icons.verified_user, color: Colors.white, size: 34),
+                  SizedBox(height: 10),
+                  Text('CertiTrust', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                  Text('Super Admin Console', style: TextStyle(color: Colors.white70)),
+                ]),
+              ),
+              _drawerItem(context, Icons.dashboard_outlined, 'Dashboard', '/dashboard'),
+              _drawerItem(context, Icons.account_balance_outlined, 'University Management', '/records'),
+              _drawerItem(context, Icons.manage_search, 'Global Credential Logs', '/records'),
+              _drawerItem(context, Icons.settings_outlined, 'System Settings', null),
+            ],
+          ),
+        ),
+      ),
+      body: AdminDashboardView(
+        fetchCertificates: _fetchLiveCertificates,
+        onShowAllCertificates: _showAllCertificatesModal,
+      ),
+    );
+  }
+
+  Widget _drawerItem(BuildContext context, IconData icon, String label, String? route) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(label),
+      onTap: () {
+        Navigator.pop(context);
+        if (route != null && route != '/dashboard') context.go(route);
+        if (route == null) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('System settings are coming soon.')));
+        }
+      },
+    );
+  }
+
+  Widget _logoutButton(BuildContext context) {
+    return IconButton(
+      icon: const Icon(Icons.logout),
+      tooltip: 'Sign Out',
+      onPressed: () async {
+        await Supabase.instance.client.auth.signOut();
+        await ApiService.logout();
+        if (context.mounted) context.go('/');
+      },
+    );
+  }
+
+  void _showConnectionDiagnostics(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => ValueListenableBuilder<ConnectionSnapshot>(
+        valueListenable: ApiService.connectionStatus,
+        builder: (context, snapshot, _) => AlertDialog(
+          title: Row(children: [
+            Icon(snapshot.isOperational ? Icons.check_circle : Icons.error, color: snapshot.isOperational ? Colors.green : Colors.red),
+            const SizedBox(width: 8),
+            const Text('System Status'),
+          ]),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(snapshot.isOperational ? 'Operational' : 'Offline', style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text('Uptime: ${snapshot.uptimePercentage.toStringAsFixed(0)}%'),
+                if (snapshot.currentError != null) ...[
+                  const SizedBox(height: 12),
+                  Text(snapshot.currentError!, style: const TextStyle(color: Colors.red)),
+                ],
+                const SizedBox(height: 18),
+                const Text('Failure and recovery log', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                if (snapshot.events.isEmpty) const Text('No connection events recorded.'),
+                ...snapshot.events.map((event) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(event.state == ApiConnectionState.operational ? Icons.check : Icons.warning, color: event.state == ApiConnectionState.operational ? Colors.green : Colors.red),
+                  title: Text(event.message),
+                  subtitle: Text(_formatTimestamp(event.timestamp)),
+                )),
+              ]),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => ApiService.checkConnection(), child: const Text('Check now')),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatTimestamp(DateTime timestamp) {
+    final local = timestamp.toLocal();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
   }
 }

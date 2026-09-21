@@ -1,8 +1,5 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:universal_html/html.dart' as html;
-import 'qr_code_dialog.dart';
 
 class AdminDashboardView extends StatelessWidget {
   final Future<List<Map<String, dynamic>>> Function() fetchCertificates;
@@ -16,205 +13,115 @@ class AdminDashboardView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Quick Actions',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 16),
-        GridView.count(
-          crossAxisCount: MediaQuery.of(context).size.width > 600 ? 3 : 1,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-          childAspectRatio: 2.5,
-          children: [
-            _buildActionCard(
-              context,
-              title: 'Issue Certificate',
-              subtitle: 'Upload and hash new diploma',
-              icon: Icons.add_moderator,
-              color: Colors.blue,
-              onTap: () => context.push('/issue'),
-            ),
-            _buildActionCard(
-              context,
-              title: 'Verify Hash / QR',
-              subtitle: 'Check authenticity on chain',
-              icon: Icons.qr_code_scanner,
-              color: Colors.teal,
-              onTap: () => context.push('/verify'),
-            ),
-            _buildActionCard(
-              context,
-              title: 'Recent Credentials',
-              subtitle: 'View issued certificates',
-              icon: Icons.history,
-              color: Colors.amber.shade800,
-              onTap: onShowAllCertificates,
-            ),
-          ],
-        ),
-        const SizedBox(height: 32),
-        Text(
-          'Recent Records',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: FutureBuilder<List<Map<String, dynamic>>>(
-            future: fetchCertificates(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Padding(
-                  padding: EdgeInsets.all(32.0),
-                  child: Center(child: CircularProgressIndicator()),
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: fetchCertificates(),
+      builder: (context, snapshot) {
+        final records = snapshot.data ?? const <Map<String, dynamic>>[];
+        final verified = records.where((record) => record['status'] == 'Verified').length;
+        final pending = records.length - verified;
+        return RefreshIndicator(
+          onRefresh: () async => fetchCertificates(),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
+            children: [
+              const Text('Dashboard', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF172033))),
+              const SizedBox(height: 4),
+              const Text('Monitor credentials and university activity across CertiTrust.', style: TextStyle(color: Color(0xFF657184))),
+              const SizedBox(height: 20),
+              LayoutBuilder(builder: (context, constraints) {
+                final columns = constraints.maxWidth > 650 ? 4 : 2;
+                return GridView.count(
+                  crossAxisCount: columns,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: columns == 2 ? 1.55 : 1.8,
+                  children: [
+                    _statCard('Total Universities', '1', Icons.account_balance, const Color(0xFF1E6B8F)),
+                    _statCard('Total Credentials', '${records.length}', Icons.workspace_premium, const Color(0xFFB07A16)),
+                    _statCard('Verified Credentials', '$verified', Icons.verified, const Color(0xFF27805B)),
+                    _statCard('Pending Actions', '${pending < 0 ? 0 : pending}', Icons.pending_actions, const Color(0xFF8A4B62)),
+                  ],
                 );
-              }
-
-              if (snapshot.hasError) {
-                return Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Text('Error loading records: ${snapshot.error}'),
-                );
-              }
-
-              final certificates = snapshot.data ?? [];
-
-              if (certificates.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.all(32.0),
-                  child: Center(
-                    child: Text(
-                      'No certificates issued yet.\nUploaded student records will appear here.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                  ),
-                );
-              }
-
-              return ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: certificates.length > 5 ? 5 : certificates.length,
-                separatorBuilder: (context, index) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final item = certificates[index];
-                  final status = item['status'] ?? 'Verified';
-                  final studentEmail = item['student_email'] ?? 'No email linked';
-                  final imageUrl = item['cert_image_url'];
-
-                  return ListTile(
-                    leading: const Icon(Icons.verified_outlined, color: Colors.green),
-                    title: Text(item['student_name'] ?? 'Unknown'),
-                    subtitle: Text('${item['degree']}\nID: ${item['student_id']} • $studentEmail'),
-                    isThreeLine: true,
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (imageUrl != null && imageUrl.toString().isNotEmpty)
-                          IconButton(
-                            icon: const Icon(Icons.download, color: Colors.blue),
-                            tooltip: 'Download Diploma',
-                            onPressed: () async {
-                              if (kIsWeb) {
-                                html.AnchorElement(href: imageUrl)
-                                  ..setAttribute('download', 'Diploma_${item['student_name']?.replaceAll(' ', '_')}.jpg')
-                                  ..setAttribute('target', '_blank')
-                                  ..click();
-                              } else {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Opening diploma image link...')),
-                                );
-                              }
-                            },
-                          ),
-                        IconButton(
-                          icon: const Icon(Icons.qr_code, color: Colors.teal),
-                          tooltip: 'Get QR Code',
-                          onPressed: () => showQRCodeDialog(context, item),
-                        ),
-                        Chip(
-                          label: Text(
-                            status,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          backgroundColor: status == 'Verified'
-                              ? Colors.green.shade50
-                              : Colors.orange.shade50,
-                          labelStyle: TextStyle(
-                            color: status == 'Verified' ? Colors.green : Colors.orange,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              );
-            },
+              }),
+              const SizedBox(height: 24),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                const Expanded(child: Text('Recent Global Activity Log', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF172033)))),
+                TextButton.icon(onPressed: onShowAllCertificates, icon: const Icon(Icons.open_in_new, size: 16), label: const Text('View all')),
+              ]),
+              const SizedBox(height: 8),
+              Card(
+                margin: EdgeInsets.zero,
+                clipBehavior: Clip.antiAlias,
+                child: snapshot.connectionState == ConnectionState.waiting
+                    ? const Padding(padding: EdgeInsets.all(36), child: Center(child: CircularProgressIndicator()))
+                    : snapshot.hasError
+                        ? Padding(padding: const EdgeInsets.all(20), child: Text('Unable to load activity: ${snapshot.error}'))
+                        : records.isEmpty
+                            ? const Padding(padding: EdgeInsets.all(28), child: Center(child: Text('No global credential activity yet.')))
+                            : SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: DataTable(
+                                  headingRowColor: WidgetStateProperty.all(const Color(0xFFF0F3F7)),
+                                  columns: const [
+                                    DataColumn(label: Text('Credential')),
+                                    DataColumn(label: Text('University')),
+                                    DataColumn(label: Text('Activity')),
+                                    DataColumn(label: Text('Status')),
+                                  ],
+                                  rows: records.take(8).map((record) => DataRow(cells: [
+                                    DataCell(Text(record['student_name']?.toString() ?? 'Unknown')),
+                                    DataCell(Text(record['university_code']?.toString() ?? 'UCU')),
+                                    DataCell(Text(record['created_at']?.toString().split('T').first ?? 'Credential issued')),
+                                    DataCell(_statusChip(record['status']?.toString() ?? 'Verified')),
+                                  ])).toList(),
+                                ),
+                              ),
+              ),
+              const SizedBox(height: 20),
+              Row(children: [
+                Expanded(child: _action(context, 'Issue credential', Icons.add_moderator, () => context.push('/issue'))),
+                const SizedBox(width: 12),
+                Expanded(child: _action(context, 'Verify QR', Icons.qr_code_scanner, () => context.push('/verify'))),
+              ]),
+            ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 
-  Widget _buildActionCard(
-    BuildContext context, {
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
+  Widget _statCard(String label, String value, IconData icon, Color color) {
     return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: color.withAlpha(26),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: color, size: 28),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Icon(icon, color: color, size: 24),
+          Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF172033))),
+          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF657184)), maxLines: 1, overflow: TextOverflow.ellipsis),
+        ]),
       ),
+    );
+  }
+
+  Widget _statusChip(String status) {
+    final verified = status.toLowerCase() == 'verified';
+    return Chip(
+      label: Text(status, style: TextStyle(fontSize: 12, color: verified ? const Color(0xFF27805B) : const Color(0xFF8A6418))),
+      backgroundColor: verified ? const Color(0xFFE7F5ED) : const Color(0xFFFFF3D8),
+      side: BorderSide.none,
+      visualDensity: VisualDensity.compact,
+    );
+  }
+
+  Widget _action(BuildContext context, String label, IconData icon, VoidCallback onTap) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
     );
   }
 }

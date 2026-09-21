@@ -17,6 +17,7 @@ void main() async {
   await ApiService.init();
   await ApiService.validateSession();
   await ApiService.updatePresence();
+  ApiService.startConnectionMonitoring();
 
   runApp(const CertiTrustApp());
 }
