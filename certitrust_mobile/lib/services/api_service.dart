@@ -387,6 +387,33 @@ class ApiService {
     }
   }
 
+  static Future<Map<String, dynamic>> createAdminAccount({
+    required String name,
+    required String email,
+    required String universityCode,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/admin/users'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        'name': name,
+        'email': email,
+        'university_code': universityCode,
+      }),
+    );
+
+    if (response.statusCode != 201) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Administrator account creation failed.',
+      );
+    }
+
+    _recordConnectionSuccess();
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
   /// Store or issue a new certificate (JSON payload)
   static Future<bool> createCertificate(
       Map<String, dynamic> certificateData) async {

@@ -30,6 +30,8 @@ Route::middleware('auth:sanctum')->group(function () {
         return $request->user();
     });
 
+    Route::post('/admin/users', [AuthController::class, 'createAdmin']);
+
     Route::post('/auth/verify-student', [AuthController::class, 'verifyStudentId']);
     
     Route::post('/certificates', [CertificateController::class, 'store']);

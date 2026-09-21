@@ -8,6 +8,7 @@ import '../features/qr_scanner/verify_screen.dart';
 import '../features/qr_scanner/qr_scanner_screen.dart';
 import '../features/splash/splash_screen.dart';
 import '../features/navigation/role_pages.dart';
+import '../features/admin/admin_management_screen.dart';
 import '../features/qr_scanner/verification_confirmation_screen.dart';
 
 class AppRouter {
@@ -49,6 +50,10 @@ class AppRouter {
       GoRoute(
         path: '/dashboard',
         builder: (context, state) => const DashboardScreen(),
+      ),
+      GoRoute(
+        path: '/admin-management',
+        builder: (context, state) => const AdminManagementScreen(),
       ),
       GoRoute(
         path: '/issue',

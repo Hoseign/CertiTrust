@@ -98,12 +98,13 @@ class AuthController extends Controller
             $googleId = $googleId ?? ('google_' . md5($email));
 
             $adminUniversity = $this->universityForEmail($email);
+            $existingUser = User::where('email', $email)->first();
             $certificateQuery = DB::table('certificates')
                 ->where(function ($query) use ($email) {
                     $query->where('email', $email)->orWhere('student_email', $email);
                 });
             $hasCertificate = $certificateQuery->exists();
-            if ($adminUniversity === null && !$hasCertificate) {
+            if ($adminUniversity === null && $existingUser?->role !== 'admin' && !$hasCertificate) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'This Google account is not registered to an issued credential.',
@@ -160,6 +161,37 @@ class AuthController extends Controller
                 'error' => $e->getMessage(),
             ], $status);
         }
+    }
+
+    /**
+     * Create a university administrator from the Super Admin console.
+     */
+    public function createAdmin(Request $request)
+    {
+        if (strtolower((string) $request->user()?->email) !== 'certitrust256@gmail.com') {
+            return response()->json([
+                'message' => 'Only the Super Admin can create administrator accounts.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'unique:users,email'],
+            'university_code' => ['required', 'in:UCU,PSU'],
+        ]);
+
+        $admin = User::create([
+            'name' => $validated['name'],
+            'email' => strtolower($validated['email']),
+            'password' => Hash::make(Str::random(32)),
+            'role' => 'admin',
+            'university_code' => $validated['university_code'],
+        ]);
+
+        return response()->json([
+            'message' => 'Administrator account created successfully.',
+            'admin' => $admin->only(['id', 'name', 'email', 'role', 'university_code']),
+        ], 201);
     }
 
     /**

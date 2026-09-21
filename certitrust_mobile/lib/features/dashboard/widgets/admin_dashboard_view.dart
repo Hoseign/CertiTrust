@@ -26,7 +26,7 @@ class AdminDashboardView extends StatelessWidget {
             children: [
               const Text('Dashboard', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF172033))),
               const SizedBox(height: 4),
-              const Text('Monitor credentials and university activity across CertiTrust.', style: TextStyle(color: Color(0xFF657184))),
+              const Text('Register university administrators and monitor system activity across CertiTrust.', style: TextStyle(color: Color(0xFF657184))),
               const SizedBox(height: 20),
               LayoutBuilder(builder: (context, constraints) {
                 final columns = constraints.maxWidth > 650 ? 4 : 2;
@@ -80,11 +80,15 @@ class AdminDashboardView extends StatelessWidget {
                               ),
               ),
               const SizedBox(height: 20),
-              Row(children: [
-                Expanded(child: _action(context, 'Issue credential', Icons.add_moderator, () => context.push('/issue'))),
-                const SizedBox(width: 12),
-                Expanded(child: _action(context, 'Verify QR', Icons.qr_code_scanner, () => context.push('/verify'))),
-              ]),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => context.push('/admin-management'),
+                  icon: const Icon(Icons.person_add_alt_1),
+                  label: const Text('Register university administrator'),
+                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                ),
+              ),
             ],
           ),
         );
@@ -116,12 +120,4 @@ class AdminDashboardView extends StatelessWidget {
     );
   }
 
-  Widget _action(BuildContext context, String label, IconData icon, VoidCallback onTap) {
-    return OutlinedButton.icon(
-      onPressed: onTap,
-      icon: Icon(icon, size: 18),
-      label: Text(label),
-      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-    );
-  }
 }

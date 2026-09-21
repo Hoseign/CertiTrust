@@ -280,7 +280,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ]),
               ),
               _drawerItem(context, Icons.dashboard_outlined, 'Dashboard', '/dashboard'),
-              _drawerItem(context, Icons.account_balance_outlined, 'University Management', '/records'),
+              _drawerItem(context, Icons.person_add_alt_1, 'Administrator Management', '/admin-management'),
               _drawerItem(context, Icons.manage_search, 'Global Credential Logs', '/records'),
               _drawerItem(context, Icons.settings_outlined, 'System Settings', null),
             ],
