@@ -13,15 +13,6 @@ use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
-    private function universityForEmail(string $email): ?string
-    {
-        return match (strtolower($email)) {
-            'certitrust256@gmail.com' => 'UCU',
-            'randygonzales2024@gmail.com' => 'PSU',
-            default => null,
-        };
-    }
-
     /**
      * Handle standard email and password login.
      */
@@ -97,7 +88,6 @@ class AuthController extends Controller
 
             $googleId = $googleId ?? ('google_' . md5($email));
 
-            $adminUniversity = $this->universityForEmail($email);
             $existingUser = User::where('email', $email)->first();
             $certificateQuery = DB::table('certificates')
                 ->where(function ($query) use ($email) {
@@ -121,18 +111,13 @@ class AuthController extends Controller
                 ]
             );
 
-            $adminUniversity = $this->universityForEmail($email);
-            if ($adminUniversity !== null && ($user->role !== 'admin' || $user->university_code !== $adminUniversity)) {
-                $user->forceFill(['role' => 'admin', 'university_code' => $adminUniversity])->save();
-            }
-
             // If user exists but google_id wasn't set, update it
             if (!$user->google_id) {
                 $user->update(['google_id' => $googleId]);
             }
 
             $role = $user->role ?? 'student';
-            if ($adminUniversity === null && !$user->university_code) {
+            if (!$user->university_code) {
                 $user->forceFill(['university_code' => $certificateQuery->value('university_code')])->save();
             }
 

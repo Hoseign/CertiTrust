@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../services/api_service.dart';
 
 class AdminManagementScreen extends StatefulWidget {
@@ -11,12 +12,14 @@ class AdminManagementScreen extends StatefulWidget {
 class _AdminManagementScreenState extends State<AdminManagementScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
+  final _universityController = TextEditingController(text: 'Urdaneta City University');
   String _universityCode = 'UCU';
   bool _isSubmitting = false;
 
   @override
   void dispose() {
     _emailController.dispose();
+    _universityController.dispose();
     super.dispose();
   }
 
@@ -31,6 +34,8 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
       if (!mounted) return;
       _formKey.currentState!.reset();
       _emailController.clear();
+      _universityController.text = 'Urdaneta City University';
+      _universityCode = 'UCU';
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Administrator account created.')),
       );
@@ -48,7 +53,11 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        leading: const BackButton(),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back to Super Admin Dashboard',
+          onPressed: () => context.go('/dashboard'),
+        ),
         title: const Text('Administrator Management'),
       ),
       body: ListView(
@@ -71,14 +80,37 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                 },
               ),
               const SizedBox(height: 14),
-              DropdownButtonFormField<String>(
-                initialValue: _universityCode,
-                decoration: const InputDecoration(labelText: 'University scope', border: OutlineInputBorder()),
-                items: const [
-                  DropdownMenuItem(value: 'UCU', child: Text('Urdaneta City College')),
-                  DropdownMenuItem(value: 'PSU', child: Text('Pangasinan State University')),
-                ],
-                onChanged: (value) => setState(() => _universityCode = value ?? 'UCU'),
+              Autocomplete<String>(
+                initialValue: TextEditingValue(text: _universityController.text),
+                optionsBuilder: (textEditingValue) {
+                  const universities = [
+                    'Urdaneta City University',
+                    'Pangasinan State University',
+                  ];
+                  final query = textEditingValue.text.trim().toLowerCase();
+                  if (query.isEmpty) return universities;
+                  return universities.where((university) => university.toLowerCase().contains(query));
+                },
+                onSelected: (university) {
+                  _universityController.text = university;
+                  setState(() => _universityCode = university == 'Urdaneta City University' ? 'UCU' : 'PSU');
+                },
+                fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                  controller.text = _universityController.text;
+                  controller.selection = TextSelection.collapsed(offset: controller.text.length);
+                  return TextFormField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    decoration: const InputDecoration(labelText: 'University scope', hintText: 'Type a university name', border: OutlineInputBorder()),
+                    onChanged: (value) {
+                      _universityController.text = value;
+                      if (value != 'Urdaneta City University' && value != 'Pangasinan State University') {
+                        setState(() => _universityCode = '');
+                      }
+                    },
+                    validator: (_) => _universityCode.isEmpty ? 'Select a matching university suggestion.' : null,
+                  );
+                },
               ),
               const SizedBox(height: 20),
               SizedBox(

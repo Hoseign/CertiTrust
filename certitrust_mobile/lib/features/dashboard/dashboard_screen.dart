@@ -228,73 +228,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildSubadminScaffold(BuildContext context, ThemeData theme) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('University Admin'),
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF172033),
-        elevation: 0,
-        actions: [
-          ValueListenableBuilder<ConnectionSnapshot>(
-            valueListenable: ApiService.connectionStatus,
-            builder: (context, snapshot, _) => InkWell(
-              onTap: () => _showConnectionDiagnostics(context),
-              borderRadius: BorderRadius.circular(20),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Row(
-                  children: [
-                    Icon(Icons.circle, size: 10, color: snapshot.isOperational ? Colors.green : Colors.red),
-                    const SizedBox(width: 6),
-                    Text(snapshot.isOperational ? 'Operational' : 'Offline', style: const TextStyle(fontSize: 12)),
-                  ],
-                ),
-              ),
+        title: const Text('CertiTrust Dashboard'),
+        backgroundColor: theme.colorScheme.primary,
+        foregroundColor: Colors.white,
+        actions: [_logoutButton(context)],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _welcomeCard(theme),
+            const SizedBox(height: 32),
+            AdminDashboardView(
+              fetchCertificates: _fetchLiveCertificates,
+              onShowAllCertificates: _showAllCertificatesModal,
             ),
-          ),
-          _logoutButton(context),
+          ],
+        ),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
+        currentIndex: 0,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.folder), label: 'Records'),
+          BottomNavigationBarItem(icon: Icon(Icons.upload), label: 'Upload'),
+          BottomNavigationBarItem(icon: Icon(Icons.verified), label: 'Verify'),
+          BottomNavigationBarItem(icon: Icon(Icons.help), label: 'AnsQ'),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(58),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
-            decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0xFFE8ECF2)))),
-            child: Row(
-              children: [
-                const Icon(Icons.account_circle_outlined, size: 20, color: Color(0xFF657184)),
-                const SizedBox(width: 8),
-                Expanded(child: Text(ApiService.authEmail ?? 'University Admin', overflow: TextOverflow.ellipsis)),
-                Text(ApiService.authUniversity ?? 'No university scope', style: const TextStyle(color: Color(0xFF657184))),
-              ],
-            ),
-          ),
-        ),
+        onTap: (index) => context.go(const ['/dashboard', '/records', '/issue', '/verify', '/ansq'][index]),
       ),
-      drawer: Drawer(
-        child: SafeArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const DrawerHeader(
-                decoration: BoxDecoration(color: Color(0xFF003366)),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.end, children: [
-                  Icon(Icons.verified_user, color: Colors.white, size: 34),
-                  SizedBox(height: 10),
-                  Text('CertiTrust', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-                  Text('University Admin Console', style: TextStyle(color: Colors.white70)),
-                ]),
-              ),
-              _drawerItem(context, Icons.dashboard_outlined, 'Dashboard', '/dashboard'),
-              _drawerItem(context, Icons.upload_file, 'Upload Credentials', '/issue'),
-              _drawerItem(context, Icons.verified_outlined, 'Verify Credential', '/verify'),
-            ],
+    );
+  }
+
+  Widget _welcomeCard(ThemeData theme) {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Row(children: [
+          CircleAvatar(
+            radius: 30,
+            backgroundColor: theme.colorScheme.primary.withAlpha(26),
+            child: Icon(Icons.school, size: 36, color: theme.colorScheme.primary),
           ),
-        ),
-      ),
-      body: AdminDashboardView(
-        fetchCertificates: _fetchLiveCertificates,
-        onShowAllCertificates: _showAllCertificatesModal,
+          const SizedBox(width: 16),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Welcome to ${ApiService.authUniversity ?? 'CertiTrust'} (Admin)', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            const Text('Manage and verify blockchain-anchored academic credentials.', style: TextStyle(color: Colors.grey)),
+          ])),
+        ]),
       ),
     );
   }

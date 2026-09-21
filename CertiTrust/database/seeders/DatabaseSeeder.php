@@ -17,11 +17,7 @@ class DatabaseSeeder extends Seeder
     {
         User::updateOrCreate(
             ['email' => 'certitrust256@gmail.com'],
-            ['name' => 'CertiTrust UCU Admin', 'role' => 'admin', 'university_code' => 'UCU', 'password' => bcrypt('certitrust256')]
-        );
-        User::updateOrCreate(
-            ['email' => 'randygonzales2024@gmail.com'],
-            ['name' => 'CertiTrust PSU Admin', 'role' => 'admin', 'university_code' => 'PSU', 'password' => bcrypt('certitrust256')]
+            ['name' => 'CertiTrust Super Admin', 'role' => 'admin', 'university_code' => null, 'password' => bcrypt('certitrust256')]
         );
     }
 }
