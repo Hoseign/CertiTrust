@@ -114,13 +114,19 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         _showErrorDialog(
           'Sign-In Failed',
-          'We could not complete Google sign-in. Please try again. If the '
-              'problem continues, check that the API server is running.',
+          _signInErrorMessage(e),
         );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  String _signInErrorMessage(Object error) {
+    if (error is ApiRequestException) {
+      return 'The API rejected the sign-in request (${error.statusCode}).\n\n${error.message}';
+    }
+    return 'We could not complete Google sign-in.\n\n${error.toString()}\n\nAPI: ${ApiService.baseUrl}';
   }
 
   void _showStudentIdVerificationDialog(String userEmail) {
