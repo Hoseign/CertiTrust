@@ -94,7 +94,7 @@ class AuthController extends Controller
                     $query->where('email', $email)->orWhere('student_email', $email);
                 });
             $hasCertificate = $certificateQuery->exists();
-            if ($adminUniversity === null && $existingUser?->role !== 'admin' && !$hasCertificate) {
+            if ($existingUser?->role !== 'admin' && !$hasCertificate) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'This Google account is not registered to an issued credential.',
