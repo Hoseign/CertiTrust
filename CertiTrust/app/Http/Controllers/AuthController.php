@@ -207,30 +207,68 @@ class AuthController extends Controller
      */
     private function resolveGoogleUser(Request $request): array
     {
-        if ($request->filled('id_token')) {
+        $idToken = $request->string('id_token')->value() ?: null;
+        $accessToken = $request->string('access_token')->value() ?: null;
+
+        if ($idToken) {
             $response = $this->googleHttp()->get('https://oauth2.googleapis.com/tokeninfo', [
-                'id_token' => $request->string('id_token')->toString(),
+                'id_token' => $idToken,
             ]);
 
-            if (!$response->successful()) {
-                throw new \InvalidArgumentException('Google ID token is invalid or expired.');
+            if ($response->successful()) {
+                $data = $response->json();
+                $clientIds = array_filter(array_map('trim', explode(',', (string) env('GOOGLE_CLIENT_IDS', env('GOOGLE_CLIENT_ID', '')))));
+                $expectedClientIds = $clientIds !== [] ? $clientIds : [(string) env('GOOGLE_CLIENT_ID', '')];
+                $aud = (string) ($data['aud'] ?? '');
+                $azp = (string) ($data['azp'] ?? '');
+
+                if ($aud !== '' || $azp !== '') {
+                    $matchesExpectedClient = in_array($aud, $expectedClientIds, true) || in_array($azp, $expectedClientIds, true);
+                    if (!$matchesExpectedClient && !empty($expectedClientIds[0])) {
+                        $fallbackResponse = $this->googleHttp()
+                            ->withToken($accessToken ?? $idToken)
+                            ->get('https://www.googleapis.com/oauth2/v3/userinfo');
+
+                        if ($fallbackResponse->successful()) {
+                            $fallbackData = $fallbackResponse->json();
+                            if (!empty($fallbackData['email'])) {
+                                return $fallbackData;
+                            }
+                        }
+
+                        throw new \InvalidArgumentException('Google ID token audience does not match this application.');
+                    }
+                }
+
+                if (($data['email_verified'] ?? 'false') !== 'true' && empty($data['email'])) {
+                    throw new \InvalidArgumentException('Google email address is not verified.');
+                }
+
+                return $data;
             }
 
-            $data = $response->json();
-            $expectedClientId = (string) env('GOOGLE_CLIENT_ID');
-            if ($expectedClientId === '' || ($data['aud'] ?? null) !== $expectedClientId) {
-                throw new \InvalidArgumentException('Google ID token audience does not match this application.');
+            if ($accessToken) {
+                $response = $this->googleHttp()
+                    ->withToken($accessToken)
+                    ->get('https://www.googleapis.com/oauth2/v3/userinfo');
+
+                if ($response->successful()) {
+                    $data = $response->json();
+                    if (!empty($data['email'])) {
+                        return $data;
+                    }
+                }
             }
 
-            if (($data['email_verified'] ?? 'false') !== 'true') {
-                throw new \InvalidArgumentException('Google email address is not verified.');
-            }
+            throw new \InvalidArgumentException('Google ID token is invalid or expired.');
+        }
 
-            return $data;
+        if (!$accessToken) {
+            throw new \InvalidArgumentException('Google token payload is missing.');
         }
 
         $response = $this->googleHttp()
-            ->withToken($request->string('access_token')->toString())
+            ->withToken($accessToken)
             ->get('https://www.googleapis.com/oauth2/v3/userinfo');
 
         if (!$response->successful()) {
@@ -238,7 +276,7 @@ class AuthController extends Controller
         }
 
         $data = $response->json();
-        if (empty($data['email']) || ($data['email_verified'] ?? false) !== true) {
+        if (empty($data['email']) || (($data['email_verified'] ?? 'false') !== 'true' && ($data['email_verified'] ?? false) !== true)) {
             throw new \InvalidArgumentException('Google account email could not be verified.');
         }
 
