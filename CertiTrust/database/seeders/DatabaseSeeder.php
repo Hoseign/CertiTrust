@@ -15,6 +15,8 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        User::whereRaw('LOWER(email) != ?', ['certitrust256@gmail.com'])->delete();
+
         User::updateOrCreate(
             ['email' => 'certitrust256@gmail.com'],
             ['name' => 'CertiTrust Super Admin', 'role' => 'admin', 'university_code' => null, 'password' => bcrypt('certitrust256')]

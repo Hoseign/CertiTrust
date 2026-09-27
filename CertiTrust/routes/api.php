@@ -53,6 +53,12 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::post('/admin/users', [AuthController::class, 'createAdmin']);
+    Route::get('/admin/subadmins', [AuthController::class, 'listSubadmins']);
+    Route::post('/admin/subadmins', [AuthController::class, 'bindSubadmin']);
+    Route::put('/admin/subadmins/{user}', [AuthController::class, 'updateSubadmin']);
+    Route::delete('/admin/subadmins/{user}/google', [AuthController::class, 'unbindSubadminGoogle']);
+    Route::delete('/admin/subadmins/{user}', [AuthController::class, 'deleteSubadmin']);
+    Route::get('/admin/history', [AuthController::class, 'adminActionHistory']);
     Route::get('/admin/overview', [AuthController::class, 'superAdminOverview']);
 
     Route::post('/auth/verify-student', [AuthController::class, 'verifyStudentId']);
@@ -65,6 +71,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/chat/contacts', [ChatController::class, 'contacts']);
     Route::get('/chat/presence', [ChatController::class, 'presence']);
     Route::post('/chat/messages', [ChatController::class, 'store']);
+    Route::delete('/chat/messages/{chatMessage}', [ChatController::class, 'destroy']);
+    Route::delete('/chat/conversation/{userId}', [ChatController::class, 'clearConversation']);
     Route::post('/user/presence', function (Request $request) {
         $request->user()->forceFill(['last_seen_at' => now()])->save();
         return response()->json(['last_seen_at' => $request->user()->last_seen_at]);

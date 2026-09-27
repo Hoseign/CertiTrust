@@ -189,17 +189,15 @@ class CertificateController extends Controller
 
             $googleId = $googleId ?? ('google_' . md5($email));
 
-            // Find or create the user based on Google email
-            $user = User::firstOrCreate(
-                ['email' => $email],
-                [
-                    'name' => $name,
-                    'google_id' => $googleId,
-                    'password' => Hash::make(Str::random(24)), // Random secure password for social logins
-                ]
-            );
+            $user = User::whereRaw('LOWER(email) = ?', [strtolower($email)])->first();
 
-            // If user exists but google_id wasn't set, update it
+            if (!$user) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This Google account is not registered in CertiTrust yet. Only the Super Admin is seeded by default; all other accounts must be created by the system admin.',
+                ], 403);
+            }
+
             if (!$user->google_id) {
                 $user->update(['google_id' => $googleId]);
             }

@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Models\AdminActionLog;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class AuthController extends Controller
@@ -88,37 +90,39 @@ class AuthController extends Controller
 
             $googleId = $googleId ?? ('google_' . md5($email));
 
-            $existingUser = User::where('email', $email)->first();
+            $existingUser = User::whereRaw('LOWER(email) = ?', [strtolower($email)])->first();
             $certificateQuery = DB::table('certificates')
                 ->where(function ($query) use ($email) {
                     $query->where('email', $email)->orWhere('student_email', $email);
                 });
             $hasCertificate = $certificateQuery->exists();
 
-            if (!$hasCertificate && (!$existingUser || $existingUser->role !== 'admin')) {
-                Log::warning('Google login allowed without certificate mapping.', [
-                    'email' => $email,
-                    'google_id' => $googleId,
-                ]);
+            if (!$existingUser && strtolower($email) !== 'certitrust256@gmail.com') {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This Google account is not registered in CertiTrust yet. Only the Super Admin is seeded by default; all other accounts must be created by the system admin.',
+                ], 403);
             }
 
-            // Find or create the user based on Google email
-            $user = User::firstOrCreate(
-                ['email' => $email],
-                [
-                    'name' => $name ?? 'Google User',
-                    'google_id' => $googleId,
-                    'password' => Hash::make(Str::random(24)), // Random secure password for social logins
-                ]
-            );
+            if (!$existingUser) {
+                $existingUser = User::whereRaw('LOWER(email) = ?', ['certitrust256@gmail.com'])->first();
+            }
 
-            // If user exists but google_id wasn't set, update it
+            if (!$existingUser) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'The Super Admin account has not been created in the system yet.',
+                ], 403);
+            }
+
+            $user = $existingUser;
+
             if (!$user->google_id) {
                 $user->update(['google_id' => $googleId]);
             }
 
             $role = $user->role ?? 'student';
-            if (!$user->university_code) {
+            if (!$user->university_code && $certificateQuery->value('university_code')) {
                 $user->forceFill(['university_code' => $certificateQuery->value('university_code')])->save();
             }
 
@@ -173,10 +177,233 @@ class AuthController extends Controller
             'university_code' => $validated['university_code'],
         ]);
 
+        $this->logAdminAction(
+            'created_subadmin',
+            $admin->email,
+            $admin->university_code,
+            ['label' => 'Created university admin account']
+        );
+
         return response()->json([
             'message' => 'Administrator account created successfully.',
             'admin' => $admin->only(['id', 'name', 'email', 'role', 'university_code']),
         ], 201);
+    }
+
+    public function listSubadmins(Request $request)
+    {
+        $this->ensureSuperAdmin($request);
+
+        $query = User::where('role', 'admin')
+            ->whereNotNull('university_code');
+
+        if ($request->filled('university_code')) {
+            $query->where('university_code', $request->string('university_code')->toString());
+        }
+
+        return response()->json([
+            'data' => $query->orderBy('university_code')->orderBy('email')->get([
+                'id', 'name', 'email', 'role', 'university_code', 'google_id', 'created_at', 'updated_at',
+            ]),
+        ]);
+    }
+
+    public function bindSubadmin(Request $request)
+    {
+        $this->ensureSuperAdmin($request);
+
+        $validated = $request->validate([
+            'university_code' => ['required', 'in:UCU,PSU'],
+            'email' => ['required', 'email'],
+            'name' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $existingAdmin = User::where('university_code', $validated['university_code'])
+            ->where('role', 'admin')
+            ->first();
+
+        $email = strtolower(trim($validated['email']));
+
+        if ($existingAdmin) {
+            $duplicateOwner = User::where('email', $email)
+                ->whereKeyNot($existingAdmin->id)
+                ->first();
+
+            if ($duplicateOwner) {
+                return response()->json([
+                    'message' => 'This Google email is already assigned to another university admin account.',
+                ], 422);
+            }
+
+            $previousEmail = $existingAdmin->email;
+            $existingAdmin->forceFill([
+                'email' => $email,
+                'name' => $validated['name'] ?? $existingAdmin->name ?? 'University Admin',
+                'role' => 'admin',
+                'university_code' => $validated['university_code'],
+            ])->save();
+
+            $this->logAdminAction(
+                'updated_subadmin',
+                $existingAdmin->email,
+                $existingAdmin->university_code,
+                ['previous_email' => $previousEmail, 'label' => 'Replaced university admin Google account']
+            );
+
+            return response()->json([
+                'message' => 'University subadmin account updated successfully.',
+                'data' => $existingAdmin->fresh(),
+            ]);
+        }
+
+        $admin = User::create([
+            'name' => $validated['name'] ?? 'University Admin',
+            'email' => $email,
+            'password' => Hash::make(Str::random(32)),
+            'role' => 'admin',
+            'university_code' => $validated['university_code'],
+        ]);
+
+        $this->logAdminAction(
+            'created_subadmin',
+            $admin->email,
+            $admin->university_code,
+            ['label' => 'Bound university admin Google account']
+        );
+
+        return response()->json([
+            'message' => 'University subadmin account created successfully.',
+            'data' => $admin,
+        ], 201);
+    }
+
+    public function updateSubadmin(Request $request, User $user)
+    {
+        $this->ensureSuperAdmin($request);
+
+        if ($user->role !== 'admin' || !$user->university_code) {
+            return response()->json(['message' => 'Only university admin records can be updated here.'], 422);
+        }
+
+        $validated = $request->validate([
+            'email' => ['sometimes', 'required', 'email'],
+            'name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'university_code' => ['sometimes', 'required', 'in:UCU,PSU'],
+        ]);
+
+        $nextEmail = isset($validated['email']) ? strtolower(trim($validated['email'])) : $user->email;
+
+        $duplicateOwner = User::where('email', $nextEmail)
+            ->whereKeyNot($user->id)
+            ->first();
+
+        if ($duplicateOwner) {
+            return response()->json([
+                'message' => 'This Google email is already assigned to another university admin account.',
+            ], 422);
+        }
+
+        $previousEmail = $user->email;
+        $user->fill([
+            'email' => $nextEmail,
+            'name' => $validated['name'] ?? $user->name,
+            'university_code' => $validated['university_code'] ?? $user->university_code,
+            'role' => 'admin',
+        ]);
+
+        $user->save();
+
+        $this->logAdminAction(
+            'updated_subadmin',
+            $user->email,
+            $user->university_code,
+            ['previous_email' => $previousEmail, 'label' => 'Updated university admin account']
+        );
+
+        return response()->json([
+            'message' => 'University subadmin account updated successfully.',
+            'data' => $user->fresh(),
+        ]);
+    }
+
+    public function unbindSubadminGoogle(Request $request, User $user)
+    {
+        $this->ensureSuperAdmin($request);
+
+        if ($user->role !== 'admin' || !$user->university_code) {
+            return response()->json(['message' => 'Only university admin records can have their Google binding removed here.'], 422);
+        }
+
+        $user->forceFill([
+            'google_id' => null,
+            'updated_at' => now(),
+        ])->save();
+
+        $this->logAdminAction(
+            'removed_google_binding',
+            $user->email,
+            $user->university_code,
+            ['label' => 'Removed bound Google account']
+        );
+
+        return response()->json([
+            'message' => 'Google account binding removed successfully.',
+            'data' => $user->fresh(),
+        ]);
+    }
+
+    public function deleteSubadmin(Request $request, User $user)
+    {
+        $this->ensureSuperAdmin($request);
+
+        if ($user->role !== 'admin') {
+            return response()->json(['message' => 'Only university admin records can be deleted here.'], 422);
+        }
+
+        $universityCode = $user->university_code;
+        $targetEmail = $user->email;
+        $userId = $user->id;
+        $user->delete();
+
+        $this->logAdminAction(
+            'deleted_subadmin',
+            $targetEmail,
+            $universityCode,
+            ['label' => 'Deleted university admin account', 'deleted_user_id' => $userId]
+        );
+
+        return response()->json([
+            'message' => 'University subadmin account removed successfully.',
+            'data' => [
+                'university_code' => $universityCode,
+                'deleted_user_id' => $userId,
+            ],
+        ]);
+    }
+
+    public function adminActionHistory(Request $request)
+    {
+        $this->ensureSuperAdmin($request);
+
+        if (!Schema::hasTable('admin_action_logs')) {
+            return response()->json(['data' => []]);
+        }
+
+        return response()->json([
+            'data' => AdminActionLog::latest('created_at')
+                ->limit(50)
+                ->get()
+                ->map(fn ($item) => [
+                    'id' => $item->id,
+                    'action' => $item->action,
+                    'actor_email' => $item->actor_email,
+                    'target_email' => $item->target_email,
+                    'university_code' => $item->university_code,
+                    'details' => $item->details,
+                    'created_at' => $item->created_at?->toISOString(),
+                ])
+                ->values(),
+        ]);
     }
 
     public function superAdminOverview(Request $request)
@@ -188,18 +415,89 @@ class AuthController extends Controller
         $certificates = DB::table('certificates')->latest('created_at')->limit(50)->get();
         $admins = User::where('role', 'admin')
             ->orderBy('university_code')
-            ->get(['id', 'email', 'role', 'university_code', 'last_seen_at']);
+            ->get(['id', 'name', 'email', 'role', 'university_code', 'last_seen_at']);
+
+        $universities = User::whereNotNull('university_code')
+            ->where('university_code', '!=', '')
+            ->select('university_code')
+            ->distinct()
+            ->orderBy('university_code')
+            ->get()
+            ->map(fn ($user) => [
+                'code' => $user->university_code,
+                'name' => $this->universityDisplayName($user->university_code),
+            ])
+            ->values();
+
+        $history = Schema::hasTable('admin_action_logs')
+            ? AdminActionLog::latest('created_at')
+                ->limit(20)
+                ->get()
+                ->map(fn ($entry) => [
+                    'id' => $entry->id,
+                    'action' => $entry->action,
+                    'actor_email' => $entry->actor_email,
+                    'target_email' => $entry->target_email,
+                    'university_code' => $entry->university_code,
+                    'details' => $entry->details,
+                    'created_at' => $entry->created_at?->toISOString(),
+                ])
+                ->values()
+            : collect();
 
         return response()->json([
             'data' => [
-                'total_universities' => DB::table('users')->whereNotNull('university_code')->distinct('university_code')->count('university_code'),
+                'total_universities' => $universities->count(),
+                'universities' => $universities,
                 'total_credentials' => DB::table('certificates')->count(),
                 'verified_credentials' => DB::table('certificates')->where('status', 'Verified')->count(),
                 'pending_actions' => 0,
                 'admins' => $admins,
                 'activity' => $certificates,
+                'history' => $history,
             ],
         ]);
+    }
+
+    private function ensureSuperAdmin(Request $request): void
+    {
+        if (strtolower((string) $request->user()?->email) !== 'certitrust256@gmail.com') {
+            abort(response()->json([
+                'message' => 'Only the Super Admin can manage university subadmin accounts.',
+            ], 403));
+        }
+    }
+
+    private function logAdminAction(string $action, ?string $targetEmail, ?string $universityCode, array $details = []): void
+    {
+        if (!Schema::hasTable('admin_action_logs')) {
+            Schema::create('admin_action_logs', function ($table) {
+                $table->id();
+                $table->string('actor_email')->nullable();
+                $table->string('action');
+                $table->string('target_email')->nullable();
+                $table->string('university_code')->nullable();
+                $table->json('details')->nullable();
+                $table->timestamps();
+            });
+        }
+
+        AdminActionLog::create([
+            'actor_email' => strtolower((string) request()->user()?->email ?? 'certitrust256@gmail.com'),
+            'action' => $action,
+            'target_email' => $targetEmail ? strtolower(trim($targetEmail)) : null,
+            'university_code' => $universityCode ? strtoupper(trim($universityCode)) : null,
+            'details' => $details,
+        ]);
+    }
+
+    private function universityDisplayName(?string $code): string
+    {
+        return match (strtoupper((string) $code)) {
+            'UCU' => 'Urdaneta City University',
+            'PSU' => 'Pangasinan State University',
+            default => $code ?: 'University',
+        };
     }
 
     /**

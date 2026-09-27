@@ -11,7 +11,12 @@ class ChatMessage extends Model
     use HasFactory;
 
     protected $fillable = [
-        'user_id', 'recipient_user_id', 'university_code', 'sender_email', 'sender_name', 'message', 'attachment_url', 'attachment_type',
+        'user_id', 'recipient_user_id', 'university_code', 'sender_email', 'sender_name', 'message', 'attachment_url', 'attachment_type', 'deleted_by', 'deleted_for_everyone_at',
+    ];
+
+    protected $casts = [
+        'deleted_by' => 'array',
+        'deleted_for_everyone_at' => 'datetime',
     ];
 
     public function user(): BelongsTo
