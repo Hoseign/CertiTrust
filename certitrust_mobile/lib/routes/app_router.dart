@@ -9,6 +9,7 @@ import '../features/qr_scanner/qr_scanner_screen.dart';
 import '../features/splash/splash_screen.dart';
 import '../features/navigation/role_pages.dart';
 import '../features/admin/admin_management_screen.dart';
+import '../features/admin/certificate_deletion_requests_screen.dart';
 import '../features/qr_scanner/verification_confirmation_screen.dart';
 
 class AppRouter {
@@ -21,7 +22,7 @@ class AppRouter {
       final isSplash = state.uri.path == '/splash';
       final isVerifying = state.uri.path.startsWith('/verify');
       final isScanning = state.uri.path == '/qr-scanner';
-        final isVerificationResult =
+      final isVerificationResult =
           state.uri.path == '/verification-confirmation';
 
       // If not logged in and trying to access protected pages, redirect to login
@@ -59,6 +60,10 @@ class AppRouter {
         builder: (context, state) => const AdminManagementScreen(),
       ),
       GoRoute(
+        path: '/deletion-requests',
+        builder: (context, state) => const CertificateDeletionRequestsScreen(),
+      ),
+      GoRoute(
         path: '/issue',
         builder: (context, state) => const IssueScreen(),
       ),
@@ -84,8 +89,12 @@ class AppRouter {
       GoRoute(
           path: '/profile', builder: (context, state) => const ProfileScreen()),
       GoRoute(
-          path: '/ansq',
-          builder: (context, state) => const ChatScreen(isAdmin: true)),
+        path: '/ansq',
+        builder: (context, state) => ChatScreen(
+          isAdmin: true,
+          initialContactId: state.uri.queryParameters['with_user_id'],
+        ),
+      ),
       GoRoute(
           path: '/askq',
           builder: (context, state) => const ChatScreen(isAdmin: false)),

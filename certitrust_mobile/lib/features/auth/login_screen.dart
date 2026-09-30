@@ -1,8 +1,18 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../../services/api_service.dart';
+
+const String kGoogleWebClientId =
+    '839744246515-npnpn8u8urse0emqmt6ag0fscdfdqmsm.apps.googleusercontent.com';
+
+// The Android OAuth client is a separate Google Cloud credential.
+// For Flutter Google Sign-In on Android, the backend validation token is usually
+// checked against the web client ID used in serverClientId.
+const String kGoogleAndroidClientId =
+    '839744246515-j4fdm4gro5nsp1lo9ike43jfdnruecc3.apps.googleusercontent.com';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -19,12 +29,8 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     _googleSignIn = GoogleSignIn(
-      clientId: kIsWeb
-          ? '839744246515-npnpn8u8urse0emqmt6ag0fscdfdqmsm.apps.googleusercontent.com'
-          : null,
-      serverClientId: kIsWeb
-          ? null
-          : '839744246515-npnpn8u8urse0emqmt6ag0fscdfdqmsm.apps.googleusercontent.com',
+      clientId: kIsWeb ? kGoogleWebClientId : null,
+      serverClientId: kIsWeb ? null : kGoogleWebClientId,
       scopes: const ['email', 'profile'],
     );
   }
@@ -34,6 +40,7 @@ class _LoginScreenState extends State<LoginScreen> {
     String? signedInEmail;
 
     try {
+      await ApiService.logout();
       await _googleSignIn.signOut();
 
       final googleUser = await _googleSignIn.signIn();
@@ -47,8 +54,8 @@ class _LoginScreenState extends State<LoginScreen> {
       String? idToken = googleAuth.idToken;
       final accessToken = googleAuth.accessToken;
 
-      if (idToken == null && (!kIsWeb || accessToken == null)) {
-        throw 'Google Authentication failed. Missing ID Token.';
+      if (idToken == null && accessToken == null) {
+        throw 'Google Authentication failed. Missing Google token payload.';
       }
 
       // Send Google Token to Laravel Backend for verification & login check
@@ -73,35 +80,52 @@ class _LoginScreenState extends State<LoginScreen> {
       bool isAdmin = email == 'certitrust256@gmail.com' || role == 'admin';
 
       if (isAdmin) {
-        context.go('/dashboard');
-      } else {
-        if (!isRegisteredInCertificates) {
-          debugPrint(
-            'Google account $email has no certificate mapping yet; allowing sign-in with limited access.',
-          );
-        }
-
         if (!mounted) return;
         context.go('/dashboard');
+        return;
       }
+
+      if (!isRegisteredInCertificates) {
+        if (mounted) {
+          _showWarningDialog(
+            'Google Account Warning',
+            'This Google account ($email) is not registered to any certificate record in the system. Please use a registered student or admin account.',
+          );
+        }
+        return;
+      }
+
+      if (!mounted) return;
+      _showStudentIdVerificationDialog(email);
     } catch (e, stackTrace) {
       if (kIsWeb && e.toString().contains('popup_closed')) {
         if (mounted) setState(() => _isLoading = false);
         return;
       }
 
-      if (e is ApiRequestException && e.statusCode == 403) {
-        if (mounted) {
-          _showErrorDialog(
-            'Google Account Warning',
-            signedInEmail == null
-                ? 'This Google account is not registered to any certificate '
-                    'record in the system.'
-                : 'Your Google account ($signedInEmail) is not registered to '
-                    'any certificate record in the system.',
-          );
+      if (e is ApiRequestException) {
+        final isAccountWarning =
+            e.statusCode == 403 || e.statusCode == 401 || e.statusCode == 422;
+        final lowerMessage = e.message.toLowerCase();
+        final isUnregisteredAccount = isAccountWarning ||
+            lowerMessage.contains('not registered') ||
+            lowerMessage.contains('wrong account') ||
+            lowerMessage.contains('not found') ||
+            lowerMessage.contains('invalid google') ||
+            lowerMessage.contains('authentication failed');
+
+        if (isUnregisteredAccount) {
+          await ApiService.logout();
+          if (mounted) {
+            _showWarningDialog(
+              'Google Account Warning',
+              signedInEmail == null
+                  ? e.message
+                  : 'Your Google account ($signedInEmail) is not registered in CertiTrust yet. Please sign in with a valid registered account.',
+            );
+          }
+          return;
         }
-        return;
       }
 
       debugPrint('Google sign-in failed: $e');
@@ -185,10 +209,22 @@ class _LoginScreenState extends State<LoginScreen> {
                 }
 
                 final matchingCert = verificationResult['certificate'];
+                final profile =
+                    verificationResult['profile'] as Map<String, dynamic>? ??
+                        {};
+                final hasProfile = (profile['profile_image_url']
+                            ?.toString()
+                            .isNotEmpty ??
+                        false) ||
+                    (profile['profile_icon']?.toString().isNotEmpty ?? false);
 
                 if (context.mounted) {
                   Navigator.pop(context);
-                  context.go('/dashboard', extra: matchingCert);
+                  if (hasProfile) {
+                    context.go('/dashboard', extra: matchingCert);
+                  } else {
+                    await _showStudentProfileSetup(matchingCert);
+                  }
                 }
               } catch (err) {
                 debugPrint('Error verifying Student ID: $err');
@@ -198,6 +234,129 @@ class _LoginScreenState extends State<LoginScreen> {
               }
             },
             child: const Text('Verify & Proceed'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showStudentProfileSetup(dynamic matchingCertificate) async {
+    PlatformFile? selectedPhoto;
+    String? selectedIcon;
+    bool saving = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Set up your profile'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Choose a profile photo or an avatar icon.'),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ChoiceChip(
+                    selected: selectedIcon == 'girl',
+                    avatar: const Icon(Icons.face_3_rounded),
+                    label: const Text('Girl'),
+                    onSelected: (_) => setDialogState(() {
+                      selectedIcon = 'girl';
+                      selectedPhoto = null;
+                    }),
+                  ),
+                  const SizedBox(width: 12),
+                  ChoiceChip(
+                    selected: selectedIcon == 'boy',
+                    avatar: const Icon(Icons.face_rounded),
+                    label: const Text('Boy'),
+                    onSelected: (_) => setDialogState(() {
+                      selectedIcon = 'boy';
+                      selectedPhoto = null;
+                    }),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        final result = await FilePicker.platform.pickFiles(
+                          type: FileType.image,
+                          withData: true,
+                        );
+                        if (result?.files.single.bytes != null) {
+                          setDialogState(() {
+                            selectedPhoto = result!.files.single;
+                            selectedIcon = null;
+                          });
+                        }
+                      },
+                icon: const Icon(Icons.photo_library_outlined),
+                label: Text(selectedPhoto?.name ?? 'Choose from gallery'),
+              ),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed:
+                  saving || (selectedPhoto == null && selectedIcon == null)
+                      ? null
+                      : () async {
+                          setDialogState(() => saving = true);
+                          try {
+                            await ApiService.updateProfile(
+                              profileIcon: selectedIcon,
+                              imageBytes: selectedPhoto?.bytes,
+                              imageName: selectedPhoto?.name,
+                            );
+                            if (!mounted) return;
+                            Navigator.pop(dialogContext);
+                            this
+                                .context
+                                .go('/dashboard', extra: matchingCertificate);
+                          } catch (error) {
+                            setDialogState(() => saving = false);
+                            if (mounted) {
+                              ScaffoldMessenger.of(this.context).showSnackBar(
+                                SnackBar(
+                                    content:
+                                        Text('Could not save profile: $error')),
+                              );
+                            }
+                          }
+                        },
+              child: saving
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Save and continue'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showWarningDialog(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title,
+            style: const TextStyle(
+                color: Colors.orange, fontWeight: FontWeight.bold)),
+        content: SingleChildScrollView(
+          child: Text(message, style: const TextStyle(fontSize: 13)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
           ),
         ],
       ),

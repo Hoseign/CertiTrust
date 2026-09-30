@@ -12,6 +12,7 @@ import 'widgets/admin_dashboard_view.dart';
 import 'widgets/super_admin_dashboard_view.dart';
 import 'widgets/student_dashboard_view.dart';
 import 'widgets/all_certificates_modal.dart';
+import '../navigation/role_pages.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Object? extra;
@@ -40,7 +41,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _checkUserRoleAndFetchData() async {
     try {
-        final isAdminUser = ApiService.authRole == 'admin' || ApiService.isSuperAdmin;
+      final isAdminUser =
+          ApiService.authRole == 'admin' || ApiService.isSuperAdmin;
 
       if (!isAdminUser) {
         if (mounted) {
@@ -123,7 +125,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         title: const Text('CertiTrust Dashboard'),
         backgroundColor: theme.colorScheme.primary,
         foregroundColor: Colors.white,
-        actions: [_logoutButton(context)],
+        actions: [
+          _profileButton(context),
+          _logoutButton(context),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
@@ -177,43 +182,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: 0,
-        items: _isAdmin
-            ? const [
-                BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-                BottomNavigationBarItem(
-                    icon: Icon(Icons.folder), label: 'Records'),
-                BottomNavigationBarItem(
-                    icon: Icon(Icons.upload), label: 'Upload'),
-                BottomNavigationBarItem(
-                    icon: Icon(Icons.verified), label: 'Verify'),
-                BottomNavigationBarItem(icon: Icon(Icons.help), label: 'AnsQ'),
-              ]
-            : const [
-                BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-                BottomNavigationBarItem(
-                    icon: Icon(Icons.folder), label: 'Records'),
-                BottomNavigationBarItem(
-                    icon: Icon(Icons.qr_code_scanner), label: 'Verify'),
-                BottomNavigationBarItem(
-                    icon: Icon(Icons.person), label: 'Profile'),
-                BottomNavigationBarItem(icon: Icon(Icons.help), label: 'AskQ'),
-              ],
-        onTap: (index) {
-          final destination = _isAdmin
-              ? const ['/dashboard', '/records', '/issue', '/verify', '/ansq']
-              : const [
-                  '/dashboard',
-                  '/records',
-                  '/verify',
-                  '/profile',
-                  '/askq'
-                ];
-          context.go(destination[index]);
-        },
-      ),
+      bottomNavigationBar: RoleBottomNavigationBar(isAdmin: _isAdmin),
     );
   }
 
@@ -222,7 +191,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: _adminAppBar(context, title: 'Super Admin'),
       drawer: _superAdminDrawer(context),
-      body: SuperAdminDashboardView(fetchOverview: ApiService.getSuperAdminOverview),
+      body: SuperAdminDashboardView(
+          fetchOverview: ApiService.getSuperAdminOverview),
+      bottomNavigationBar: const RoleBottomNavigationBar(isAdmin: true),
     );
   }
 
@@ -233,7 +204,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         title: const Text('CertiTrust Dashboard'),
         backgroundColor: theme.colorScheme.primary,
         foregroundColor: Colors.white,
-        actions: [_logoutButton(context)],
+        actions: [
+          _profileButton(context),
+          _logoutButton(context),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
@@ -249,18 +223,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: 0,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.folder), label: 'Records'),
-          BottomNavigationBarItem(icon: Icon(Icons.upload), label: 'Upload'),
-          BottomNavigationBarItem(icon: Icon(Icons.verified), label: 'Verify'),
-          BottomNavigationBarItem(icon: Icon(Icons.help), label: 'AnsQ'),
-        ],
-        onTap: (index) => context.go(const ['/dashboard', '/records', '/issue', '/verify', '/ansq'][index]),
-      ),
+      bottomNavigationBar: const RoleBottomNavigationBar(isAdmin: true),
     );
   }
 
@@ -273,20 +236,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
           CircleAvatar(
             radius: 30,
             backgroundColor: theme.colorScheme.primary.withAlpha(26),
-            child: Icon(Icons.school, size: 36, color: theme.colorScheme.primary),
+            child:
+                Icon(Icons.school, size: 36, color: theme.colorScheme.primary),
           ),
           const SizedBox(width: 16),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Welcome to ${ApiService.authUniversity ?? 'CertiTrust'} (Admin)', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            const Text('Manage and verify blockchain-anchored academic credentials.', style: TextStyle(color: Colors.grey)),
-          ])),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(
+                    'Welcome to ${ApiService.authUniversity ?? 'CertiTrust'} (Admin)',
+                    style: theme.textTheme.titleLarge
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                const Text(
+                    'Manage and verify blockchain-anchored academic credentials.',
+                    style: TextStyle(color: Colors.grey)),
+              ])),
         ]),
       ),
     );
   }
 
-  PreferredSizeWidget _adminAppBar(BuildContext context, {required String title}) {
+  PreferredSizeWidget _adminAppBar(BuildContext context,
+      {required String title}) {
     return AppBar(
       title: Text(title),
       backgroundColor: Colors.white,
@@ -300,26 +273,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Row(children: [
-                Icon(Icons.circle, size: 10, color: snapshot.isOperational ? Colors.green : Colors.red),
+                Icon(Icons.circle,
+                    size: 10,
+                    color: snapshot.isOperational ? Colors.green : Colors.red),
                 const SizedBox(width: 6),
-                Text(snapshot.isOperational ? 'Operational' : 'Offline', style: const TextStyle(fontSize: 12)),
+                Text(snapshot.isOperational ? 'Operational' : 'Offline',
+                    style: const TextStyle(fontSize: 12)),
               ]),
             ),
           ),
         ),
         _logoutButton(context),
+        _profileButton(context),
       ],
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(48),
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
-          decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0xFFE8ECF2)))),
+          decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: Color(0xFFE8ECF2)))),
           child: Row(children: [
-            const Icon(Icons.account_circle_outlined, size: 20, color: Color(0xFF657184)),
+            const Icon(Icons.account_circle_outlined,
+                size: 20, color: Color(0xFF657184)),
             const SizedBox(width: 8),
-            Expanded(child: Text(ApiService.authEmail ?? 'certitrust256@gmail.com', overflow: TextOverflow.ellipsis)),
-            const Text('Global scope', style: TextStyle(color: Color(0xFF657184))),
+            Expanded(
+                child: Text(ApiService.authEmail ?? 'certitrust256@gmail.com',
+                    overflow: TextOverflow.ellipsis)),
+            const Text('Global scope',
+                style: TextStyle(color: Color(0xFF657184))),
           ]),
         ),
       ),
@@ -329,33 +311,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _superAdminDrawer(BuildContext context) {
     return Drawer(
       child: SafeArea(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const DrawerHeader(
             decoration: BoxDecoration(color: Color(0xFF003366)),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.end, children: [
-              Icon(Icons.verified_user, color: Colors.white, size: 34),
-              SizedBox(height: 10),
-              Text('CertiTrust', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-              Text('Super Admin Console', style: TextStyle(color: Colors.white70)),
-            ]),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Icon(Icons.verified_user, color: Colors.white, size: 34),
+                  SizedBox(height: 10),
+                  Text('CertiTrust',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold)),
+                  Text('Super Admin Console',
+                      style: TextStyle(color: Colors.white70)),
+                ]),
           ),
-          _drawerItem(context, Icons.dashboard_outlined, 'Dashboard', '/dashboard'),
-          _drawerItem(context, Icons.person_add_alt_1, 'Create Subadmin Account', '/admin-management'),
-          _drawerItem(context, Icons.manage_search, 'Global Credential Logs', '/dashboard'),
+          _drawerItem(
+              context, Icons.dashboard_outlined, 'Dashboard', '/dashboard'),
+          _drawerItem(context, Icons.person_add_alt_1,
+              'Create Subadmin Account', '/admin-management'),
+          _drawerItem(context, Icons.manage_search, 'Global Credential Logs',
+              '/records'),
         ]),
       ),
     );
   }
 
-  Widget _drawerItem(BuildContext context, IconData icon, String label, String? route) {
+  Widget _drawerItem(
+      BuildContext context, IconData icon, String label, String? route) {
     return ListTile(
       leading: Icon(icon),
       title: Text(label),
+      selected: route != null && GoRouterState.of(context).uri.path == route,
       onTap: () {
         Navigator.pop(context);
         if (route != null && route != '/dashboard') context.go(route);
         if (route == null) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('System settings are coming soon.')));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('System settings are coming soon.')));
         }
       },
     );
@@ -373,6 +370,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _profileButton(BuildContext context) => IconButton(
+        tooltip: 'Edit profile photo',
+        icon: const Icon(Icons.account_circle_outlined),
+        onPressed: () => context.push('/profile'),
+      );
+
   void _showConnectionDiagnostics(BuildContext context) {
     showDialog<void>(
       context: context,
@@ -380,36 +383,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
         valueListenable: ApiService.connectionStatus,
         builder: (context, snapshot, _) => AlertDialog(
           title: Row(children: [
-            Icon(snapshot.isOperational ? Icons.check_circle : Icons.error, color: snapshot.isOperational ? Colors.green : Colors.red),
+            Icon(snapshot.isOperational ? Icons.check_circle : Icons.error,
+                color: snapshot.isOperational ? Colors.green : Colors.red),
             const SizedBox(width: 8),
             const Text('System Status'),
           ]),
           content: SizedBox(
             width: 420,
             child: SingleChildScrollView(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(snapshot.isOperational ? 'Operational' : 'Offline', style: const TextStyle(fontWeight: FontWeight.bold)),
-                Text('Uptime: ${snapshot.uptimePercentage.toStringAsFixed(0)}%'),
-                if (snapshot.currentError != null) ...[
-                  const SizedBox(height: 12),
-                  Text(snapshot.currentError!, style: const TextStyle(color: Colors.red)),
-                ],
-                const SizedBox(height: 18),
-                const Text('Failure and recovery log', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                if (snapshot.events.isEmpty) const Text('No connection events recorded.'),
-                ...snapshot.events.map((event) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(event.state == ApiConnectionState.operational ? Icons.check : Icons.warning, color: event.state == ApiConnectionState.operational ? Colors.green : Colors.red),
-                  title: Text(event.message),
-                  subtitle: Text(_formatTimestamp(event.timestamp)),
-                )),
-              ]),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(snapshot.isOperational ? 'Operational' : 'Offline',
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text(
+                        'Uptime: ${snapshot.uptimePercentage.toStringAsFixed(0)}%'),
+                    if (snapshot.currentError != null) ...[
+                      const SizedBox(height: 12),
+                      Text(snapshot.currentError!,
+                          style: const TextStyle(color: Colors.red)),
+                    ],
+                    const SizedBox(height: 18),
+                    const Text('Failure and recovery log',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    if (snapshot.events.isEmpty)
+                      const Text('No connection events recorded.'),
+                    ...snapshot.events.map((event) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(
+                              event.state == ApiConnectionState.operational
+                                  ? Icons.check
+                                  : Icons.warning,
+                              color:
+                                  event.state == ApiConnectionState.operational
+                                      ? Colors.green
+                                      : Colors.red),
+                          title: Text(event.message),
+                          subtitle: Text(_formatTimestamp(event.timestamp)),
+                        )),
+                  ]),
             ),
           ),
           actions: [
-            TextButton(onPressed: () => ApiService.checkConnection(), child: const Text('Check now')),
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+            TextButton(
+                onPressed: () => ApiService.checkConnection(),
+                child: const Text('Check now')),
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close')),
           ],
         ),
       ),

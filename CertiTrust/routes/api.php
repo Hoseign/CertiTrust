@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CertificateController;
+use App\Http\Controllers\CertificateDeletionRequestController;
 use App\Http\Controllers\ChatController;
 
 /*
@@ -51,6 +52,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', function (Request $request) {
         return $request->user();
     });
+    Route::post('/user/profile', [AuthController::class, 'updateProfile']);
 
     Route::post('/admin/users', [AuthController::class, 'createAdmin']);
     Route::get('/admin/subadmins', [AuthController::class, 'listSubadmins']);
@@ -67,6 +69,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/certificates/upload', [CertificateController::class, 'storeWithFile']);
     Route::post('/certificates/batch', [CertificateController::class, 'storeBatch']);
     Route::get('/certificates', [CertificateController::class, 'index']);
+    Route::post('/certificates/{certificate}/deletion-request', [CertificateDeletionRequestController::class, 'store']);
+    Route::get('/admin/certificate-deletion-requests', [CertificateDeletionRequestController::class, 'index']);
+    Route::patch('/admin/certificate-deletion-requests/{deletionRequest}', [CertificateDeletionRequestController::class, 'review']);
     Route::get('/chat/messages', [ChatController::class, 'index']);
     Route::get('/chat/contacts', [ChatController::class, 'contacts']);
     Route::get('/chat/presence', [ChatController::class, 'presence']);

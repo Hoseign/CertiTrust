@@ -6,6 +6,7 @@ use App\Models\ChatMessage;
 use App\Models\Certificate;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Carbon;
 
@@ -15,14 +16,23 @@ class ChatController extends Controller
     {
         $user = $request->user();
         $user->forceFill(['last_seen_at' => now()])->save();
+        $isSuperAdmin = $this->isSuperAdmin($user);
 
-        $query = ChatMessage::query()
-            ->where('university_code', $user->university_code)
+        if (!$isSuperAdmin && !$user->university_code) {
+            return response()->json(['message' => 'Your account is not assigned to a school.'], 403);
+        }
+
+        $query = ChatMessage::query()->with('replyTo:id,user_id,sender_name,message')
             ->orderBy('created_at');
-        if ($user->role === 'admin') {
-            $targetId = $request->integer('student_id');
-            if (!$targetId) {
-                return response()->json(['data' => []]);
+        if (!$isSuperAdmin) {
+            $query->where('university_code', $user->university_code);
+        }
+
+        $targetId = $request->integer('with_user_id') ?: $request->integer('student_id');
+        if ($targetId) {
+            $target = User::find($targetId);
+            if (!$target || !$this->canChatWith($user, $target)) {
+                return response()->json(['message' => 'This contact is not available to your account.'], 403);
             }
             $query->where(function ($messages) use ($user, $targetId) {
                 $messages->where(function ($thread) use ($user, $targetId) {
@@ -53,56 +63,129 @@ class ChatController extends Controller
     {
         $user = $request->user();
         $user->forceFill(['last_seen_at' => now()])->save();
+        $search = strtolower(trim((string) $request->query('search', '')));
+        $isSuperAdmin = $this->isSuperAdmin($user);
 
-        if ($user->role !== 'admin') {
-            return response()->json(['data' => []]);
+        if ($isSuperAdmin) {
+            $contacts = User::where('role', 'admin')
+                ->whereNotNull('university_code')
+                ->orderBy('name')
+                ->get()
+                ->map(fn (User $admin) => $this->contactProfile($admin, [
+                    'name' => $admin->name ?: 'School Admin',
+                    'university_code' => $admin->university_code,
+                    'role_label' => 'School administrator',
+                ]));
+            $reporterIds = ChatMessage::where('recipient_user_id', $user->id)
+                ->where('is_report', true)
+                ->distinct()
+                ->pluck('user_id');
+            $reporters = User::whereIn('id', $reporterIds)
+                ->where('role', 'student')
+                ->get()
+                ->map(function (User $student) {
+                    $certificate = $this->studentCertificateFor($student);
+                    return $this->contactProfile($student, [
+                        'name' => $certificate?->student_name ?: $certificate?->recipient_name ?: $student->name,
+                        'student_id' => $certificate?->student_id,
+                        'degree' => $certificate?->degree ?: $certificate?->course_or_event,
+                        'issue_date' => $certificate?->issue_date,
+                        'certificate_code' => $certificate?->certificate_code,
+                        'cert_hash' => $certificate?->cert_hash,
+                        'university_code' => $certificate?->university_code ?: $student->university_code,
+                        'role_label' => 'Student report',
+                        'is_report_contact' => true,
+                    ]);
+                });
+            $contacts = $contacts->concat($reporters);
+        } elseif ($user->role === 'admin') {
+            if (!$user->university_code) {
+                return response()->json(['message' => 'Your account is not assigned to a school.'], 403);
+            }
+            $certificates = Certificate::where('university_code', $user->university_code)
+                ->orderByDesc('issue_date')
+                ->get();
+            $contacts = $certificates->map(function (Certificate $certificate) {
+                $email = strtolower(trim((string) ($certificate->student_email ?: $certificate->email)));
+                $student = User::whereRaw('LOWER(TRIM(email)) = ?', [$email])
+                    ->where('role', 'student')
+                    ->first();
+                if (!$student) return null;
+
+                return $this->contactProfile($student, [
+                    'name' => $certificate->student_name ?: $certificate->recipient_name ?: $student->name,
+                    'email' => $email,
+                    'student_id' => $certificate->student_id,
+                    'degree' => $certificate->degree ?: $certificate->course_or_event,
+                    'issue_date' => $certificate->issue_date,
+                    'certificate_code' => $certificate->certificate_code,
+                    'cert_hash' => $certificate->cert_hash,
+                    'university_code' => $certificate->university_code,
+                    'role_label' => 'Student',
+                ]);
+            })->filter()->unique('id')->values();
+
+            $superAdmin = User::whereRaw('LOWER(email) = ?', ['certitrust256@gmail.com'])->first();
+            if ($superAdmin) {
+                $contacts->prepend($this->contactProfile($superAdmin, [
+                    'name' => 'CertiTrust Super Admin',
+                    'role_label' => 'System administrator',
+                ]));
+            }
+        } else {
+            if (!$user->university_code) {
+                return response()->json(['data' => []]);
+            }
+            $certificate = Certificate::where('university_code', $user->university_code)
+                ->where(function ($query) use ($user) {
+                    $email = strtolower(trim($user->email));
+                    $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$email])
+                        ->orWhereRaw('LOWER(TRIM(email)) = ?', [$email]);
+                })
+                ->latest('id')
+                ->first();
+            $admin = User::where('role', 'admin')
+                ->where('university_code', $user->university_code)
+                ->first();
+            $contacts = $admin && $certificate
+                ? collect([$this->contactProfile($admin, [
+                    'name' => $admin->name ?: 'School Admin',
+                    'student_id' => $certificate->student_id,
+                    'student_email' => $certificate->student_email ?: $certificate->email,
+                    'degree' => $certificate->degree ?: $certificate->course_or_event,
+                    'issue_date' => $certificate->issue_date,
+                    'certificate_code' => $certificate->certificate_code,
+                    'cert_hash' => $certificate->cert_hash,
+                    'university_code' => $certificate->university_code,
+                    'role_label' => 'School administrator',
+                ])])
+                : collect();
+            $superAdmin = User::whereRaw('LOWER(TRIM(email)) = ?', ['certitrust256@gmail.com'])->first();
+            if ($superAdmin && $certificate) {
+                $contacts->push($this->contactProfile($superAdmin, [
+                    'name' => 'CertiTrust Super Admin',
+                    'student_id' => $certificate->student_id,
+                    'degree' => $certificate->degree ?: $certificate->course_or_event,
+                    'issue_date' => $certificate->issue_date,
+                    'certificate_code' => $certificate->certificate_code,
+                    'cert_hash' => $certificate->cert_hash,
+                    'university_code' => $certificate->university_code,
+                    'role_label' => 'Report to Super Admin',
+                    'is_report_contact' => true,
+                ]));
+            }
         }
 
-        $search = trim((string) $request->query('search', ''));
-        $certificates = Certificate::where('university_code', $user->university_code);
         if ($search !== '') {
-            $certificates->where(function ($query) use ($search) {
-                $query->where('student_name', 'ilike', "%{$search}%")
-                    ->orWhere('student_email', 'ilike', "%{$search}%")
-                    ->orWhere('student_id', 'ilike', "%{$search}%")
-                    ->orWhere('degree', 'ilike', "%{$search}%")
-                    ->orWhere('certificate_code', 'ilike', "%{$search}%")
-                    ->orWhere('cert_hash', 'ilike', "%{$search}%");
-            });
-        }
-
-        $contacts = $certificates->get()->map(function (Certificate $certificate) {
-            $studentEmail = $certificate->student_email ?: $certificate->email;
-            $user = User::where('email', $studentEmail)->first();
-            $lastSeen = $user?->last_seen_at;
-            return [
-                'id' => $user?->id,
-                'name' => $user?->name ?? $certificate->student_name,
-                'email' => $studentEmail,
-                'student_id' => $certificate->student_id,
-                'degree' => $certificate->degree,
-                'certificate_code' => $certificate->certificate_code,
-                'matched_field' => null,
-                'is_active' => $lastSeen?->greaterThan(now()->subMinutes(5)) ?? false,
-                'last_seen_label' => $lastSeen ? 'Last active: ' . $lastSeen->diffForHumans() : 'Last active: never',
-                'university_code' => $certificate->university_code,
-                'student_email' => $studentEmail,
-            ];
-        })->filter(fn (array $contact) => $contact['id'] !== null)->unique('id')->values();
-
-        if ($search !== '') {
-            $contacts = $contacts->map(function (array $contact) use ($search) {
-                foreach (['name', 'student_id', 'email', 'degree', 'certificate_code'] as $field) {
-                    if (str_contains(strtolower((string) ($contact[$field] ?? '')), strtolower($search))) {
-                        $contact['matched_field'] = $field;
-                        break;
-                    }
+            $contacts = $contacts->filter(function (array $contact) use ($search) {
+                foreach (['name', 'email', 'student_id', 'degree', 'certificate_code', 'university_code'] as $field) {
+                    if (str_contains(strtolower((string) ($contact[$field] ?? '')), $search)) return true;
                 }
-                return $contact;
+                return false;
             });
         }
 
-        return response()->json(['data' => $contacts]);
+        return response()->json(['data' => $contacts->values()]);
     }
 
     public function presence(Request $request)
@@ -110,24 +193,9 @@ class ChatController extends Controller
         $user = $request->user();
         $user->forceFill(['last_seen_at' => now()])->save();
 
-        if ($user->role === 'admin') {
-            $targets = User::where('university_code', $user->university_code)
-                ->where('role', '!=', 'admin')
-                ->get(['id', 'name', 'email', 'last_seen_at', 'university_code']);
-        } else {
-            $targets = User::where('university_code', $user->university_code)
-                ->where('role', 'admin')
-                ->get(['id', 'name', 'email', 'last_seen_at', 'university_code']);
-        }
+        $contacts = $this->contactsFor($user);
 
-        return response()->json(['data' => $targets->map(fn (User $target) => [
-            'id' => $target->id,
-            'name' => $target->name,
-            'email' => $target->email,
-            'university_code' => $target->university_code,
-            'is_active' => $target->last_seen_at?->greaterThan(now()->subMinutes(5)) ?? false,
-            'last_seen_label' => $target->last_seen_at ? 'Last active: ' . $target->last_seen_at->diffForHumans() : 'Last active: never',
-        ])]);
+        return response()->json(['data' => $contacts]);
     }
 
     public function store(Request $request)
@@ -139,19 +207,31 @@ class ChatController extends Controller
             'message' => ['nullable', 'string', 'max:2000'],
             'recipient_user_id' => ['nullable', 'integer', 'exists:users,id'],
             'attachment' => ['nullable', 'file', 'mimes:jpg,jpeg,png,gif,mp4,mov,webm', 'max:51200'],
+            'reply_to_id' => ['nullable', 'integer', 'exists:chat_messages,id'],
+            'is_report' => ['nullable', 'boolean'],
         ]);
 
-        if (!$user->university_code) {
+        if (!$user->university_code && !$this->isSuperAdmin($user)) {
             return response()->json(['message' => 'Your account is not assigned to a school.'], 403);
         }
 
-        $recipientId = $validated['recipient_user_id'] ?? null;
-        if ($user->role === 'admin') {
-            $recipient = User::whereKey($recipientId)->where('university_code', $user->university_code)->where('role', '!=', 'admin')->first();
-            if (!$recipient) return response()->json(['message' => 'Select a student from your school.'], 422);
-            $recipientId = $recipient->id;
-        } else {
-            $recipientId = User::where('university_code', $user->university_code)->where('role', 'admin')->value('id');
+        $recipient = User::find($validated['recipient_user_id'] ?? null);
+        if (!$recipient || !$this->canChatWith($user, $recipient)) {
+            return response()->json(['message' => 'Select a valid contact from your conversation list.'], 422);
+        }
+        $isReport = (bool) ($validated['is_report'] ?? false);
+        if ($isReport && ($user->role !== 'student' || !$this->isSuperAdmin($recipient))) {
+            return response()->json(['message' => 'Only students can report a school administrator to the Super Admin.'], 403);
+        }
+        $replyTo = null;
+        if (!empty($validated['reply_to_id'])) {
+            $replyTo = ChatMessage::find($validated['reply_to_id']);
+            if (!$replyTo || !(
+                ((int) $replyTo->user_id === (int) $user->id && (int) $replyTo->recipient_user_id === (int) $recipient->id) ||
+                ((int) $replyTo->user_id === (int) $recipient->id && (int) $replyTo->recipient_user_id === (int) $user->id)
+            )) {
+                return response()->json(['message' => 'The message being replied to is not in this conversation.'], 422);
+            }
         }
         if (empty($validated['message']) && !$request->hasFile('attachment')) {
             return response()->json(['message' => 'Message or attachment is required.'], 422);
@@ -166,29 +246,175 @@ class ChatController extends Controller
 
         $message = ChatMessage::create([
             'user_id' => $user->id,
-            'recipient_user_id' => $recipientId,
-            'university_code' => $user->university_code,
+            'recipient_user_id' => $recipient->id,
+            'university_code' => $user->university_code ?: $recipient->university_code,
             'sender_email' => $user->email,
             'sender_name' => $user->name,
             'message' => $validated['message'] ?? '',
             'attachment_url' => $attachmentUrl,
             'attachment_type' => $attachmentType,
+            'reply_to_id' => $replyTo?->id,
+            'is_report' => $isReport,
             'deleted_by' => [],
         ]);
 
-        return response()->json(['data' => $message], 201);
+        return response()->json(['data' => $message->load('replyTo:id,user_id,sender_name,message')], 201);
+    }
+
+    private function contactsFor(User $user)
+    {
+        $isSuperAdmin = $this->isSuperAdmin($user);
+        if ($isSuperAdmin) {
+            $targets = User::where('role', 'admin')->whereNotNull('university_code')->get();
+            $reporterIds = ChatMessage::where('recipient_user_id', $user->id)
+                ->where('is_report', true)->distinct()->pluck('user_id');
+            $targets = $targets->concat(User::whereIn('id', $reporterIds)->where('role', 'student')->get());
+        } elseif ($user->role === 'admin') {
+            $studentEmails = Certificate::where('university_code', $user->university_code)
+                ->pluck('student_email')->filter()->map(fn ($email) => strtolower(trim($email)))->unique();
+            $targets = User::where('role', 'student')
+                ->whereIn(DB::raw('LOWER(TRIM(email))'), $studentEmails->all())->get();
+            $superAdmin = User::whereRaw('LOWER(email) = ?', ['certitrust256@gmail.com'])->first();
+            if ($superAdmin) $targets->prepend($superAdmin);
+        } else {
+            if (!$user->university_code) return collect();
+            $hasCredential = Certificate::where('university_code', $user->university_code)
+                ->where(function ($query) use ($user) {
+                    $query->whereRaw('LOWER(TRIM(student_email)) = ?', [strtolower(trim($user->email))])
+                        ->orWhereRaw('LOWER(TRIM(email)) = ?', [strtolower(trim($user->email))]);
+                })->exists();
+            if (!$hasCredential) return collect();
+            $targets = User::where('role', 'admin')->where('university_code', $user->university_code)->get();
+            $superAdmin = User::whereRaw('LOWER(TRIM(email)) = ?', ['certitrust256@gmail.com'])->first();
+            if ($superAdmin) $targets->push($superAdmin);
+        }
+
+        return $targets->map(function (User $target) use ($user) {
+            $certificate = null;
+            if ($target->role === 'student') {
+                $certificate = $this->studentCertificateFor($target);
+            } elseif ($user->role !== 'admin') {
+                $certificate = $this->studentCertificateFor($user);
+            }
+
+            $details = $certificate ? [
+                'student_id' => $certificate->student_id,
+                'student_email' => $certificate->student_email ?: $certificate->email,
+                'degree' => $certificate->degree ?: $certificate->course_or_event,
+                'issue_date' => $certificate->issue_date,
+                'certificate_code' => $certificate->certificate_code,
+                'cert_hash' => $certificate->cert_hash,
+                'university_code' => $certificate->university_code,
+            ] : [];
+
+            return $this->contactProfile($target, array_merge($details, [
+                'name' => $certificate
+                    ? ($certificate->student_name ?: $certificate->recipient_name ?: $target->name)
+                    : ($this->isSuperAdmin($target) ? 'CertiTrust Super Admin' : $target->name),
+                'role_label' => $this->isSuperAdmin($target)
+                    ? 'System administrator'
+                    : ($target->role === 'admin' ? 'School administrator' : 'Student'),
+            ]));
+        })->unique('id')->values();
+    }
+
+    private function contactProfile(User $target, array $details = []): array
+    {
+        $lastSeen = $target->last_seen_at;
+
+        return array_merge([
+            'id' => $target->id,
+            'email' => $target->email,
+            'university_code' => $target->university_code,
+            'profile_image_url' => $target->profile_image_url,
+            'profile_icon' => $target->profile_icon,
+            'profile_logo' => $this->isSuperAdmin($target)
+                ? 'web/assets/images/certitrustlogo.png'
+                : ($target->role === 'admin' ? $this->schoolLogo($target->university_code) : null),
+            'is_active' => $lastSeen?->greaterThan(now()->subMinutes(5)) ?? false,
+            'last_seen_label' => $lastSeen ? 'Last active: ' . $lastSeen->diffForHumans() : 'Last active: never',
+        ], $details);
+    }
+
+    private function canChatWith(User $user, User $target): bool
+    {
+        if ($user->is($target)) return false;
+        if ($this->isSuperAdmin($user)) {
+            if ($target->role === 'admin' && $target->university_code !== null) return true;
+            return $target->role === 'student' && ChatMessage::where('user_id', $target->id)
+                ->where('recipient_user_id', $user->id)->where('is_report', true)->exists();
+        }
+        if ($user->role === 'admin') {
+            if ($this->isSuperAdmin($target)) return true;
+            if ($target->role !== 'student' || $target->university_code !== $user->university_code) return false;
+            $email = strtolower(trim($target->email));
+
+            return Certificate::where('university_code', $user->university_code)
+                ->where(function ($query) use ($email) {
+                    $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$email])
+                        ->orWhereRaw('LOWER(TRIM(email)) = ?', [$email]);
+                })->exists();
+        }
+
+        if ($this->isSuperAdmin($target)) {
+            if ($user->role !== 'student') return false;
+            $email = strtolower(trim($user->email));
+            return Certificate::where('university_code', $user->university_code)
+                ->where(function ($query) use ($email) {
+                    $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$email])
+                        ->orWhereRaw('LOWER(TRIM(email)) = ?', [$email]);
+                })->exists();
+        }
+        if ($target->role !== 'admin' || $target->university_code !== $user->university_code) return false;
+        $email = strtolower(trim($user->email));
+
+        return Certificate::where('university_code', $user->university_code)
+            ->where(function ($query) use ($email) {
+                $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$email])
+                    ->orWhereRaw('LOWER(TRIM(email)) = ?', [$email]);
+            })->exists();
+    }
+
+    private function isSuperAdmin(User $user): bool
+    {
+        return strtolower(trim($user->email)) === 'certitrust256@gmail.com';
+    }
+
+    private function studentCertificateFor(User $student): ?Certificate
+    {
+        $email = strtolower(trim($student->email));
+        return Certificate::where(function ($query) use ($email) {
+            $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$email])
+                ->orWhereRaw('LOWER(TRIM(email)) = ?', [$email]);
+        })->latest('issue_date')->first();
+    }
+
+    private function schoolLogo(?string $school): ?string
+    {
+        return match (strtoupper((string) $school)) {
+            'PSU' => 'web/assets/images/PSU_LOGO.png',
+            'UCU' => 'web/assets/images/UCU_LOGO.png',
+            default => null,
+        };
     }
 
     public function destroy(Request $request, ChatMessage $chatMessage)
     {
         $user = $request->user();
         $mode = $request->query('mode', 'me');
+        $otherUserId = (int) $chatMessage->user_id === (int) $user->id
+            ? $chatMessage->recipient_user_id
+            : $chatMessage->user_id;
+        $otherUser = $otherUserId ? User::find($otherUserId) : null;
 
-        if ($chatMessage->user_id !== $user->id && $chatMessage->recipient_user_id !== $user->id && $user->role !== 'admin') {
+        if (!$otherUser || !$this->canChatWith($user, $otherUser)) {
             return response()->json(['message' => 'This message is not in your conversation.'], 403);
         }
 
         if ($mode === 'everyone') {
+            if ((int) $chatMessage->user_id !== (int) $user->id) {
+                return response()->json(['message' => 'Only the sender can delete a message for everyone.'], 403);
+            }
             $chatMessage->forceFill(['deleted_for_everyone_at' => now()])->save();
             return response()->json(['message' => 'Message deleted for everyone.']);
         }
@@ -206,6 +432,15 @@ class ChatController extends Controller
     {
         $user = $request->user();
         $mode = $request->query('mode', 'me');
+        $target = User::find($userId);
+        if (!$target || !$this->canChatWith($user, $target)) {
+            return response()->json(['message' => 'This conversation is not available to your account.'], 403);
+        }
+        if ($mode === 'everyone') {
+            return response()->json([
+                'message' => 'Clear-for-everyone is disabled. Delete only messages you sent for everyone.',
+            ], 403);
+        }
 
         $messages = ChatMessage::where(function ($query) use ($user, $userId) {
             $query->where(function ($thread) use ($user, $userId) {
@@ -216,11 +451,6 @@ class ChatController extends Controller
         })->get();
 
         foreach ($messages as $message) {
-            if ($mode === 'everyone') {
-                $message->forceFill(['deleted_for_everyone_at' => now()])->save();
-                continue;
-            }
-
             $deletedBy = is_array($message->deleted_by) ? $message->deleted_by : [];
             if (!in_array((int) $user->id, $deletedBy, true)) {
                 $deletedBy[] = (int) $user->id;
@@ -228,6 +458,6 @@ class ChatController extends Controller
             }
         }
 
-        return response()->json(['message' => $mode === 'everyone' ? 'Conversation deleted for everyone.' : 'Conversation deleted for you.']);
+        return response()->json(['message' => 'Conversation deleted for you.']);
     }
 }

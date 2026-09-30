@@ -105,6 +105,8 @@ class ApiService {
   static String? authEmail;
   static String? authRole;
   static String? authUniversity;
+  static String? authProfileImageUrl;
+  static String? authProfileIcon;
   static final ValueNotifier<ConnectionSnapshot> connectionStatus =
       ValueNotifier(const ConnectionSnapshot(
     state: ApiConnectionState.operational,
@@ -204,6 +206,8 @@ class ApiService {
     authEmail = prefs.getString('auth_email');
     authRole = prefs.getString('auth_role');
     authUniversity = prefs.getString('auth_university');
+    authProfileImageUrl = prefs.getString('auth_profile_image_url');
+    authProfileIcon = prefs.getString('auth_profile_icon');
   }
 
   /// Save token locally
@@ -219,11 +223,15 @@ class ApiService {
     authEmail = null;
     authRole = null;
     authUniversity = null;
+    authProfileImageUrl = null;
+    authProfileIcon = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('auth_token');
     await prefs.remove('auth_email');
     await prefs.remove('auth_role');
     await prefs.remove('auth_university');
+    await prefs.remove('auth_profile_image_url');
+    await prefs.remove('auth_profile_icon');
   }
 
   static Future<void> validateSession() async {
@@ -242,10 +250,15 @@ class ApiService {
       authEmail = user['email']?.toString();
       authRole = user['role']?.toString() ?? 'student';
       authUniversity = user['university_code']?.toString();
+      authProfileImageUrl = user['profile_image_url']?.toString();
+      authProfileIcon = user['profile_icon']?.toString();
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('auth_email', authEmail ?? '');
       await prefs.setString('auth_role', authRole ?? 'student');
       await prefs.setString('auth_university', authUniversity ?? '');
+      await prefs.setString(
+          'auth_profile_image_url', authProfileImageUrl ?? '');
+      await prefs.setString('auth_profile_icon', authProfileIcon ?? '');
     } catch (error) {
       _recordConnectionFailure(_connectionMessage(error));
       // Keep the cached session when the API is temporarily offline.
@@ -384,10 +397,16 @@ class ApiService {
         authEmail = jsonResponse['email']?.toString();
         authRole = jsonResponse['role']?.toString();
         authUniversity = jsonResponse['university_code']?.toString();
+        final user = jsonResponse['user'] as Map<String, dynamic>? ?? {};
+        authProfileImageUrl = user['profile_image_url']?.toString();
+        authProfileIcon = user['profile_icon']?.toString();
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('auth_email', authEmail ?? '');
         await prefs.setString('auth_role', authRole ?? 'student');
         await prefs.setString('auth_university', authUniversity ?? '');
+        await prefs.setString(
+            'auth_profile_image_url', authProfileImageUrl ?? '');
+        await prefs.setString('auth_profile_icon', authProfileIcon ?? '');
         return jsonResponse;
       } else {
         throw ApiRequestException(
@@ -428,6 +447,9 @@ class ApiService {
         if (jsonResponse['token'] != null) {
           await _saveToken(jsonResponse['token']);
         }
+        final profile = jsonResponse['profile'] as Map<String, dynamic>? ?? {};
+        authProfileImageUrl = profile['profile_image_url']?.toString();
+        authProfileIcon = profile['profile_icon']?.toString();
         return jsonResponse;
       } else {
         throw 'Server error [${response.statusCode}]: ${jsonResponse['message'] ?? response.body}';
@@ -437,6 +459,39 @@ class ApiService {
       print('Verification error: $e');
       rethrow;
     }
+  }
+
+  static Future<Map<String, dynamic>> updateProfile({
+    List<int>? imageBytes,
+    String? imageName,
+    String? profileIcon,
+  }) async {
+    final request =
+        http.MultipartRequest('POST', Uri.parse('$baseUrl/user/profile'));
+    request.headers.addAll(_getHeaders);
+    if (profileIcon != null) request.fields['profile_icon'] = profileIcon;
+    if (imageBytes != null && imageName != null) {
+      request.files.add(http.MultipartFile.fromBytes(
+        'profile_image',
+        imageBytes,
+        filename: imageName,
+      ));
+    }
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Unable to update profile.',
+      );
+    }
+    authProfileImageUrl = body['profile_image_url']?.toString();
+    authProfileIcon = body['profile_icon']?.toString();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('auth_profile_image_url', authProfileImageUrl ?? '');
+    await prefs.setString('auth_profile_icon', authProfileIcon ?? '');
+    return body;
   }
 
   static Future<Map<String, dynamic>> createAdminAccount({
@@ -766,9 +821,9 @@ class ApiService {
   }
 
   static Future<List<Map<String, dynamic>>> getChatMessagesForStudent(
-      String studentId) async {
+      String userId) async {
     final response = await http.get(
-        Uri.parse('$baseUrl/chat/messages?student_id=$studentId'),
+        Uri.parse('$baseUrl/chat/messages?with_user_id=$userId'),
         headers: _getHeaders);
     if (response.statusCode != 200)
       throw Exception('Failed to load conversation [${response.statusCode}]');
@@ -799,11 +854,17 @@ class ApiService {
   }
 
   static Future<bool> sendChatMessage(String message,
-      {String? recipientUserId, List<int>? fileBytes, String? fileName}) async {
+      {String? recipientUserId,
+      List<int>? fileBytes,
+      String? fileName,
+      String? replyToId,
+      bool isReport = false}) async {
     final request =
         http.MultipartRequest('POST', Uri.parse('$baseUrl/chat/messages'));
     request.headers.addAll(_getHeaders);
     request.fields['message'] = message;
+    if (replyToId != null) request.fields['reply_to_id'] = replyToId;
+    if (isReport) request.fields['is_report'] = '1';
     if (recipientUserId != null)
       request.fields['recipient_user_id'] = recipientUserId;
     if (fileBytes != null && fileName != null) {
@@ -833,5 +894,62 @@ class ApiService {
       headers: _getHeaders,
     );
     return response.statusCode == 200;
+  }
+
+  static Future<void> requestCertificateDeletion({
+    required String certificateId,
+    String? reason,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/certificates/$certificateId/deletion-request'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'reason': reason?.trim()}),
+    );
+    if (response.statusCode != 201) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Unable to request credential deletion.',
+      );
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>>
+      getCertificateDeletionRequests() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/admin/certificate-deletion-requests'),
+      headers: _getHeaders,
+    );
+    if (response.statusCode != 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Unable to load deletion requests.',
+      );
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return List<Map<String, dynamic>>.from(body['data'] ?? const []);
+  }
+
+  static Future<void> reviewCertificateDeletionRequest({
+    required String requestId,
+    required String decision,
+    String? reviewerNote,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/admin/certificate-deletion-requests/$requestId'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        'decision': decision,
+        'reviewer_note': reviewerNote?.trim(),
+      }),
+    );
+    if (response.statusCode != 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Unable to review deletion request.',
+      );
+    }
   }
 }

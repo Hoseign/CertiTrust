@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/utils/hash_util.dart';
+import '../navigation/role_pages.dart';
 import '../../services/api_service.dart';
 
 class IssueScreen extends StatefulWidget {
@@ -52,8 +53,7 @@ class _IssueScreenState extends State<IssueScreen> {
   }
 
   Future<void> _verifyAdminAccess() async {
-    final isAdmin = ApiService.authRole == 'admin' ||
-        ApiService.authEmail == 'certitrust256@gmail.com';
+    final isAdmin = ApiService.authRole == 'admin' && !ApiService.isSuperAdmin;
     if (mounted) {
       setState(() {
         _isAdmin = isAdmin;
@@ -118,28 +118,32 @@ class _IssueScreenState extends State<IssueScreen> {
   }
 
   Future<bool> _validateUniqueConstraints() async {
-    final seenNames = <String, String>{}; // normalized name -> student ID
-    final seenStudentIds = <String>{};
-    final seenFileNames =
-        <String, String>{}; // file name -> owner's student name
+    final seenNames = <String, Set<String>>{};
+    final seenStudentIds = <String, String>{};
+    final seenFileNames = <String, String>{};
     final existingRecords = await ApiService.getCertificatesForCurrentUser();
-    final existingIds = <String>{
-      for (final record in existingRecords)
-        (record['student_id']?.toString() ?? '').trim().toLowerCase(),
-    };
-    final existingNames = <String, String>{
-      for (final record in existingRecords)
-        (record['student_name'] ?? record['recipient_name'] ?? '')
-            .toString()
-            .trim()
-            .toLowerCase(): (record['student_id'] ?? '').toString(),
-    };
+    final existingStudentIds = <String, String>{};
+    final existingNames = <String, Set<String>>{};
     final existingFileOwners = <String, String>{};
     for (final record in existingRecords) {
+      final owner = _studentOwnerLabel(record);
+      final studentId = (record['student_id']?.toString() ?? '').trim();
+      if (studentId.isNotEmpty) {
+        existingStudentIds.putIfAbsent(studentId.toLowerCase(), () => owner);
+      }
+
+      final name = (record['student_name'] ?? record['recipient_name'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      if (name.isNotEmpty) {
+        existingNames.putIfAbsent(name, () => <String>{}).add(owner);
+      }
+
       final url = record['diploma_url']?.toString() ?? '';
       if (url.isNotEmpty) {
-        existingFileOwners[url.split('/').last] =
-            (record['student_name'] ?? 'the previous student').toString();
+        existingFileOwners.putIfAbsent(
+            _normalizeDiplomaFileName(url), () => owner);
       }
     }
 
@@ -152,39 +156,57 @@ class _IssueScreenState extends State<IssueScreen> {
       final studentDisplayName = draft.studentName.text.trim().isEmpty
           ? 'Student ${i + 1}'
           : draft.studentName.text.trim();
+      final draftOwner = '$studentDisplayName (Student ID $studentIdTrimmed)';
+      final previousIdOwner = existingStudentIds[normalizedStudentId] ??
+          seenStudentIds[normalizedStudentId];
 
-      if (existingIds.contains(normalizedStudentId) ||
-          !seenStudentIds.add(normalizedStudentId)) {
-        _showWarning(
-            'Student ID "$studentIdTrimmed" is already used. Enter a unique Student ID.');
+      if (previousIdOwner != null) {
+        _showWarning('Student ID "$studentIdTrimmed" already belongs to '
+            '$previousIdOwner. Enter a unique Student ID.');
         return false;
       }
-      final previousStudentId =
-          existingNames[nameTrimmed] ?? seenNames[nameTrimmed];
-      if (previousStudentId != null) {
+      final nameOwners = <String>{
+        ...existingNames[nameTrimmed] ?? const <String>{},
+        ...seenNames[nameTrimmed] ?? const <String>{},
+      };
+      if (nameOwners.isNotEmpty) {
         _showWarning(
-            'The name "${draft.studentName.text.trim()}" is already on a credential (Student ID $previousStudentId). Names may be shared; issuance will continue if the Student ID is unique.');
+            'The name "${draft.studentName.text.trim()}" already belongs to ${nameOwners.join(', ')}. Same-name students are allowed; issuance will continue.');
       }
+      seenStudentIds[normalizedStudentId] = draftOwner;
 
       // Rule 4: Check unique image file name across drafts
       if (fileName != null && fileName.isNotEmpty) {
-        if (seenFileNames.containsKey(fileName)) {
-          final originalOwner = seenFileNames[fileName];
-          _showWarning(
-              'Image file name "$fileName" has already been used by $originalOwner.');
+        final normalizedFileName = _normalizeDiplomaFileName(fileName);
+        final previousFileOwner = existingFileOwners[normalizedFileName] ??
+            seenFileNames[normalizedFileName];
+        if (previousFileOwner != null) {
+          _showWarning('Diploma image "$fileName" already belongs to '
+              '$previousFileOwner. Choose another image file.');
           return false;
         }
-        if (existingFileOwners.containsKey(fileName)) {
-          _showWarning(
-              'Image file name "$fileName" has already been used by ${existingFileOwners[fileName]}. Choose a unique file name.');
-          return false;
-        }
-        seenFileNames[fileName] = studentDisplayName;
+        seenFileNames[normalizedFileName] = draftOwner;
       }
 
-      seenNames.putIfAbsent(nameTrimmed, () => studentIdTrimmed);
+      seenNames.putIfAbsent(nameTrimmed, () => <String>{}).add(draftOwner);
     }
     return true;
+  }
+
+  String _studentOwnerLabel(Map<String, dynamic> record) {
+    final name =
+        (record['student_name'] ?? record['recipient_name'] ?? 'Student')
+            .toString()
+            .trim();
+    final studentId = record['student_id']?.toString().trim() ?? '';
+    return studentId.isEmpty ? name : '$name (Student ID $studentId)';
+  }
+
+  String _normalizeDiplomaFileName(String value) {
+    final pathSegments = Uri.tryParse(value)?.pathSegments ?? const <String>[];
+    final fileName =
+        pathSegments.isEmpty ? value.split('/').last : pathSegments.last;
+    return fileName.trim().toLowerCase();
   }
 
   void _showWarning(String message) {
@@ -318,35 +340,7 @@ class _IssueScreenState extends State<IssueScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: 2,
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.folder), label: 'Records'),
-          BottomNavigationBarItem(icon: Icon(Icons.upload), label: 'Upload'),
-          BottomNavigationBarItem(icon: Icon(Icons.verified), label: 'Verify'),
-          BottomNavigationBarItem(icon: Icon(Icons.help), label: 'AnsQ'),
-        ],
-        onTap: (index) {
-          switch (index) {
-            case 0:
-              context.go('/dashboard');
-              break;
-            case 1:
-              context.go('/records');
-              break;
-            case 2:
-              break;
-            case 3:
-              context.go('/verify');
-              break;
-            case 4:
-              context.go('/ansq');
-              break;
-          }
-        },
-      ),
+      bottomNavigationBar: const RoleBottomNavigationBar(isAdmin: true),
     );
   }
 

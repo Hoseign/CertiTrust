@@ -5,6 +5,7 @@ import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 
 // Fixed absolute package imports to resolve path errors (pointing directly to /services/)
 import 'package:certitrust_mobile/features/dashboard/widgets/qr_code_dialog.dart';
+import '../navigation/role_pages.dart';
 import '../../services/api_service.dart';
 
 class VerifyScreen extends StatefulWidget {
@@ -253,6 +254,9 @@ class _VerifyScreenState extends State<VerifyScreen> {
             ),
           ),
         ),
+      ),
+      bottomNavigationBar: RoleBottomNavigationBar(
+        isAdmin: ApiService.authRole == 'admin',
       ),
     );
   }

@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class AuthController extends Controller
@@ -189,6 +190,11 @@ class AuthController extends Controller
                 'message' => 'This email is already in use. Enter another email address.',
             ], 422);
         }
+        if ($this->emailIsUsedByStudentCredential($email)) {
+            return response()->json([
+                'message' => 'This email is already linked to a student credential. Enter another email address.',
+            ], 422);
+        }
 
         $admin = User::create([
             'name' => 'University Admin',
@@ -244,6 +250,11 @@ class AuthController extends Controller
             ->first();
 
         $email = strtolower(trim($validated['email']));
+        if ($this->emailIsUsedByStudentCredential($email)) {
+            return response()->json([
+                'message' => 'This email is already linked to a student credential. Enter another email address.',
+            ], 422);
+        }
         $duplicateQuery = User::whereRaw('LOWER(email) = ?', [$email]);
         if ($existingAdmin) {
             $duplicateQuery->whereKeyNot($existingAdmin->id);
@@ -317,7 +328,7 @@ class AuthController extends Controller
             ->whereKeyNot($user->id)
             ->first();
 
-        if ($duplicateOwner) {
+        if ($duplicateOwner || $this->emailIsUsedByStudentCredential($nextEmail)) {
             return response()->json([
                 'message' => 'This email is already in use. Enter another email address.',
             ], 422);
@@ -608,6 +619,18 @@ class AuthController extends Controller
         ]);
     }
 
+    private function emailIsUsedByStudentCredential(string $email): bool
+    {
+        $normalizedEmail = strtolower(trim($email));
+
+        return DB::table('certificates')
+            ->where(function ($query) use ($normalizedEmail) {
+                $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$normalizedEmail])
+                    ->orWhereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail]);
+            })
+            ->exists();
+    }
+
     /**
      * Verify Student ID Mapping Route
      */
@@ -646,6 +669,10 @@ class AuthController extends Controller
                 'success' => true,
                 'message' => 'Student ID verified successfully.',
                 'certificate' => $certificate,
+                'profile' => [
+                    'profile_image_url' => $request->user()->profile_image_url,
+                    'profile_icon' => $request->user()->profile_icon,
+                ],
             ], 200);
 
         } catch (\Exception $e) {
@@ -657,5 +684,36 @@ class AuthController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    public function updateProfile(Request $request)
+    {
+        $validated = $request->validate([
+            'profile_icon' => ['nullable', 'in:girl,boy'],
+            'profile_image' => ['nullable', 'image', 'max:5120'],
+        ]);
+
+        if (!$request->hasFile('profile_image') && empty($validated['profile_icon'])) {
+            return response()->json(['message' => 'Choose a profile photo or an avatar icon.'], 422);
+        }
+
+        $user = $request->user();
+        if ($request->hasFile('profile_image')) {
+            $path = $request->file('profile_image')->store('profiles', 'public');
+            $validated['profile_image_url'] = Storage::disk('public')->url($path);
+            $validated['profile_icon'] = null;
+        } else {
+            $validated['profile_image_url'] = null;
+        }
+
+        $user->forceFill([
+            'profile_image_url' => $validated['profile_image_url'],
+            'profile_icon' => $validated['profile_icon'] ?? null,
+        ])->save();
+
+        return response()->json([
+            'profile_image_url' => $user->profile_image_url,
+            'profile_icon' => $user->profile_icon,
+        ]);
     }
 }
