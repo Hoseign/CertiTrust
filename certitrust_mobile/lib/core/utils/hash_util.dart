@@ -16,6 +16,29 @@ class HashUtil {
     return digest.toString();
   }
 
+  /// Hashes the original diploma bytes, or a deterministic metadata payload
+  /// when no diploma file is attached.
+  static String generateCredentialHash({
+    required String studentId,
+    required String studentName,
+    required String studentEmail,
+    required String degree,
+    required String universityCode,
+    List<int>? documentBytes,
+  }) {
+    if (documentBytes != null && documentBytes.isNotEmpty) {
+      return generateDocumentHash(documentBytes);
+    }
+
+    return generateStringHash(jsonEncode({
+      'student_id': studentId.trim(),
+      'student_name': studentName.trim(),
+      'student_email': studentEmail.trim().toLowerCase(),
+      'degree': degree.trim(),
+      'university_code': universityCode.trim().toUpperCase(),
+    }));
+  }
+
   /// Checks Supabase to see if a certificate with this hash already exists.
   static Future<bool> isHashRegistered(String hash) async {
     try {

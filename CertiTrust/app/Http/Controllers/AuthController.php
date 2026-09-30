@@ -90,40 +90,55 @@ class AuthController extends Controller
 
             $googleId = $googleId ?? ('google_' . md5($email));
 
-            $existingUser = User::whereRaw('LOWER(email) = ?', [strtolower($email)])->first();
+            $normalizedEmail = strtolower(trim($email));
+            $existingUser = User::whereRaw('LOWER(email) = ?', [$normalizedEmail])->first();
             $certificateQuery = DB::table('certificates')
-                ->where(function ($query) use ($email) {
-                    $query->where('email', $email)->orWhere('student_email', $email);
+                ->where(function ($query) use ($normalizedEmail) {
+                    $query->whereRaw('LOWER(email) = ?', [$normalizedEmail])
+                        ->orWhereRaw('LOWER(student_email) = ?', [$normalizedEmail]);
                 });
-            $hasCertificate = $certificateQuery->exists();
+            $certificate = (clone $certificateQuery)->latest('id')->first();
+            $hasCertificate = $certificate !== null;
 
-            if (!$existingUser && strtolower($email) !== 'certitrust256@gmail.com') {
+            if (!$existingUser && !$certificate && $normalizedEmail !== 'certitrust256@gmail.com') {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'This Google account is not registered in CertiTrust yet. Only the Super Admin is seeded by default; all other accounts must be created by the system admin.',
                 ], 403);
             }
 
-            if (!$existingUser) {
-                $existingUser = User::whereRaw('LOWER(email) = ?', ['certitrust256@gmail.com'])->first();
-            }
-
-            if (!$existingUser) {
+            if (!$existingUser && $normalizedEmail === 'certitrust256@gmail.com') {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'The Super Admin account has not been created in the system yet.',
                 ], 403);
             }
 
+            if (!$existingUser && !$certificate) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This Google account is not registered in CertiTrust yet. Only the Super Admin is seeded by default; all other accounts must be created by the system admin.',
+                ], 403);
+            }
+
             $user = $existingUser;
+            if (!$user && $certificate) {
+                $user = User::create([
+                    'name' => $certificate->student_name ?: $certificate->recipient_name ?: $name,
+                    'email' => $normalizedEmail,
+                    'password' => Hash::make(Str::random(40)),
+                    'role' => 'student',
+                    'university_code' => $certificate->university_code,
+                ]);
+            }
 
             if (!$user->google_id) {
                 $user->update(['google_id' => $googleId]);
             }
 
             $role = $user->role ?? 'student';
-            if (!$user->university_code && $certificateQuery->value('university_code')) {
-                $user->forceFill(['university_code' => $certificateQuery->value('university_code')])->save();
+            if (!$user->university_code && $certificate?->university_code) {
+                $user->forceFill(['university_code' => $certificate->university_code])->save();
             }
 
             // Generate a Sanctum token for API authentication
@@ -165,13 +180,19 @@ class AuthController extends Controller
         }
 
         $validated = $request->validate([
-            'email' => ['required', 'email', 'unique:users,email'],
+            'email' => ['required', 'email'],
             'university_code' => ['required', 'in:UCU,PSU'],
         ]);
+        $email = strtolower(trim($validated['email']));
+        if (User::whereRaw('LOWER(email) = ?', [$email])->exists()) {
+            return response()->json([
+                'message' => 'This email is already in use. Enter another email address.',
+            ], 422);
+        }
 
         $admin = User::create([
             'name' => 'University Admin',
-            'email' => strtolower($validated['email']),
+            'email' => $email,
             'password' => Hash::make(Str::random(32)),
             'role' => 'admin',
             'university_code' => $validated['university_code'],
@@ -223,18 +244,17 @@ class AuthController extends Controller
             ->first();
 
         $email = strtolower(trim($validated['email']));
+        $duplicateQuery = User::whereRaw('LOWER(email) = ?', [$email]);
+        if ($existingAdmin) {
+            $duplicateQuery->whereKeyNot($existingAdmin->id);
+        }
+        if ($duplicateQuery->exists()) {
+            return response()->json([
+                'message' => 'This email is already in use. Enter another email address.',
+            ], 422);
+        }
 
         if ($existingAdmin) {
-            $duplicateOwner = User::where('email', $email)
-                ->whereKeyNot($existingAdmin->id)
-                ->first();
-
-            if ($duplicateOwner) {
-                return response()->json([
-                    'message' => 'This Google email is already assigned to another university admin account.',
-                ], 422);
-            }
-
             $previousEmail = $existingAdmin->email;
             $existingAdmin->forceFill([
                 'email' => $email,
@@ -293,13 +313,13 @@ class AuthController extends Controller
 
         $nextEmail = isset($validated['email']) ? strtolower(trim($validated['email'])) : $user->email;
 
-        $duplicateOwner = User::where('email', $nextEmail)
+        $duplicateOwner = User::whereRaw('LOWER(email) = ?', [$nextEmail])
             ->whereKeyNot($user->id)
             ->first();
 
         if ($duplicateOwner) {
             return response()->json([
-                'message' => 'This Google email is already assigned to another university admin account.',
+                'message' => 'This email is already in use. Enter another email address.',
             ], 422);
         }
 
@@ -599,7 +619,7 @@ class AuthController extends Controller
                 'student_id' => 'required|string',
             ]);
 
-            if ($request->user()->email !== $request->input('email')) {
+            if (strtolower(trim($request->user()->email)) !== strtolower(trim($request->input('email')))) {
                 return response()->json([
                     'success' => false,
                     'message' => 'The authenticated account does not match this email address.',
@@ -609,8 +629,8 @@ class AuthController extends Controller
             // Query certificates table to verify the mapping between email and student ID
             $certificate = DB::table('certificates')
                 ->where(function ($query) use ($request) {
-                    $query->where('email', $request->email)
-                        ->orWhere('student_email', $request->email);
+                    $query->whereRaw('LOWER(email) = ?', [strtolower(trim($request->email))])
+                        ->orWhereRaw('LOWER(student_email) = ?', [strtolower(trim($request->email))]);
                 })
                 ->where('student_id', $request->student_id)
                 ->first();

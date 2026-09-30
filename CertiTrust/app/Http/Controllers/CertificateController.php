@@ -24,8 +24,9 @@ class CertificateController extends Controller
 
     public function show(string $code)
     {
-        $certificate = Certificate::where('certificate_code', $code)
-            ->orWhere('cert_hash', $code)
+        $normalizedCode = trim($code);
+        $certificate = Certificate::where('certificate_code', $normalizedCode)
+            ->orWhereRaw('LOWER(cert_hash) = ?', [strtolower($normalizedCode)])
             ->first();
 
         return $certificate
@@ -50,7 +51,16 @@ class CertificateController extends Controller
         if (!$universityCode || ($validated['university_code'] ?? $universityCode) !== $universityCode) {
             return response()->json(['message' => 'This admin is not authorized to issue for that school.'], 403);
         }
+        $studentId = strtolower(trim($validated['student_id']));
+        if (Certificate::where('university_code', $universityCode)
+            ->whereRaw('LOWER(TRIM(student_id)) = ?', [$studentId])
+            ->exists()) {
+            return response()->json([
+                'message' => 'This Student ID is already used by an issued credential. Enter a unique Student ID.',
+            ], 422);
+        }
 
+        $validated['student_id'] = trim($validated['student_id']);
         $validated['certificate_code'] = 'CERT-' . strtoupper(Str::random(10));
         $validated['email'] = $validated['student_email'];
         $validated['recipient_name'] = $validated['student_name'];
@@ -83,9 +93,18 @@ class CertificateController extends Controller
         if ($certificates->contains(fn (array $certificate) => ($certificate['university_code'] ?? $universityCode) !== $universityCode)) {
             return response()->json(['message' => 'This admin is not authorized to issue for that school.'], 403);
         }
-        $studentIds = $certificates->pluck('student_id');
-        if (Certificate::where('university_code', $universityCode)->whereIn('student_id', $studentIds)->exists()) {
-            return response()->json(['message' => 'A student with one of these Student IDs has already been uploaded.'], 422);
+        $studentIds = $certificates->map(fn (array $certificate) => strtolower(trim($certificate['student_id'])));
+        if ($studentIds->duplicates()->isNotEmpty()) {
+            return response()->json([
+                'message' => 'A Student ID is repeated in this batch. Use a unique Student ID for every student.',
+            ], 422);
+        }
+        if (Certificate::where('university_code', $universityCode)
+            ->whereIn(DB::raw('LOWER(TRIM(student_id))'), $studentIds->all())
+            ->exists()) {
+            return response()->json([
+                'message' => 'A Student ID is already used by an issued credential. Enter a unique Student ID.',
+            ], 422);
         }
 
         $fileNames = $certificates->map(fn (array $certificate) => $certificate['diploma_url'] ?? null)
@@ -100,6 +119,7 @@ class CertificateController extends Controller
 
         $records = $certificates->map(function (array $certificate) use ($universityCode) {
             return array_merge($certificate, [
+                'student_id' => trim($certificate['student_id']),
                 'email' => $certificate['student_email'],
                 'certificate_code' => 'CERT-' . strtoupper(Str::random(10)),
                 'recipient_name' => $certificate['student_name'],

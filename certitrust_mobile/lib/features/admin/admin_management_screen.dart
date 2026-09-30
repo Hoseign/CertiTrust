@@ -12,41 +12,175 @@ class AdminManagementScreen extends StatefulWidget {
 class _AdminManagementScreenState extends State<AdminManagementScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
-  final _universityController = TextEditingController(text: 'Urdaneta City University');
+  final _nameController = TextEditingController();
+  final _universityController =
+      TextEditingController(text: 'Urdaneta City University');
+  String? _emailError;
   String _universityCode = 'UCU';
+  int? _editingId;
   bool _isSubmitting = false;
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _admins = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAdmins();
+  }
 
   @override
   void dispose() {
     _emailController.dispose();
+    _nameController.dispose();
     _universityController.dispose();
     super.dispose();
   }
 
-  Future<void> _createAdmin() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _isSubmitting = true);
+  Future<void> _loadAdmins() async {
+    setState(() => _isLoading = true);
     try {
-      await ApiService.createAdminAccount(
-        email: _emailController.text.trim(),
-        universityCode: _universityCode,
-      );
+      final admins = await ApiService.getSubadmins();
       if (!mounted) return;
-      _formKey.currentState!.reset();
-      _emailController.clear();
-      _universityController.text = 'Urdaneta City University';
-      _universityCode = 'UCU';
+      setState(() {
+        _admins = admins;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Administrator account created.')),
+        SnackBar(content: Text(error.toString())),
+      );
+    }
+  }
+
+  void _resetForm() {
+    _formKey.currentState?.reset();
+    _emailController.clear();
+    _emailError = null;
+    _nameController.clear();
+    _universityController.text = 'Urdaneta City University';
+    _universityCode = 'UCU';
+    _editingId = null;
+  }
+
+  Future<void> _submitAdmin() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _isSubmitting = true;
+      _emailError = null;
+    });
+
+    try {
+      if (_editingId != null) {
+        await ApiService.updateSubadminAccount(
+          id: _editingId!,
+          email: _emailController.text.trim(),
+          name: _nameController.text.trim(),
+          universityCode: _universityCode,
+        );
+      } else {
+        await ApiService.bindSubadminAccount(
+          email: _emailController.text.trim(),
+          universityCode: _universityCode,
+          name: _nameController.text.trim(),
+        );
+      }
+
+      if (!mounted) return;
+      _resetForm();
+      await _loadAdmins();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(_editingId == null
+                ? 'Administrator account created.'
+                : 'Administrator account updated.')),
       );
     } catch (error) {
       if (!mounted) return;
+      if (error is ApiRequestException && error.statusCode == 422) {
+        final message = error.message.toLowerCase();
+        if (message.contains('email') &&
+            (message.contains('already') || message.contains('used'))) {
+          setState(() => _emailError =
+              'This email is already in use. Enter another email address.');
+        }
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error.toString())),
       );
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  Future<void> _deleteAdmin(Map<String, dynamic> admin) async {
+    final id = admin['id'];
+    if (id == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove subadmin'),
+        content: Text(
+            'Remove ${admin['name'] ?? admin['email']} from ${admin['university_code']}?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Remove')),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await ApiService.deleteSubadminAccount(int.parse(id.toString()));
+      if (!mounted) return;
+      await _loadAdmins();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Subadmin removed.')));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  Future<void> _unbindGoogle(Map<String, dynamic> admin) async {
+    final id = admin['id'];
+    if (id == null) return;
+    try {
+      await ApiService.unbindSubadminGoogle(int.parse(id.toString()));
+      if (!mounted) return;
+      await _loadAdmins();
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Google binding removed.')));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  void _startEdit(Map<String, dynamic> admin) {
+    final universityName = admin['university_code'] == 'UCU'
+        ? 'Urdaneta City University'
+        : 'Pangasinan State University';
+    setState(() {
+      _editingId = int.parse(admin['id'].toString());
+      _emailController.text = admin['email']?.toString() ?? '';
+      _nameController.text = admin['name']?.toString() ?? '';
+      _universityController.text = universityName;
+      _universityCode = admin['university_code']?.toString() ?? 'UCU';
+    });
+    Scrollable.ensureVisible(
+      context,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeInOut,
+    );
   }
 
   @override
@@ -63,17 +197,33 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Text('Create Subadmin Account', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+          const Text('Subadmin Accounts',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          const Text('Register an administrator account for a university. The administrator can sign in with the registered Google account.', style: TextStyle(color: Colors.grey)),
+          const Text(
+              'Bind, update, or remove university administrators across the system.',
+              style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 24),
           Form(
             key: _formKey,
             child: Column(children: [
               TextFormField(
+                controller: _nameController,
+                decoration: const InputDecoration(
+                    labelText: 'Display name', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(labelText: 'Google account email', border: OutlineInputBorder()),
+                decoration: InputDecoration(
+                  labelText: 'Google account email',
+                  border: const OutlineInputBorder(),
+                  errorText: _emailError,
+                ),
+                onChanged: (_) {
+                  if (_emailError != null) setState(() => _emailError = null);
+                },
                 validator: (value) {
                   final email = value?.trim() ?? '';
                   return email.contains('@') ? null : 'Enter a valid email.';
@@ -81,34 +231,45 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
               ),
               const SizedBox(height: 14),
               Autocomplete<String>(
-                initialValue: TextEditingValue(text: _universityController.text),
+                initialValue:
+                    TextEditingValue(text: _universityController.text),
                 optionsBuilder: (textEditingValue) {
                   const universities = [
                     'Urdaneta City University',
-                    'Pangasinan State University',
+                    'Pangasinan State University'
                   ];
                   final query = textEditingValue.text.trim().toLowerCase();
                   if (query.isEmpty) return universities;
-                  return universities.where((university) => university.toLowerCase().contains(query));
+                  return universities.where(
+                      (university) => university.toLowerCase().contains(query));
                 },
                 onSelected: (university) {
                   _universityController.text = university;
-                  setState(() => _universityCode = university == 'Urdaneta City University' ? 'UCU' : 'PSU');
+                  setState(() => _universityCode =
+                      university == 'Urdaneta City University' ? 'UCU' : 'PSU');
                 },
-                fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                fieldViewBuilder:
+                    (context, controller, focusNode, onFieldSubmitted) {
                   controller.text = _universityController.text;
-                  controller.selection = TextSelection.collapsed(offset: controller.text.length);
+                  controller.selection =
+                      TextSelection.collapsed(offset: controller.text.length);
                   return TextFormField(
                     controller: controller,
                     focusNode: focusNode,
-                    decoration: const InputDecoration(labelText: 'University scope', hintText: 'Type a university name', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                        labelText: 'University scope',
+                        hintText: 'Type a university name',
+                        border: OutlineInputBorder()),
                     onChanged: (value) {
                       _universityController.text = value;
-                      if (value != 'Urdaneta City University' && value != 'Pangasinan State University') {
+                      if (value != 'Urdaneta City University' &&
+                          value != 'Pangasinan State University') {
                         setState(() => _universityCode = '');
                       }
                     },
-                    validator: (_) => _universityCode.isEmpty ? 'Select a matching university suggestion.' : null,
+                    validator: (_) => _universityCode.isEmpty
+                        ? 'Select a matching university suggestion.'
+                        : null,
                   );
                 },
               ),
@@ -116,13 +277,75 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: _isSubmitting ? null : _createAdmin,
-                  icon: _isSubmitting ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.person_add),
-                  label: const Text('Create administrator account'),
+                  onPressed: _isSubmitting ? null : _submitAdmin,
+                  icon: _isSubmitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : Icon(
+                          _editingId == null ? Icons.person_add : Icons.save),
+                  label: Text(_editingId == null
+                      ? 'Create administrator account'
+                      : 'Update administrator account'),
                 ),
               ),
+              if (_editingId != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: TextButton.icon(
+                    onPressed: _resetForm,
+                    icon: const Icon(Icons.close),
+                    label: const Text('Cancel edit'),
+                  ),
+                ),
             ]),
           ),
+          const SizedBox(height: 28),
+          const Text('Registered Subadmins',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          if (_isLoading)
+            const Center(
+                child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: CircularProgressIndicator()))
+          else if (_admins.isEmpty)
+            const Card(
+                child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('No subadmin accounts registered yet.')))
+          else
+            ..._admins.map((admin) => Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: ListTile(
+                    title:
+                        Text(admin['name']?.toString() ?? 'University Admin'),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(admin['email']?.toString() ?? 'No email'),
+                        const SizedBox(height: 4),
+                        Text(
+                            'University: ${admin['university_code'] ?? 'Unassigned'}'),
+                      ],
+                    ),
+                    trailing: PopupMenuButton<String>(
+                      onSelected: (value) async {
+                        if (value == 'edit') _startEdit(admin);
+                        if (value == 'unbind') await _unbindGoogle(admin);
+                        if (value == 'delete') await _deleteAdmin(admin);
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(value: 'edit', child: Text('Edit')),
+                        PopupMenuItem(
+                            value: 'unbind',
+                            child: Text('Remove Google binding')),
+                        PopupMenuItem(value: 'delete', child: Text('Delete')),
+                      ],
+                    ),
+                  ),
+                )),
         ],
       ),
     );

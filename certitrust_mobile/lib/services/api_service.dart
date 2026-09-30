@@ -47,25 +47,20 @@ class ConnectionSnapshot {
 }
 
 class ApiService {
-  static const String _productionApiUrl =
+  static const String productionApiUrl =
       'https://certitrust-yhzl.onrender.com/api';
-  static const String _localNetworkApiUrl = 'http://172.20.10.3:8000/api';
+  static const String _productionApiUrl = productionApiUrl;
 
-  // Production builds should always target the public Render API. Local network
-  // addresses are only used when explicitly requested for development.
+  // Production builds must always target the live Render backend. Local IPs and
+  // loopback hosts are explicitly rejected to prevent accidental offline or
+  // private-network requests when the app is running over Wi‑Fi, hotspot, or LTE.
   static String get baseUrl {
     const override = String.fromEnvironment('CERTITRUST_API_URL');
     if (override.isNotEmpty) {
-      return normalizeBaseUrl(override);
-    }
-
-    const useLocalApi = bool.fromEnvironment(
-      'CERTITRUST_USE_LOCAL_API',
-      defaultValue: false,
-    );
-
-    if (useLocalApi && !kIsWeb) {
-      return normalizeBaseUrl(_localNetworkApiUrl);
+      final normalized = normalizeBaseUrl(override);
+      return normalized.contains('certitrust-yhzl.onrender.com')
+          ? normalized
+          : _productionApiUrl;
     }
 
     return _productionApiUrl;
@@ -78,11 +73,31 @@ class ApiService {
     final lower = trimmed.toLowerCase();
     if (lower.contains('localhost') ||
         lower.contains('127.0.0.1') ||
-        lower.contains('::1')) {
+        lower.contains('::1') ||
+        lower.contains('192.168.') ||
+        lower.contains('10.0.2.2') ||
+        lower.contains('172.')) {
       return _productionApiUrl;
     }
 
-    return trimmed.replaceAll(RegExp(r'/+$'), '');
+    var normalized = trimmed.replaceAll(RegExp(r'/+$'), '');
+    final firstApiMatch =
+        RegExp(r'https?://[^/\s]+/api').firstMatch(normalized);
+    if (firstApiMatch != null) {
+      final firstApiUrl = firstApiMatch.group(0)!;
+      if (normalized.startsWith(firstApiUrl) &&
+          normalized.length > firstApiUrl.length &&
+          (normalized.substring(firstApiUrl.length).contains('http://') ||
+              normalized.substring(firstApiUrl.length).contains('https://'))) {
+        return firstApiUrl;
+      }
+    }
+
+    if (!normalized.toLowerCase().endsWith('/api')) {
+      normalized = '$normalized/api';
+    }
+
+    return normalized;
   }
 
   // Session token storage after successful authentication
@@ -92,11 +107,11 @@ class ApiService {
   static String? authUniversity;
   static final ValueNotifier<ConnectionSnapshot> connectionStatus =
       ValueNotifier(const ConnectionSnapshot(
-        state: ApiConnectionState.operational,
-        uptimePercentage: 100,
-        lastChangedAt: null,
-        events: [],
-      ));
+    state: ApiConnectionState.operational,
+    uptimePercentage: 100,
+    lastChangedAt: null,
+    events: [],
+  ));
   static Timer? _healthCheckTimer;
 
   static bool get isAuthenticated => authToken != null && authToken!.isNotEmpty;
@@ -217,7 +232,8 @@ class ApiService {
       final response =
           await http.get(Uri.parse('$baseUrl/user'), headers: _getHeaders);
       if (response.statusCode != 200) {
-        _recordConnectionFailure('Session validation failed with HTTP ${response.statusCode}.');
+        _recordConnectionFailure(
+            'Session validation failed with HTTP ${response.statusCode}.');
         await logout();
         return;
       }
@@ -239,7 +255,8 @@ class ApiService {
   static Future<void> updatePresence() async {
     if (!isAuthenticated) return;
     try {
-      await http.post(Uri.parse('$baseUrl/user/presence'), headers: _jsonHeaders);
+      await http.post(Uri.parse('$baseUrl/user/presence'),
+          headers: _jsonHeaders);
     } catch (error) {
       _recordConnectionFailure(_connectionMessage(error));
       // Presence is best effort and must not block app startup.
@@ -296,8 +313,10 @@ class ApiService {
   /// Fetch a single certificate by its unique hash/code (For verification screen)
   static Future<Map<String, dynamic>?> getCertificateByCode(String code) async {
     try {
+      final normalizedCode = code.replaceAll(RegExp(r'\s+'), '').trim();
       final response = await http.get(
-        Uri.parse('$baseUrl/certificates/$code'),
+        Uri.parse(
+            '$baseUrl/certificates/${Uri.encodeComponent(normalizedCode)}'),
         headers: _getHeaders,
       );
 
@@ -445,6 +464,117 @@ class ApiService {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
+  static Future<List<Map<String, dynamic>>> getSubadmins(
+      {String? universityCode}) async {
+    final query = universityCode == null || universityCode.trim().isEmpty
+        ? ''
+        : '?university_code=${Uri.encodeQueryComponent(universityCode.trim())}';
+
+    final response = await http.get(
+      Uri.parse('$baseUrl/admin/subadmins$query'),
+      headers: _getHeaders,
+    );
+
+    if (response.statusCode != 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+      throw ApiRequestException(response.statusCode,
+          body['message']?.toString() ?? 'Unable to load admin accounts.');
+    }
+
+    _recordConnectionSuccess();
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    final items = body['data'];
+    if (items is! List) return const [];
+    return items.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+  }
+
+  static Future<Map<String, dynamic>> bindSubadminAccount({
+    required String email,
+    required String universityCode,
+    String? name,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/admin/subadmins'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        'email': email,
+        'university_code': universityCode,
+        if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+      }),
+    );
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 201 && response.statusCode != 200) {
+      throw ApiRequestException(response.statusCode,
+          body['message']?.toString() ?? 'Unable to create admin account.');
+    }
+
+    _recordConnectionSuccess();
+    return body;
+  }
+
+  static Future<Map<String, dynamic>> updateSubadminAccount({
+    required int id,
+    String? email,
+    String? name,
+    String? universityCode,
+  }) async {
+    final payload = <String, dynamic>{};
+    if (email != null && email.trim().isNotEmpty)
+      payload['email'] = email.trim();
+    if (name != null)
+      payload['name'] = name.trim().isEmpty ? null : name.trim();
+    if (universityCode != null && universityCode.trim().isNotEmpty)
+      payload['university_code'] = universityCode.trim();
+
+    final response = await http.put(
+      Uri.parse('$baseUrl/admin/subadmins/$id'),
+      headers: _jsonHeaders,
+      body: jsonEncode(payload),
+    );
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(response.statusCode,
+          body['message']?.toString() ?? 'Unable to update admin account.');
+    }
+
+    _recordConnectionSuccess();
+    return body;
+  }
+
+  static Future<Map<String, dynamic>> unbindSubadminGoogle(int id) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/admin/subadmins/$id/google'),
+      headers: _getHeaders,
+    );
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(response.statusCode,
+          body['message']?.toString() ?? 'Unable to remove Google binding.');
+    }
+
+    _recordConnectionSuccess();
+    return body;
+  }
+
+  static Future<Map<String, dynamic>> deleteSubadminAccount(int id) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/admin/subadmins/$id'),
+      headers: _getHeaders,
+    );
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(response.statusCode,
+          body['message']?.toString() ?? 'Unable to remove admin account.');
+    }
+
+    _recordConnectionSuccess();
+    return body;
+  }
+
   static Future<Map<String, dynamic>> getSuperAdminOverview() async {
     try {
       final response = await http.get(
@@ -452,11 +582,35 @@ class ApiService {
         headers: _getHeaders,
       );
       if (response.statusCode != 200) {
-        throw ApiRequestException(response.statusCode, 'Unable to load global admin activity.');
+        throw ApiRequestException(
+            response.statusCode, 'Unable to load global admin activity.');
       }
       _recordConnectionSuccess();
       return (jsonDecode(response.body) as Map<String, dynamic>)['data']
           as Map<String, dynamic>;
+    } catch (error) {
+      _recordConnectionFailure(_connectionMessage(error));
+      rethrow;
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> getSuperAdminActionHistory() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/admin/history'),
+        headers: _getHeaders,
+      );
+      if (response.statusCode != 200) {
+        throw ApiRequestException(
+            response.statusCode, 'Unable to load super admin action history.');
+      }
+      _recordConnectionSuccess();
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+      final items = decoded['data'];
+      if (items is! List) return const [];
+      return items
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
     } catch (error) {
       _recordConnectionFailure(_connectionMessage(error));
       rethrow;
@@ -554,12 +708,15 @@ class ApiService {
         _recordConnectionSuccess();
         return true;
       } else {
-        print(
-            'Batch issuance failed [${response.statusCode}]: ${response.body}');
-        return false;
+        final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+        throw ApiRequestException(
+          response.statusCode,
+          body['message']?.toString() ?? 'Batch issuance failed.',
+        );
       }
     } catch (e) {
       _recordConnectionFailure(_connectionMessage(e));
+      if (e is ApiRequestException) rethrow;
       print('Batch issuance error: $e');
       return false;
     }
@@ -570,11 +727,11 @@ class ApiService {
     try {
       final response = await http.get(Uri.parse('$baseUrl/certificates'),
           headers: _getHeaders);
-    if (response.statusCode != 200)
-      throw Exception('Failed to load certificates [${response.statusCode}]');
-    _recordConnectionSuccess();
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    return List<Map<String, dynamic>>.from(body['data'] ?? const []);
+      if (response.statusCode != 200)
+        throw Exception('Failed to load certificates [${response.statusCode}]');
+      _recordConnectionSuccess();
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      return List<Map<String, dynamic>>.from(body['data'] ?? const []);
     } catch (error) {
       _recordConnectionFailure(_connectionMessage(error));
       rethrow;
@@ -608,38 +765,73 @@ class ApiService {
     return List<Map<String, dynamic>>.from(body['data'] ?? const []);
   }
 
-  static Future<List<Map<String, dynamic>>> getChatMessagesForStudent(String studentId) async {
-    final response = await http.get(Uri.parse('$baseUrl/chat/messages?student_id=$studentId'), headers: _getHeaders);
-    if (response.statusCode != 200) throw Exception('Failed to load conversation [${response.statusCode}]');
+  static Future<List<Map<String, dynamic>>> getChatMessagesForStudent(
+      String studentId) async {
+    final response = await http.get(
+        Uri.parse('$baseUrl/chat/messages?student_id=$studentId'),
+        headers: _getHeaders);
+    if (response.statusCode != 200)
+      throw Exception('Failed to load conversation [${response.statusCode}]');
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     return List<Map<String, dynamic>>.from(body['data'] ?? const []);
   }
 
-  static Future<List<Map<String, dynamic>>> getChatContacts({String search = ''}) async {
-    final query = search.trim().isEmpty ? '' : '?search=${Uri.encodeQueryComponent(search.trim())}';
-    final response = await http.get(Uri.parse('$baseUrl/chat/contacts$query'), headers: _getHeaders);
-    if (response.statusCode != 200) throw Exception('Failed to load students [${response.statusCode}]');
+  static Future<List<Map<String, dynamic>>> getChatContacts(
+      {String search = ''}) async {
+    final query = search.trim().isEmpty
+        ? ''
+        : '?search=${Uri.encodeQueryComponent(search.trim())}';
+    final response = await http.get(Uri.parse('$baseUrl/chat/contacts$query'),
+        headers: _getHeaders);
+    if (response.statusCode != 200)
+      throw Exception('Failed to load students [${response.statusCode}]');
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     return List<Map<String, dynamic>>.from(body['data'] ?? const []);
   }
 
   static Future<List<Map<String, dynamic>>> getChatPresence() async {
-    final response = await http.get(Uri.parse('$baseUrl/chat/presence'), headers: _getHeaders);
-    if (response.statusCode != 200) throw Exception('Failed to load presence [${response.statusCode}]');
+    final response = await http.get(Uri.parse('$baseUrl/chat/presence'),
+        headers: _getHeaders);
+    if (response.statusCode != 200)
+      throw Exception('Failed to load presence [${response.statusCode}]');
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     return List<Map<String, dynamic>>.from(body['data'] ?? const []);
   }
 
-  static Future<bool> sendChatMessage(String message, {String? recipientUserId, List<int>? fileBytes, String? fileName}) async {
-    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/chat/messages'));
+  static Future<bool> sendChatMessage(String message,
+      {String? recipientUserId, List<int>? fileBytes, String? fileName}) async {
+    final request =
+        http.MultipartRequest('POST', Uri.parse('$baseUrl/chat/messages'));
     request.headers.addAll(_getHeaders);
     request.fields['message'] = message;
-    if (recipientUserId != null) request.fields['recipient_user_id'] = recipientUserId;
+    if (recipientUserId != null)
+      request.fields['recipient_user_id'] = recipientUserId;
     if (fileBytes != null && fileName != null) {
-      request.files.add(http.MultipartFile.fromBytes('attachment', fileBytes, filename: fileName));
+      request.files.add(http.MultipartFile.fromBytes('attachment', fileBytes,
+          filename: fileName));
     }
     final streamed = await request.send();
     final response = await http.Response.fromStream(streamed);
     return response.statusCode == 201;
+  }
+
+  static Future<bool> deleteChatMessage(int messageId,
+      {bool forEveryone = false}) async {
+    final response = await http.delete(
+      Uri.parse(
+          '$baseUrl/chat/messages/$messageId?mode=${forEveryone ? 'everyone' : 'me'}'),
+      headers: _getHeaders,
+    );
+    return response.statusCode == 200;
+  }
+
+  static Future<bool> clearChatConversation(String userId,
+      {bool forEveryone = false}) async {
+    final response = await http.delete(
+      Uri.parse(
+          '$baseUrl/chat/conversation/$userId?mode=${forEveryone ? 'everyone' : 'me'}'),
+      headers: _getHeaders,
+    );
+    return response.statusCode == 200;
   }
 }

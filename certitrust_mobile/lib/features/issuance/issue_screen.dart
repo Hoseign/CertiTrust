@@ -1,9 +1,9 @@
-import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/utils/hash_util.dart';
 import '../../services/api_service.dart';
 
 class IssueScreen extends StatefulWidget {
@@ -21,11 +21,14 @@ class _CredentialDraft {
   String school = ApiService.authUniversity ?? 'UCU';
   PlatformFile? diploma;
 
-  String get hash => sha256
-      .convert(
-          '${studentId.text}|${studentName.text}|${studentEmail.text}|${degree.text}'
-              .codeUnits)
-      .toString();
+  String get hash => HashUtil.generateCredentialHash(
+        studentId: studentId.text,
+        studentName: studentName.text,
+        studentEmail: studentEmail.text,
+        degree: degree.text,
+        universityCode: school,
+        documentBytes: diploma?.bytes,
+      );
 
   void dispose() {
     studentId.dispose();
@@ -116,12 +119,13 @@ class _IssueScreenState extends State<IssueScreen> {
 
   Future<bool> _validateUniqueConstraints() async {
     final seenNames = <String, String>{}; // normalized name -> student ID
+    final seenStudentIds = <String>{};
     final seenFileNames =
         <String, String>{}; // file name -> owner's student name
     final existingRecords = await ApiService.getCertificatesForCurrentUser();
     final existingIds = <String>{
       for (final record in existingRecords)
-        record['student_id']?.toString().trim() ?? '',
+        (record['student_id']?.toString() ?? '').trim().toLowerCase(),
     };
     final existingNames = <String, String>{
       for (final record in existingRecords)
@@ -143,22 +147,23 @@ class _IssueScreenState extends State<IssueScreen> {
       final draft = _drafts[i];
       final nameTrimmed = draft.studentName.text.trim().toLowerCase();
       final studentIdTrimmed = draft.studentId.text.trim();
+      final normalizedStudentId = studentIdTrimmed.toLowerCase();
       final fileName = draft.diploma?.name;
       final studentDisplayName = draft.studentName.text.trim().isEmpty
           ? 'Student ${i + 1}'
           : draft.studentName.text.trim();
 
-      if (existingIds.contains(studentIdTrimmed)) {
+      if (existingIds.contains(normalizedStudentId) ||
+          !seenStudentIds.add(normalizedStudentId)) {
         _showWarning(
-            'Student ID "$studentIdTrimmed" has already been uploaded.');
+            'Student ID "$studentIdTrimmed" is already used. Enter a unique Student ID.');
         return false;
       }
-      if (existingNames.containsKey(nameTrimmed)) {
-        final proceed = await _showConfirmationDialog(
-          'Duplicate Name Detected',
-          'The name "${draft.studentName.text.trim()}" is already used by student ID ${existingNames[nameTrimmed]}. Continue with a different Student ID?',
-        );
-        if (!proceed) return false;
+      final previousStudentId =
+          existingNames[nameTrimmed] ?? seenNames[nameTrimmed];
+      if (previousStudentId != null) {
+        _showWarning(
+            'The name "${draft.studentName.text.trim()}" is already on a credential (Student ID $previousStudentId). Names may be shared; issuance will continue if the Student ID is unique.');
       }
 
       // Rule 4: Check unique image file name across drafts
@@ -177,24 +182,7 @@ class _IssueScreenState extends State<IssueScreen> {
         seenFileNames[fileName] = studentDisplayName;
       }
 
-      // Rule 3: Check duplicate names and IDs
-      if (seenNames.containsKey(nameTrimmed)) {
-        final existingId = seenNames[nameTrimmed];
-        if (existingId == studentIdTrimmed) {
-          _showWarning(
-              'Student "${draft.studentName.text.trim()}" with ID "$studentIdTrimmed" is duplicated in this batch.');
-          return false;
-        } else {
-          // Same name, different student ID -> Show warning prompt but let it pass via confirmation
-          final proceed = await _showConfirmationDialog(
-            'Duplicate Name Detected',
-            'The name "${draft.studentName.text.trim()}" is already used by a student with ID "$existingId", but has a different Student ID ("$studentIdTrimmed"). Do you want to proceed?',
-          );
-          if (!proceed) return false;
-        }
-      } else {
-        seenNames[nameTrimmed] = studentIdTrimmed;
-      }
+      seenNames.putIfAbsent(nameTrimmed, () => studentIdTrimmed);
     }
     return true;
   }
@@ -204,25 +192,6 @@ class _IssueScreenState extends State<IssueScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.orange),
     );
-  }
-
-  Future<bool> _showConfirmationDialog(String title, String content) async {
-    return await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Text(title),
-            content: Text(content),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Cancel')),
-              FilledButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Proceed')),
-            ],
-          ),
-        ) ??
-        false;
   }
 
   Future<void> _issueBatch() async {
@@ -429,7 +398,8 @@ class _IssueScreenState extends State<IssueScreen> {
             Row(
               children: [
                 Expanded(
-                    child: SelectableText('SHA-256: ${draft.hash}',
+                    child: SelectableText(
+                        'SHA-256 of ${draft.diploma?.bytes?.isNotEmpty == true ? 'document' : 'credential details'}: ${draft.hash}',
                         style: const TextStyle(
                             fontSize: 11, fontFamily: 'monospace'))),
                 QrImageView(data: draft.hash, size: 76),

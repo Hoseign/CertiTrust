@@ -21,12 +21,15 @@ class AppRouter {
       final isSplash = state.uri.path == '/splash';
       final isVerifying = state.uri.path.startsWith('/verify');
       final isScanning = state.uri.path == '/qr-scanner';
+        final isVerificationResult =
+          state.uri.path == '/verification-confirmation';
 
       // If not logged in and trying to access protected pages, redirect to login
       if (!isLoggedIn &&
           !isLoggingIn &&
           !isVerifying &&
           !isScanning &&
+          !isVerificationResult &&
           !isSplash) {
         return '/';
       }
