@@ -75,6 +75,10 @@ class _LoginScreenState extends State<LoginScreen> {
           authResult['has_certificate'] ?? false;
 
       if (!mounted) return;
+      if (authResult['access_frozen'] == true) {
+        await _showFrozenAccessDialog(authResult);
+        return;
+      }
 
       // Check if user is Admin or has admin role from Laravel
       bool isAdmin = email == 'certitrust256@gmail.com' || role == 'admin';
@@ -140,6 +144,39 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _showFrozenAccessDialog(
+      Map<String, dynamic> authResult) async {
+    final contact = authResult['freeze_contact'] is Map
+        ? Map<String, dynamic>.from(authResult['freeze_contact'] as Map)
+        : null;
+    final contactName =
+        contact?['name']?.toString() ?? 'the administrator who froze it';
+    final message = authResult['message']?.toString() ??
+        'Your account is frozen. Contact $contactName to resolve the issue.';
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Account access frozen'),
+        content: Text(
+          '$message\n\nYou can only use the support chat with $contactName until access is restored. Your conversation history will remain available.',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Okay'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    final contactId = contact?['id']?.toString();
+    final location = contactId == null
+        ? '/frozen-chat'
+        : '/frozen-chat?with_user_id=${Uri.encodeQueryComponent(contactId)}';
+    context.go(location);
   }
 
   String _signInErrorMessage(Object error) {

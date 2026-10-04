@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ChatMessage;
 use App\Models\Certificate;
+use App\Models\UniversityAccessControl;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,18 +18,29 @@ class ChatController extends Controller
         $user = $request->user();
         $user->forceFill(['last_seen_at' => now()])->save();
         $isSuperAdmin = $this->isSuperAdmin($user);
+        $targetId = $request->integer('with_user_id') ?: $request->integer('student_id');
+        $freezeActor = null;
 
-        if (!$isSuperAdmin && !$user->university_code) {
+        if ($user->isAccessFrozen()) {
+            $freezeActor = User::find($user->accessFrozenById());
+            if (!$targetId || !$freezeActor || $targetId !== (int) $freezeActor->id) {
+                return response()->json([
+                    'message' => 'Frozen accounts can only open the conversation with the administrator who applied the freeze.',
+                ], 403);
+            }
+        }
+
+        $universityCode = $user->university_code ?: $freezeActor?->university_code;
+        if (!$isSuperAdmin && !$universityCode) {
             return response()->json(['message' => 'Your account is not assigned to a school.'], 403);
         }
 
         $query = ChatMessage::query()->with('replyTo:id,user_id,sender_name,message')
             ->orderBy('created_at');
         if (!$isSuperAdmin) {
-            $query->where('university_code', $user->university_code);
+            $query->where('university_code', $universityCode);
         }
 
-        $targetId = $request->integer('with_user_id') ?: $request->integer('student_id');
         if ($targetId) {
             $target = User::find($targetId);
             if (!$target || !$this->canChatWith($user, $target)) {
@@ -71,6 +83,28 @@ class ChatController extends Controller
         $search = strtolower(trim((string) $request->query('search', '')));
         $isSuperAdmin = $this->isSuperAdmin($user);
 
+        if ($user->isAccessFrozen()) {
+            $freezeActor = User::find($user->accessFrozenById());
+            if (!$freezeActor) {
+                return response()->json([
+                    'message' => 'The administrator who froze this account is unavailable. Contact CertiTrust support.',
+                ], 403);
+            }
+            $contact = $this->contactProfile($freezeActor, [
+                'name' => $freezeActor->name ?: ($this->isSuperAdmin($freezeActor)
+                    ? 'CertiTrust Super Admin'
+                    : 'University administrator'),
+                'role_label' => $this->isSuperAdmin($freezeActor)
+                    ? 'CertiTrust Super Admin'
+                    : 'University subadmin',
+            ]);
+            $matchesSearch = $search === ''
+                || str_contains(strtolower($contact['name']), $search)
+                || str_contains(strtolower($contact['email']), $search);
+
+            return response()->json(['data' => $matchesSearch ? [$contact] : []]);
+        }
+
         if ($isSuperAdmin) {
             $contacts = User::where('role', 'admin')
                 ->whereNotNull('university_code')
@@ -85,8 +119,21 @@ class ChatController extends Controller
                 ->where('is_report', true)
                 ->distinct()
                 ->pluck('user_id');
+            $frozenUniversityCodes = UniversityAccessControl::where('updated_by', $user->id)
+                ->where('students_frozen', true)
+                ->pluck('university_code');
+            $frozenUserIds = User::where('access_frozen', true)
+                ->where('access_frozen_by', $user->id)
+                ->pluck('id')
+                ->concat(
+                    User::whereIn('role', ['student', 'user'])
+                        ->whereIn('university_code', $frozenUniversityCodes)
+                        ->whereNull('access_frozen')
+                        ->pluck('id')
+                );
+            $reporterIds = $reporterIds->concat($frozenUserIds)->unique()->values();
             $reporters = User::whereIn('id', $reporterIds)
-                ->where('role', 'student')
+                ->whereIn('role', ['student', 'user'])
                 ->get()
                 ->map(function (User $student) {
                     $certificate = $this->studentCertificateFor($student);
@@ -113,7 +160,7 @@ class ChatController extends Controller
             $contacts = $certificates->map(function (Certificate $certificate) {
                 $email = strtolower(trim((string) ($certificate->student_email ?: $certificate->email)));
                 $student = User::whereRaw('LOWER(TRIM(email)) = ?', [$email])
-                    ->where('role', 'student')
+                    ->whereIn('role', ['student', 'user'])
                     ->first();
                 if (!$student) return null;
 
@@ -129,6 +176,42 @@ class ChatController extends Controller
                     'role_label' => 'Student',
                 ]);
             })->filter()->unique('id')->values();
+
+            $frozenStudentIds = User::whereIn('role', ['student', 'user'])
+                ->where('university_code', $user->university_code)
+                ->where('access_frozen', true)
+                ->where('access_frozen_by', $user->id)
+                ->pluck('id');
+            $universityFreeze = UniversityAccessControl::where(
+                'university_code',
+                $user->university_code,
+            )->where('updated_by', $user->id)
+                ->where('students_frozen', true)
+                ->exists();
+            if ($universityFreeze) {
+                $frozenStudentIds = $frozenStudentIds->concat(
+                    User::whereIn('role', ['student', 'user'])
+                        ->where('university_code', $user->university_code)
+                        ->whereNull('access_frozen')
+                        ->pluck('id')
+                );
+            }
+            $frozenStudents = User::whereIn('id', $frozenStudentIds->unique())
+                ->get()
+                ->map(function (User $student) {
+                    $certificate = $this->studentCertificateFor($student);
+                    return $this->contactProfile($student, [
+                        'name' => $certificate?->student_name ?: $certificate?->recipient_name ?: $student->name,
+                        'student_id' => $certificate?->student_id,
+                        'degree' => $certificate?->degree ?: $certificate?->course_or_event,
+                        'issue_date' => $certificate?->issue_date,
+                        'certificate_code' => $certificate?->certificate_code,
+                        'cert_hash' => $certificate?->cert_hash,
+                        'university_code' => $student->university_code,
+                        'role_label' => 'Student',
+                    ]);
+                });
+            $contacts = $contacts->concat($frozenStudents)->unique('id')->values();
 
             $superAdmin = User::whereRaw('LOWER(email) = ?', ['certitrust256@gmail.com'])->first();
             if ($superAdmin) {
@@ -216,7 +299,7 @@ class ChatController extends Controller
             'is_report' => ['nullable', 'boolean'],
         ]);
 
-        if (!$user->university_code && !$this->isSuperAdmin($user)) {
+        if (!$user->university_code && !$this->isSuperAdmin($user) && !$user->isAccessFrozen()) {
             return response()->json(['message' => 'Your account is not assigned to a school.'], 403);
         }
 
@@ -225,6 +308,17 @@ class ChatController extends Controller
             return response()->json(['message' => 'Select a valid contact from your conversation list.'], 422);
         }
         $isReport = (bool) ($validated['is_report'] ?? false);
+        if (
+            $user->isAccessFrozen()
+            && (
+                (int) $recipient->id !== $user->accessFrozenById()
+                || $isReport
+            )
+        ) {
+            return response()->json([
+                'message' => 'Frozen accounts can only message the administrator who applied the freeze.',
+            ], 403);
+        }
         if ($isReport && ($user->role !== 'student' || !$this->isSuperAdmin($recipient))) {
             return response()->json(['message' => 'Only students can report a school administrator to the Super Admin.'], 403);
         }
@@ -344,14 +438,23 @@ class ChatController extends Controller
     private function canChatWith(User $user, User $target): bool
     {
         if ($user->is($target)) return false;
+        if ($user->isAccessFrozen()) {
+            return $user->accessFrozenById() === (int) $target->id;
+        }
         if ($this->isSuperAdmin($user)) {
             if ($target->role === 'admin' && $target->university_code !== null) return true;
-            return $target->role === 'student' && ChatMessage::where('user_id', $target->id)
-                ->where('recipient_user_id', $user->id)->where('is_report', true)->exists();
+            if (in_array($target->role, ['student', 'user'], true)) {
+                return $target->accessFrozenById() === (int) $user->id
+                    || ($target->role === 'student' && ChatMessage::where('user_id', $target->id)
+                        ->where('recipient_user_id', $user->id)
+                        ->where('is_report', true)
+                        ->exists());
+            }
+            return false;
         }
         if ($user->role === 'admin') {
             if ($this->isSuperAdmin($target)) return true;
-            if ($target->role !== 'student' || $target->university_code !== $user->university_code) return false;
+            if (!in_array($target->role, ['student', 'user'], true) || $target->university_code !== $user->university_code) return false;
             $email = strtolower(trim($target->email));
 
             return Certificate::where('university_code', $user->university_code)
@@ -362,7 +465,7 @@ class ChatController extends Controller
         }
 
         if ($this->isSuperAdmin($target)) {
-            if ($user->role !== 'student') return false;
+            if (!in_array($user->role, ['student', 'user'], true)) return false;
             $email = strtolower(trim($user->email));
             return Certificate::where('university_code', $user->university_code)
                 ->where(function ($query) use ($email) {

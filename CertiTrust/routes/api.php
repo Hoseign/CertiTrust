@@ -6,6 +6,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CertificateController;
 use App\Http\Controllers\CertificateDeletionRequestController;
 use App\Http\Controllers\ChatController;
+use App\Http\Middleware\EnsureAccountIsNotFrozen;
 
 /*
 |--------------------------------------------------------------------------
@@ -48,14 +49,36 @@ Route::post('/auth/google', [AuthController::class, 'googleLogin']);
 Route::get('/certificates/{code}', [CertificateController::class, 'show']);
 
 // Protected Routes (Requires Sanctum Token)
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', EnsureAccountIsNotFrozen::class])->group(function () {
     Route::get('/user', function (Request $request) {
-        return $request->user();
+        $user = $request->user();
+        if ($user->isAccessFrozen()) {
+            $contact = \App\Models\User::find($user->accessFrozenById());
+            return response()->json([
+                'id' => $user->id,
+                'email' => $user->email,
+                'role' => $user->role,
+                'university_code' => $user->university_code,
+                'access_frozen' => true,
+                'freeze_contact' => $contact ? [
+                    'id' => $contact->id,
+                    'name' => $contact->name,
+                    'role_label' => strtolower((string) $contact->email) === 'certitrust256@gmail.com'
+                        ? 'CertiTrust Super Admin'
+                        : 'University subadmin',
+                ] : null,
+            ]);
+        }
+        return $user;
     });
     Route::post('/user/profile', [AuthController::class, 'updateProfile']);
 
     Route::post('/admin/users', [AuthController::class, 'createAdmin']);
     Route::get('/admin/subadmins', [AuthController::class, 'listSubadmins']);
+    Route::patch('/admin/universities/{universityCode}/access', [AuthController::class, 'updateUniversityAccess']);
+    Route::get('/admin/students', [AuthController::class, 'listUniversityStudents']);
+    Route::patch('/admin/students/{user}/access', [AuthController::class, 'updateStudentAccess']);
+    Route::patch('/admin/students/access', [AuthController::class, 'updateAllStudentAccess']);
     Route::post('/admin/subadmins', [AuthController::class, 'bindSubadmin']);
     Route::put('/admin/subadmins/{user}', [AuthController::class, 'updateSubadmin']);
     Route::delete('/admin/subadmins/{user}/google', [AuthController::class, 'unbindSubadminGoogle']);

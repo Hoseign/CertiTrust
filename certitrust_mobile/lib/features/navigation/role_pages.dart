@@ -16,6 +16,7 @@ class RecordsScreen extends StatefulWidget {
 class _RecordsScreenState extends State<RecordsScreen> {
   final _searchController = TextEditingController();
   late Future<List<Map<String, dynamic>>> _records;
+  int? _selectedDegreeNumber;
 
   @override
   void initState() {
@@ -108,9 +109,151 @@ class _RecordsScreenState extends State<RecordsScreen> {
         .any((value) => value.toString().toLowerCase().contains(query));
   }
 
+  bool get _isSchoolAdmin =>
+      ApiService.authRole == 'admin' && !ApiService.isSuperAdmin;
+
+  int _degreeNumber(Map<String, dynamic> record) =>
+      int.tryParse(record['degree_number']?.toString() ?? '') ?? 1;
+
+  String _ordinal(int number) {
+    if (number % 100 >= 11 && number % 100 <= 13) return '${number}th';
+    switch (number % 10) {
+      case 1:
+        return '${number}st';
+      case 2:
+        return '${number}nd';
+      case 3:
+        return '${number}rd';
+      default:
+        return '${number}th';
+    }
+  }
+
+  DateTime? _publishedAt(Map<String, dynamic> record) {
+    final publishedAt =
+        DateTime.tryParse(record['created_at']?.toString() ?? '');
+    return publishedAt ??
+        DateTime.tryParse(record['issue_date']?.toString() ?? '');
+  }
+
+  String _publishedLabel(Map<String, dynamic> record) {
+    final publishedAt = _publishedAt(record);
+    if (publishedAt == null) return 'N/A';
+    final local = publishedAt.toLocal();
+    return '${local.year}-${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')} '
+        '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}';
+  }
+
+  Widget _sectionHeader(String title) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 18, 4, 8),
+        child: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+        ),
+      );
+
+  Widget _recordCard(BuildContext context, Map<String, dynamic> record) {
+    final diplomaUrl = record['diploma_url'] ?? record['cert_image_url'];
+    final diplomaFileName =
+        'Diploma_${(record['student_id'] ?? record['student_name'] ?? 'Student').toString().replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')}.jpg';
+    final studentId = record['student_id']?.toString() ?? 'N/A';
+    final email =
+        (record['student_email'] ?? record['email'] ?? 'N/A').toString();
+    final verificationCode =
+        (record['cert_hash'] ?? record['certificate_code'])?.toString();
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        key: PageStorageKey('credential-${record['id'] ?? verificationCode}'),
+        initiallyExpanded: false,
+        leading: const Icon(Icons.school_outlined),
+        title: Text(
+          record['student_name']?.toString() ?? 'Student',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          _recordDetailRow(
+              'Student name', record['student_name']?.toString() ?? 'N/A'),
+          _recordDetailRow('Student ID', studentId),
+          _recordDetailRow(
+              'Course / program',
+              record['degree']?.toString() ??
+                  record['course_or_event']?.toString() ??
+                  'N/A'),
+          _recordDetailRow('Degree number', _ordinal(_degreeNumber(record))),
+          _recordDetailRow('Gmail', email),
+          _recordDetailRow('Certificate code',
+              record['certificate_code']?.toString() ?? 'N/A'),
+          _recordDetailRow(
+              'Issue date', record['issue_date']?.toString() ?? 'N/A'),
+          _recordDetailRow('Published', _publishedLabel(record)),
+          _recordDetailRow('Status', record['status']?.toString() ?? 'Issued'),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              TextButton.icon(
+                onPressed: verificationCode == null || verificationCode.isEmpty
+                    ? null
+                    : () => context.go(
+                        '/verify?hash=${Uri.encodeQueryComponent(verificationCode)}'),
+                icon: const Icon(Icons.verified_outlined),
+                label: const Text('Verify this record'),
+              ),
+              TextButton.icon(
+                onPressed: diplomaUrl == null || diplomaUrl.toString().isEmpty
+                    ? () => ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                                'No diploma image was attached to this credential.'),
+                          ),
+                        )
+                    : () => showDiplomaPreview(
+                          context,
+                          diplomaUrl.toString(),
+                          fileName: diplomaFileName,
+                        ),
+                icon: const Icon(Icons.workspace_premium_outlined),
+                label: Text(
+                    _isSchoolAdmin ? 'View This Diploma' : 'View Your Diploma'),
+              ),
+              if (_isSchoolAdmin)
+                TextButton.icon(
+                  onPressed: () => context.push('/issue', extra: record),
+                  icon: const Icon(Icons.add_circle_outline),
+                  label: const Text('Add another degree'),
+                ),
+              if (_isSchoolAdmin)
+                TextButton.icon(
+                  onPressed: () => _requestDeletion(record),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Request deletion'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Certificate Records')),
+        appBar: AppBar(
+          title: const Text('Certificate Records'),
+          actions: [
+            if (_isSchoolAdmin)
+              IconButton(
+                onPressed: () => context.push('/student-access'),
+                icon: const Icon(Icons.manage_accounts_outlined),
+                tooltip: 'Manage student account access',
+              ),
+          ],
+        ),
         body: FutureBuilder<List<Map<String, dynamic>>>(
           future: _records,
           builder: (context, snapshot) {
@@ -118,9 +261,81 @@ class _RecordsScreenState extends State<RecordsScreen> {
               return const Center(child: CircularProgressIndicator());
             }
             final query = _searchController.text.trim().toLowerCase();
-            final records = (snapshot.data ?? const <Map<String, dynamic>>[])
-                .where((record) => _matches(record, query))
-                .toList();
+            final allRecords = snapshot.data ?? const <Map<String, dynamic>>[];
+            final searchedRecords =
+                allRecords.where((record) => _matches(record, query)).toList();
+            final degreeNumbers = allRecords.map(_degreeNumber).toSet().toList()
+              ..sort();
+            final visibleRecords =
+                _isSchoolAdmin && _selectedDegreeNumber != null
+                    ? searchedRecords
+                        .where((record) =>
+                            _degreeNumber(record) == _selectedDegreeNumber)
+                        .toList()
+                    : searchedRecords;
+            final content = <Widget>[];
+            if (_isSchoolAdmin && degreeNumbers.isNotEmpty) {
+              content.add(_sectionHeader('Organize by degree'));
+              content.add(
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      ChoiceChip(
+                        label: const Text('All degrees'),
+                        selected: _selectedDegreeNumber == null,
+                        onSelected: (_) =>
+                            setState(() => _selectedDegreeNumber = null),
+                      ),
+                      const SizedBox(width: 8),
+                      for (final degreeNumber in degreeNumbers) ...[
+                        ChoiceChip(
+                          label: Text('${_ordinal(degreeNumber)} degree'),
+                          selected: _selectedDegreeNumber == degreeNumber,
+                          onSelected: (_) => setState(
+                              () => _selectedDegreeNumber = degreeNumber),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            }
+            if (visibleRecords.isNotEmpty) {
+              if (ApiService.authRole == 'student') {
+                final studentDegrees =
+                    visibleRecords.map(_degreeNumber).toSet().toList()..sort();
+                for (final degreeNumber in studentDegrees) {
+                  content.add(
+                      _sectionHeader('Your ${_ordinal(degreeNumber)} Degree'));
+                  content.addAll(visibleRecords
+                      .where((record) => _degreeNumber(record) == degreeNumber)
+                      .map((record) => _recordCard(context, record)));
+                }
+              } else {
+                final years = visibleRecords
+                    .map((record) =>
+                        _publishedAt(record)?.year.toString() ??
+                        'Year unavailable')
+                    .toSet()
+                    .toList()
+                  ..sort((a, b) {
+                    final yearA = int.tryParse(a) ?? -1;
+                    final yearB = int.tryParse(b) ?? -1;
+                    return yearB.compareTo(yearA);
+                  });
+                for (final year in years) {
+                  content.add(_sectionHeader(year));
+                  content.addAll(visibleRecords
+                      .where((record) =>
+                          (_publishedAt(record)?.year.toString() ??
+                              'Year unavailable') ==
+                          year)
+                      .map((record) => _recordCard(context, record)));
+                }
+              }
+            }
             return Column(children: [
               Padding(
                 padding: const EdgeInsets.all(16),
@@ -136,118 +351,12 @@ class _RecordsScreenState extends State<RecordsScreen> {
                 ),
               ),
               Expanded(
-                child: records.isEmpty
+                child: visibleRecords.isEmpty
                     ? const Center(
                         child: Text('No matching certificate records.'))
-                    : ListView.separated(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: records.length,
-                        separatorBuilder: (_, __) => const Divider(),
-                        itemBuilder: (context, index) {
-                          final record = records[index];
-                          final diplomaUrl =
-                              record['diploma_url'] ?? record['cert_image_url'];
-                          final diplomaFileName =
-                              'Diploma_${(record['student_id'] ?? record['student_name'] ?? 'Student').toString().replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')}.jpg';
-                          final studentId =
-                              record['student_id']?.toString() ?? 'N/A';
-                          final email = (record['student_email'] ??
-                                  record['email'] ??
-                                  'N/A')
-                              .toString();
-                          final verificationCode = (record['cert_hash'] ??
-                                  record['certificate_code'])
-                              ?.toString();
-                          return Card(
-                            clipBehavior: Clip.antiAlias,
-                            child: ExpansionTile(
-                              leading: const Icon(Icons.school_outlined),
-                              title: Text(
-                                record['student_name']?.toString() ?? 'Student',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w600),
-                              ),
-                              subtitle: const Text(
-                                  'Tap to view credential information'),
-                              childrenPadding:
-                                  const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                              children: [
-                                _recordDetailRow(
-                                    'Student name',
-                                    record['student_name']?.toString() ??
-                                        'N/A'),
-                                _recordDetailRow('Student ID', studentId),
-                                _recordDetailRow(
-                                    'Course / program',
-                                    record['degree']?.toString() ??
-                                        record['course_or_event']?.toString() ??
-                                        'N/A'),
-                                _recordDetailRow(
-                                    'Degree number',
-                                    record['degree_number']?.toString() ??
-                                        '1'),
-                                _recordDetailRow('Gmail', email),
-                                _recordDetailRow(
-                                    'Certificate code',
-                                    record['certificate_code']?.toString() ??
-                                        'N/A'),
-                                _recordDetailRow('Issue date',
-                                    record['issue_date']?.toString() ?? 'N/A'),
-                                _recordDetailRow('Status',
-                                    record['status']?.toString() ?? 'Issued'),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    TextButton.icon(
-                                      onPressed: verificationCode == null ||
-                                              verificationCode.isEmpty
-                                          ? null
-                                          : () => context.go(
-                                              '/verify?hash=${Uri.encodeQueryComponent(verificationCode)}'),
-                                      icon: const Icon(Icons.verified_outlined),
-                                      label: const Text('Verify this record'),
-                                    ),
-                                    TextButton.icon(
-                                      onPressed: diplomaUrl == null ||
-                                              diplomaUrl.toString().isEmpty
-                                          ? () => ScaffoldMessenger.of(context)
-                                                  .showSnackBar(
-                                                const SnackBar(
-                                                  content: Text(
-                                                      'No diploma image was attached to this credential.'),
-                                                ),
-                                              )
-                                          : () => showDiplomaPreview(
-                                                context,
-                                                diplomaUrl.toString(),
-                                                fileName: diplomaFileName,
-                                              ),
-                                      icon: const Icon(
-                                          Icons.workspace_premium_outlined),
-                                      label: const Text('View Your Diploma'),
-                                    ),
-                                    if (ApiService.authRole == 'admin' &&
-                                        !ApiService.isSuperAdmin)
-                                      TextButton.icon(
-                                        onPressed: () =>
-                                            context.push('/issue', extra: record),
-                                        icon: const Icon(Icons.add_circle_outline),
-                                        label: const Text('Add another degree'),
-                                      ),
-                                    if (ApiService.authRole == 'admin' &&
-                                        !ApiService.isSuperAdmin)
-                                      TextButton.icon(
-                                        onPressed: () =>
-                                            _requestDeletion(record),
-                                        icon: const Icon(Icons.delete_outline),
-                                        label: const Text('Request deletion'),
-                                      ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+                    : ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        children: content,
                       ),
               ),
             ]);
@@ -418,7 +527,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 class ChatScreen extends StatefulWidget {
   final bool isAdmin;
   final String? initialContactId;
-  const ChatScreen({super.key, required this.isAdmin, this.initialContactId});
+  final bool restrictedMode;
+  const ChatScreen({
+    super.key,
+    required this.isAdmin,
+    this.initialContactId,
+    this.restrictedMode = false,
+  });
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -471,6 +586,14 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       List<Map<String, dynamic>> items;
       if (selectedContact != null) {
+        if (widget.restrictedMode) {
+          final stillFrozen = await ApiService.refreshAccessState();
+          if (!mounted) return;
+          if (stillFrozen == false) {
+            context.go('/dashboard');
+            return;
+          }
+        }
         items = await ApiService.getChatMessagesForStudent(
             selectedContact['id'].toString());
         final unsentMessages = _items.where((message) =>
@@ -482,14 +605,19 @@ class _ChatScreenState extends State<ChatScreen> {
         items = await ApiService.getChatContacts(search: search);
         final initialContactId = _pendingInitialContactId;
         _pendingInitialContactId = null;
-        if (initialContactId != null) {
+        if (initialContactId != null || widget.restrictedMode) {
           final contact = items
-              .where((item) => item['id'].toString() == initialContactId)
+              .where((item) => initialContactId == null ||
+                  item['id'].toString() == initialContactId)
               .firstOrNull;
           if (contact != null) {
             _selectedContact = contact;
             items =
-                await ApiService.getChatMessagesForStudent(initialContactId);
+                await ApiService.getChatMessagesForStudent(
+                    contact['id'].toString());
+          } else if (widget.restrictedMode) {
+            throw Exception(
+                'The administrator chat is unavailable. Contact CertiTrust support.');
           }
         }
       }
@@ -912,30 +1040,6 @@ class _ChatScreenState extends State<ChatScreen> {
               const SizedBox(height: 8),
               Text(profile['last_seen_label']?.toString() ??
                   'Last active: unknown'),
-              if (profile['student_id'] != null) ...[
-                const SizedBox(height: 8),
-                Text('Student ID: ${profile['student_id']}'),
-              ],
-              if (profile['degree'] != null) ...[
-                const SizedBox(height: 8),
-                Text('Degree: ${profile['degree']}'),
-              ],
-              if (profile['university_code'] != null) ...[
-                const SizedBox(height: 8),
-                Text('School: ${profile['university_code']}'),
-              ],
-              if (profile['issue_date'] != null) ...[
-                const SizedBox(height: 8),
-                Text('Issued: ${profile['issue_date']}'),
-              ],
-              if (profile['certificate_code'] != null) ...[
-                const SizedBox(height: 8),
-                Text('Credential code: ${profile['certificate_code']}'),
-              ],
-              if (profile['cert_hash'] != null) ...[
-                const SizedBox(height: 8),
-                SelectableText('SHA-256: ${profile['cert_hash']}'),
-              ],
             ],
           ),
         ),
@@ -1139,30 +1243,33 @@ class _ChatScreenState extends State<ChatScreen> {
                                     ),
                                     if (message['is_report'] == true)
                                       const Icon(Icons.flag_outlined, size: 16),
-                                    PopupMenuButton<String>(
-                                      padding: EdgeInsets.zero,
-                                      icon:
-                                          const Icon(Icons.more_vert, size: 18),
-                                      onSelected: (value) async {
-                                        if (value == 'delete_me') {
-                                          await _deleteMessage(message);
-                                        } else if (value == 'delete_everyone') {
-                                          await _deleteMessage(message,
-                                              forEveryone: true);
-                                        }
-                                      },
-                                      itemBuilder: (context) => [
-                                        const PopupMenuItem(
-                                          value: 'delete_me',
-                                          child: Text('Delete for me'),
-                                        ),
-                                        if (own)
+                                    if (!widget.restrictedMode)
+                                      PopupMenuButton<String>(
+                                        padding: EdgeInsets.zero,
+                                        icon: const Icon(Icons.more_vert,
+                                            size: 18),
+                                        onSelected: (value) async {
+                                          if (value == 'delete_me') {
+                                            await _deleteMessage(message);
+                                          } else if (value ==
+                                              'delete_everyone') {
+                                            await _deleteMessage(message,
+                                                forEveryone: true);
+                                          }
+                                        },
+                                        itemBuilder: (context) => [
                                           const PopupMenuItem(
-                                            value: 'delete_everyone',
-                                            child: Text('Delete for everyone'),
+                                            value: 'delete_me',
+                                            child: Text('Delete for me'),
                                           ),
-                                      ],
-                                    ),
+                                          if (own)
+                                            const PopupMenuItem(
+                                              value: 'delete_everyone',
+                                              child: Text(
+                                                  'Delete for everyone'),
+                                            ),
+                                        ],
+                                      ),
                                   ],
                                 ),
                                 if (quoted != null)
@@ -1290,11 +1397,25 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _restrictedChatUnavailable() => const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'The administrator chat is unavailable. Contact CertiTrust support to restore access.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) => PopScope(
-        canPop: _selectedContact == null,
+        canPop: !widget.restrictedMode && _selectedContact == null,
         onPopInvokedWithResult: (didPop, result) {
-          if (!didPop && _selectedContact != null) _closeConversation();
+          if (!widget.restrictedMode &&
+              !didPop &&
+              _selectedContact != null) {
+            _closeConversation();
+          }
         },
         child: Scaffold(
           appBar: AppBar(
@@ -1325,12 +1446,12 @@ class _ChatScreenState extends State<ChatScreen> {
                     ],
                   )
                 : const Text('Messages'),
-            leading: _selectedContact != null
+            leading: _selectedContact != null && !widget.restrictedMode
                 ? IconButton(
                     icon: const Icon(Icons.arrow_back),
                     onPressed: _closeConversation)
                 : null,
-            actions: _selectedContact != null
+            actions: _selectedContact != null && !widget.restrictedMode
                 ? [
                     if (!widget.isAdmin &&
                         _selectedContact!['role_label'] ==
@@ -1366,7 +1487,9 @@ class _ChatScreenState extends State<ChatScreen> {
           body: Column(children: [
             Expanded(
                 child: _selectedContact == null
-                    ? _contactsBody()
+                    ? widget.restrictedMode
+                        ? _restrictedChatUnavailable()
+                        : _contactsBody()
                     : _messagesBody()),
             if (_selectedContact != null) ...[
               if (_replyTo != null)
@@ -1447,7 +1570,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       ]))),
             ],
           ]),
-          bottomNavigationBar: RoleBottomNavigationBar(isAdmin: widget.isAdmin),
+          bottomNavigationBar: widget.restrictedMode
+              ? null
+              : RoleBottomNavigationBar(isAdmin: widget.isAdmin),
         ),
       );
 }

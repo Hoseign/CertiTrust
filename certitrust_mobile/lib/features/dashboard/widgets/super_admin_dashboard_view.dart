@@ -137,6 +137,15 @@ class SuperAdminDashboardView extends StatelessWidget {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
+                    onPressed: () => context.push('/admin-management'),
+                    icon: const Icon(Icons.lock_person_outlined),
+                    label: const Text('Freeze or restore university access'),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
                     onPressed: () => context.push('/deletion-requests'),
                     icon: const Icon(Icons.pending_actions),
                     label: const Text('Credential deletion requests'),

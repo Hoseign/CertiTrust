@@ -165,6 +165,88 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     }
   }
 
+  Future<void> _manageUniversityAccess(
+      Map<String, dynamic> admin, bool frozen) async {
+    final universityCode = admin['university_code']?.toString();
+    if (universityCode == null || universityCode.isEmpty) return;
+    var selectedScope = 'admin';
+    final scope = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(frozen ? 'Freeze university access' : 'Restore university access'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                frozen
+                    ? 'Choose which accounts at $universityCode to freeze. Student-only or combined freezing affects all current and future student accounts.'
+                    : 'Choose which accounts at $universityCode to restore. Unfreezing students clears their individual freezes too.',
+              ),
+              const SizedBox(height: 12),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final option in const [
+                    ('admin', 'Subadmin only'),
+                    ('students', 'Students only'),
+                    ('both', 'Subadmin and students'),
+                  ])
+                    ChoiceChip(
+                      label: Text(option.$2),
+                      selected: selectedScope == option.$1,
+                      onSelected: (_) =>
+                          setDialogState(() => selectedScope = option.$1),
+                    ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, selectedScope),
+              child: Text(frozen ? 'Freeze selected' : 'Restore selected'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (scope == null || !mounted) return;
+
+    try {
+      await ApiService.updateUniversityAccess(
+        universityCode: universityCode,
+        scope: scope,
+        frozen: frozen,
+      );
+      await _loadAdmins();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            '${frozen ? 'Frozen' : 'Restored'} ${_scopeLabel(scope)} access for $universityCode.',
+          ),
+        ));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not update university access: $error')));
+      }
+    }
+  }
+
+  String _scopeLabel(String scope) => switch (scope) {
+        'students' => 'student',
+        'both' => 'subadmin and student',
+        _ => 'subadmin',
+      };
+
   void _startEdit(Map<String, dynamic> admin) {
     final universityName = admin['university_code'] == 'UCU'
         ? 'Urdaneta City University'
@@ -328,6 +410,18 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                         const SizedBox(height: 4),
                         Text(
                             'University: ${admin['university_code'] ?? 'Unassigned'}'),
+                        const SizedBox(height: 4),
+                        Text(
+                          admin['access_frozen'] == true
+                              ? 'Subadmin access: Frozen'
+                              : 'Subadmin access: Active',
+                          style: TextStyle(
+                            color: admin['access_frozen'] == true
+                                ? Colors.red
+                                : Colors.green,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ],
                     ),
                     trailing: PopupMenuButton<String>(
@@ -335,13 +429,29 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                         if (value == 'edit') _startEdit(admin);
                         if (value == 'unbind') await _unbindGoogle(admin);
                         if (value == 'delete') await _deleteAdmin(admin);
+                        if (value == 'freeze') {
+                          await _manageUniversityAccess(admin, true);
+                        }
+                        if (value == 'unfreeze') {
+                          await _manageUniversityAccess(admin, false);
+                        }
                       },
-                      itemBuilder: (context) => const [
-                        PopupMenuItem(value: 'edit', child: Text('Edit')),
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                            value: 'edit', child: Text('Edit')),
                         PopupMenuItem(
+                          value: 'freeze',
+                          child: Text('Freeze access for ${admin['university_code']}'),
+                        ),
+                        PopupMenuItem(
+                          value: 'unfreeze',
+                          child: Text('Restore access for ${admin['university_code']}'),
+                        ),
+                        const PopupMenuItem(
                             value: 'unbind',
                             child: Text('Remove Google binding')),
-                        PopupMenuItem(value: 'delete', child: Text('Delete')),
+                        const PopupMenuItem(
+                            value: 'delete', child: Text('Delete')),
                       ],
                     ),
                   ),

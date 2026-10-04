@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\AdminActionLog;
+use App\Models\UniversityAccessControl;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -35,6 +36,15 @@ class AuthController extends Controller
             }
 
             $user = User::where('email', $request->email)->first();
+            if ($user?->isAccessFrozen()) {
+                Auth::logout();
+                return $this->frozenLoginResponse($user, DB::table('certificates')
+                    ->where(function ($query) use ($user) {
+                        $query->where('email', $user->email)
+                            ->orWhere('student_email', $user->email);
+                    })
+                    ->exists());
+            }
             $hasCertificate = DB::table('certificates')
                 ->where('email', $user->email)
                 ->orWhere('student_email', $user->email)
@@ -123,6 +133,9 @@ class AuthController extends Controller
             }
 
             $user = $existingUser;
+            if ($user?->isAccessFrozen()) {
+                return $this->frozenLoginResponse($user, $hasCertificate);
+            }
             if (!$user && $certificate) {
                 $user = User::create([
                     'name' => $certificate->student_name ?: $certificate->recipient_name ?: $name,
@@ -140,6 +153,9 @@ class AuthController extends Controller
             $role = $user->role ?? 'student';
             if (!$user->university_code && $certificate?->university_code) {
                 $user->forceFill(['university_code' => $certificate->university_code])->save();
+            }
+            if ($user->isAccessFrozen()) {
+                return $this->frozenLoginResponse($user, $hasCertificate);
             }
 
             // Generate a Sanctum token for API authentication
@@ -230,8 +246,195 @@ class AuthController extends Controller
 
         return response()->json([
             'data' => $query->orderBy('university_code')->orderBy('email')->get([
-                'id', 'name', 'email', 'role', 'university_code', 'google_id', 'created_at', 'updated_at',
+                'id', 'name', 'email', 'role', 'university_code', 'google_id', 'access_frozen', 'created_at', 'updated_at',
             ]),
+        ]);
+    }
+
+    public function updateUniversityAccess(Request $request, string $universityCode)
+    {
+        $this->ensureSuperAdmin($request);
+        abort_unless(in_array($universityCode, ['UCU', 'PSU'], true), 404);
+
+        $validated = $request->validate([
+            'scope' => ['required', 'in:admin,students,both'],
+            'frozen' => ['required', 'boolean'],
+        ]);
+        $frozen = (bool) $validated['frozen'];
+        $scope = $validated['scope'];
+        $admin = null;
+
+        if (in_array($scope, ['admin', 'both'], true)) {
+            $admin = User::where('role', 'admin')
+                ->where('university_code', $universityCode)
+                ->first();
+            if (!$admin) {
+                return response()->json([
+                    'message' => 'No subadmin account is registered for this university.',
+                ], 404);
+            }
+        }
+
+        DB::transaction(function () use ($request, $universityCode, $scope, $frozen, $admin): void {
+            if ($admin) {
+                $admin->forceFill([
+                    'access_frozen' => $frozen,
+                    'access_frozen_at' => $frozen ? now() : null,
+                    'access_frozen_by' => $frozen ? $request->user()->id : null,
+                ])->save();
+                if ($frozen) {
+                    $admin->tokens()->delete();
+                }
+            }
+
+            if (in_array($scope, ['students', 'both'], true)) {
+                UniversityAccessControl::updateOrCreate(
+                    ['university_code' => $universityCode],
+                    [
+                        'students_frozen' => $frozen,
+                        'updated_by' => $request->user()->id,
+                    ],
+                );
+                User::whereIn('role', ['student', 'user'])
+                    ->where('university_code', $universityCode)
+                    ->update([
+                        'access_frozen' => null,
+                        'access_frozen_at' => null,
+                        'access_frozen_by' => null,
+                    ]);
+                if ($frozen) {
+                    User::whereIn('role', ['student', 'user'])
+                        ->where('university_code', $universityCode)
+                        ->get()
+                        ->each(fn (User $student) => $student->tokens()->delete());
+                }
+            }
+        });
+
+        $this->logAdminAction(
+            $frozen ? 'froze_university_access' : 'unfroze_university_access',
+            $admin?->email,
+            $universityCode,
+            ['scope' => $scope, 'frozen' => $frozen],
+        );
+
+        return response()->json([
+            'message' => $frozen ? 'Selected university access has been frozen.' : 'Selected university access has been restored.',
+            'scope' => $scope,
+            'frozen' => $frozen,
+        ]);
+    }
+
+    public function listUniversityStudents(Request $request)
+    {
+        $admin = $request->user();
+        if ($admin->role !== 'admin' || !$admin->university_code || $this->isSuperAdmin($admin)) {
+            return response()->json([
+                'message' => 'Only a university subadmin can manage student access.',
+            ], 403);
+        }
+
+        $students = User::whereIn('role', ['student', 'user'])
+            ->where('university_code', $admin->university_code)
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'university_code', 'access_frozen'])
+            ->map(fn (User $student) => [
+                'id' => $student->id,
+                'name' => $student->name,
+                'email' => $student->email,
+                'university_code' => $student->university_code,
+                'is_frozen' => $student->isAccessFrozen(),
+                'access_frozen' => $student->access_frozen,
+            ]);
+
+        return response()->json([
+            'data' => $students,
+            'university_students_frozen' => $this->universityStudentsAreFrozen($admin->university_code),
+        ]);
+    }
+
+    public function updateStudentAccess(Request $request, User $user)
+    {
+        $admin = $request->user();
+        if ($admin->role !== 'admin' || !$admin->university_code || $this->isSuperAdmin($admin)) {
+            return response()->json([
+                'message' => 'Only a university subadmin can manage student access.',
+            ], 403);
+        }
+        if (
+            !in_array($user->role, ['student', 'user'], true)
+            || $user->university_code !== $admin->university_code
+        ) {
+            return response()->json([
+                'message' => 'You may only manage student accounts from your university.',
+            ], 403);
+        }
+
+        $validated = $request->validate(['frozen' => ['required', 'boolean']]);
+        $frozen = (bool) $validated['frozen'];
+        $user->forceFill([
+            'access_frozen' => $frozen,
+            'access_frozen_at' => $frozen ? now() : null,
+            'access_frozen_by' => $frozen ? $admin->id : null,
+        ])->save();
+        if ($frozen) {
+            $user->tokens()->delete();
+        }
+
+        $this->logAdminAction(
+            $frozen ? 'froze_student_account' : 'unfroze_student_account',
+            $user->email,
+            $admin->university_code,
+            ['student_user_id' => $user->id],
+        );
+
+        return response()->json([
+            'message' => $frozen ? 'Student account frozen.' : 'Student account access restored.',
+            'is_frozen' => $user->isAccessFrozen(),
+        ]);
+    }
+
+    public function updateAllStudentAccess(Request $request)
+    {
+        $admin = $request->user();
+        if ($admin->role !== 'admin' || !$admin->university_code || $this->isSuperAdmin($admin)) {
+            return response()->json([
+                'message' => 'Only a university subadmin can manage student access.',
+            ], 403);
+        }
+
+        $validated = $request->validate(['frozen' => ['required', 'boolean']]);
+        $frozen = (bool) $validated['frozen'];
+        DB::transaction(function () use ($admin, $frozen): void {
+            UniversityAccessControl::updateOrCreate(
+                ['university_code' => $admin->university_code],
+                ['students_frozen' => $frozen, 'updated_by' => $admin->id],
+            );
+            User::whereIn('role', ['student', 'user'])
+                ->where('university_code', $admin->university_code)
+                ->update([
+                    'access_frozen' => null,
+                    'access_frozen_at' => null,
+                    'access_frozen_by' => null,
+                ]);
+            if ($frozen) {
+                User::whereIn('role', ['student', 'user'])
+                    ->where('university_code', $admin->university_code)
+                    ->get()
+                    ->each(fn (User $student) => $student->tokens()->delete());
+            }
+        });
+
+        $this->logAdminAction(
+            $frozen ? 'froze_all_students' : 'unfroze_all_students',
+            null,
+            $admin->university_code,
+            ['frozen' => $frozen],
+        );
+
+        return response()->json([
+            'message' => $frozen ? 'All student accounts are frozen.' : 'All student account restrictions have been cleared.',
+            'university_students_frozen' => $frozen,
         ]);
     }
 
@@ -488,6 +691,48 @@ class AuthController extends Controller
                 'history' => $history,
             ],
         ]);
+    }
+
+    private function isSuperAdmin(User $user): bool
+    {
+        return strtolower((string) $user->email) === 'certitrust256@gmail.com';
+    }
+
+    private function frozenLoginResponse(User $user, bool $hasCertificate)
+    {
+        $actor = User::find($user->accessFrozenById());
+        $contact = $actor ? [
+            'id' => $actor->id,
+            'name' => $actor->name ?: ($this->isSuperAdmin($actor)
+                ? 'CertiTrust Super Admin'
+                : 'University administrator'),
+            'role_label' => $this->isSuperAdmin($actor)
+                ? 'CertiTrust Super Admin'
+                : 'University subadmin',
+            'university_code' => $actor->university_code,
+        ] : null;
+
+        return response()->json([
+            'status' => 'frozen',
+            'message' => $contact
+                ? 'Your account was frozen by ' . $contact['name'] . '. You can use the support chat to contact them and resolve the issue.'
+                : 'Your account is frozen. Contact your administrator to resolve the issue.',
+            'token' => $user->createToken('CertiTrustFrozenSupportChat')->plainTextToken,
+            'email' => $user->email,
+            'role' => $user->role ?? 'student',
+            'university_code' => $user->university_code,
+            'has_certificate' => $hasCertificate,
+            'access_frozen' => true,
+            'freeze_contact' => $contact,
+            'user' => $user->only(['id', 'name', 'email', 'role', 'university_code']),
+        ]);
+    }
+
+    private function universityStudentsAreFrozen(string $universityCode): bool
+    {
+        return (bool) UniversityAccessControl::query()
+            ->where('university_code', $universityCode)
+            ->value('students_frozen');
     }
 
     private function ensureSuperAdmin(Request $request): void

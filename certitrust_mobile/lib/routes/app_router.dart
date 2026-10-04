@@ -9,6 +9,7 @@ import '../features/qr_scanner/qr_scanner_screen.dart';
 import '../features/splash/splash_screen.dart';
 import '../features/navigation/role_pages.dart';
 import '../features/admin/admin_management_screen.dart';
+import '../features/admin/student_access_screen.dart';
 import '../features/admin/certificate_deletion_requests_screen.dart';
 import '../features/qr_scanner/verification_confirmation_screen.dart';
 
@@ -24,6 +25,16 @@ class AppRouter {
       final isScanning = state.uri.path == '/qr-scanner';
       final isVerificationResult =
           state.uri.path == '/verification-confirmation';
+      final freezeContactId = ApiService.frozenByContact?['id']?.toString();
+      final frozenChatLocation = freezeContactId == null
+          ? '/frozen-chat'
+          : '/frozen-chat?with_user_id=${Uri.encodeQueryComponent(freezeContactId)}';
+
+      if (isLoggedIn && ApiService.isAccessFrozen) {
+        if (state.uri.path != '/frozen-chat' && !isSplash) {
+          return frozenChatLocation;
+        }
+      }
 
       // If not logged in and trying to access protected pages, redirect to login
       if (!isLoggedIn &&
@@ -37,7 +48,10 @@ class AppRouter {
 
       // Restore an existing Laravel session when the app is opened again.
       if (isLoggedIn && isLoggingIn) {
-        return '/dashboard';
+        return ApiService.isAccessFrozen ? frozenChatLocation : '/dashboard';
+      }
+      if (isLoggedIn && isSplash && ApiService.isAccessFrozen) {
+        return frozenChatLocation;
       }
 
       return null;
@@ -54,6 +68,18 @@ class AppRouter {
       GoRoute(
         path: '/admin-management',
         builder: (context, state) => const AdminManagementScreen(),
+      ),
+      GoRoute(
+        path: '/student-access',
+        builder: (context, state) => const StudentAccessScreen(),
+      ),
+      GoRoute(
+        path: '/frozen-chat',
+        builder: (context, state) => ChatScreen(
+          isAdmin: ApiService.authRole == 'admin',
+          initialContactId: state.uri.queryParameters['with_user_id'],
+          restrictedMode: true,
+        ),
       ),
       GoRoute(
         path: '/deletion-requests',
@@ -123,7 +149,10 @@ class AppRouter {
             routes: [
               GoRoute(
                 path: '/askq',
-                builder: (context, state) => const ChatScreen(isAdmin: false),
+                builder: (context, state) => ChatScreen(
+                  isAdmin: false,
+                  initialContactId: state.uri.queryParameters['with_user_id'],
+                ),
               ),
             ],
           ),

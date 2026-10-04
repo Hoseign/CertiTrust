@@ -25,7 +25,15 @@ class _SplashScreenState extends State<SplashScreen>
     _fade = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
     Timer(const Duration(milliseconds: 1800), () {
       if (!mounted) return;
-      context.go(ApiService.isAuthenticated ? '/dashboard' : '/');
+      if (!ApiService.isAuthenticated) {
+        context.go('/');
+        return;
+      }
+      final contactId = ApiService.frozenByContact?['id']?.toString();
+      final frozenChat = contactId == null
+          ? '/frozen-chat'
+          : '/frozen-chat?with_user_id=${Uri.encodeQueryComponent(contactId)}';
+      context.go(ApiService.isAccessFrozen ? frozenChat : '/dashboard');
     });
   }
 

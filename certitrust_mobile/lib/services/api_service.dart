@@ -107,6 +107,8 @@ class ApiService {
   static String? authUniversity;
   static String? authProfileImageUrl;
   static String? authProfileIcon;
+  static bool isAccessFrozen = false;
+  static Map<String, dynamic>? frozenByContact;
   static final ValueNotifier<ConnectionSnapshot> connectionStatus =
       ValueNotifier(const ConnectionSnapshot(
     state: ApiConnectionState.operational,
@@ -208,6 +210,13 @@ class ApiService {
     authUniversity = prefs.getString('auth_university');
     authProfileImageUrl = prefs.getString('auth_profile_image_url');
     authProfileIcon = prefs.getString('auth_profile_icon');
+    isAccessFrozen = prefs.getBool('auth_access_frozen') ?? false;
+    final frozenContactJson = prefs.getString('auth_frozen_by_contact');
+    if (frozenContactJson != null) {
+      final contact = jsonDecode(frozenContactJson);
+      frozenByContact =
+          contact is Map ? Map<String, dynamic>.from(contact) : null;
+    }
   }
 
   /// Save token locally
@@ -225,6 +234,8 @@ class ApiService {
     authUniversity = null;
     authProfileImageUrl = null;
     authProfileIcon = null;
+    isAccessFrozen = false;
+    frozenByContact = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('auth_token');
     await prefs.remove('auth_email');
@@ -232,6 +243,25 @@ class ApiService {
     await prefs.remove('auth_university');
     await prefs.remove('auth_profile_image_url');
     await prefs.remove('auth_profile_icon');
+    await prefs.remove('auth_access_frozen');
+    await prefs.remove('auth_frozen_by_contact');
+  }
+
+  static Future<void> _saveAccessFreezeState(
+      Map<String, dynamic> accountData) async {
+    isAccessFrozen = accountData['access_frozen'] == true;
+    final contact = accountData['freeze_contact'];
+    frozenByContact = contact is Map
+        ? Map<String, dynamic>.from(contact)
+        : null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('auth_access_frozen', isAccessFrozen);
+    if (frozenByContact == null) {
+      await prefs.remove('auth_frozen_by_contact');
+    } else {
+      await prefs.setString(
+          'auth_frozen_by_contact', jsonEncode(frozenByContact));
+    }
   }
 
   static Future<void> validateSession() async {
@@ -247,6 +277,7 @@ class ApiService {
       }
       _recordConnectionSuccess();
       final user = jsonDecode(response.body) as Map<String, dynamic>;
+      await _saveAccessFreezeState(user);
       authEmail = user['email']?.toString();
       authRole = user['role']?.toString() ?? 'student';
       authUniversity = user['university_code']?.toString();
@@ -262,6 +293,26 @@ class ApiService {
     } catch (error) {
       _recordConnectionFailure(_connectionMessage(error));
       // Keep the cached session when the API is temporarily offline.
+    }
+  }
+
+  static Future<bool?> refreshAccessState() async {
+    if (!isAuthenticated) return null;
+    try {
+      final response =
+          await http.get(Uri.parse('$baseUrl/user'), headers: _getHeaders);
+      if (response.statusCode != 200) {
+        _recordConnectionFailure(
+            'Access-state refresh failed with HTTP ${response.statusCode}.');
+        return null;
+      }
+      _recordConnectionSuccess();
+      final account = jsonDecode(response.body) as Map<String, dynamic>;
+      await _saveAccessFreezeState(account);
+      return isAccessFrozen;
+    } catch (error) {
+      _recordConnectionFailure(_connectionMessage(error));
+      return null;
     }
   }
 
@@ -398,6 +449,7 @@ class ApiService {
         }
 
         await _saveToken(token);
+        await _saveAccessFreezeState(jsonResponse);
         authEmail = jsonResponse['email']?.toString();
         authRole = jsonResponse['role']?.toString();
         authUniversity = jsonResponse['university_code']?.toString();
@@ -550,6 +602,70 @@ class ApiService {
     if (items is! List) return const [];
     return items.map((item) => Map<String, dynamic>.from(item as Map)).toList();
   }
+
+  static Future<Map<String, dynamic>> _accessControlRequest(
+    Uri uri, {
+    required Map<String, dynamic> payload,
+  }) async {
+    final response = await http.patch(
+      uri,
+      headers: _jsonHeaders,
+      body: jsonEncode(payload),
+    );
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Unable to update account access.',
+      );
+    }
+    _recordConnectionSuccess();
+    return body;
+  }
+
+  static Future<Map<String, dynamic>> updateUniversityAccess({
+    required String universityCode,
+    required String scope,
+    required bool frozen,
+  }) =>
+      _accessControlRequest(
+        Uri.parse(
+            '$baseUrl/admin/universities/${Uri.encodeComponent(universityCode)}/access'),
+        payload: {'scope': scope, 'frozen': frozen},
+      );
+
+  static Future<Map<String, dynamic>> getUniversityStudents() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/admin/students'),
+      headers: _getHeaders,
+    );
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Unable to load student accounts.',
+      );
+    }
+    _recordConnectionSuccess();
+    return body;
+  }
+
+  static Future<Map<String, dynamic>> updateStudentAccess({
+    required int userId,
+    required bool frozen,
+  }) =>
+      _accessControlRequest(
+        Uri.parse('$baseUrl/admin/students/$userId/access'),
+        payload: {'frozen': frozen},
+      );
+
+  static Future<Map<String, dynamic>> updateAllStudentAccess({
+    required bool frozen,
+  }) =>
+      _accessControlRequest(
+        Uri.parse('$baseUrl/admin/students/access'),
+        payload: {'frozen': frozen},
+      );
 
   static Future<Map<String, dynamic>> bindSubadminAccount({
     required String email,

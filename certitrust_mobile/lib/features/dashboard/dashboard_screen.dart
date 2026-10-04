@@ -26,16 +26,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isAdmin = false;
   bool _isSuperAdmin = false;
   bool _isLoadingRole = true;
-  Map<String, dynamic>? _studentCertificate;
+  List<Map<String, dynamic>> _studentCertificates = [];
   bool _isLoadingCertificate = false;
 
   @override
   void initState() {
     super.initState();
-    if (widget.extra is Map<String, dynamic>) {
-      _studentCertificate = widget.extra as Map<String, dynamic>;
-      _isLoadingCertificate = false;
-    }
     _checkUserRoleAndFetchData();
   }
 
@@ -50,18 +46,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _isAdmin = false;
             _isSuperAdmin = false;
             _isLoadingRole = false;
-            if (_studentCertificate == null) {
-              _isLoadingCertificate = true;
-            }
+            _isLoadingCertificate = true;
           });
         }
 
-        final certData = _studentCertificate ??
-            await ApiService.getStudentCertificate(email: ApiService.authEmail);
+        final certificates = await ApiService.getCertificatesForCurrentUser();
+        if (certificates.isEmpty && widget.extra is Map<String, dynamic>) {
+          certificates.add(widget.extra as Map<String, dynamic>);
+        }
 
         if (mounted) {
           setState(() {
-            _studentCertificate = certData;
+            _studentCertificates = certificates;
             _isLoadingCertificate = false;
           });
         }
@@ -81,6 +77,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           _isLoadingRole = false;
           _isLoadingCertificate = false;
+          _studentCertificates = [];
         });
       }
     }
@@ -177,7 +174,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 32),
             StudentDashboardView(
               isLoadingCertificate: _isLoadingCertificate,
-              studentCertificate: _studentCertificate,
+              studentCertificates: _studentCertificates,
             ),
           ],
         ),
