@@ -267,6 +267,10 @@ class AdminSubadminManagementTest extends TestCase
                 ),
             ],
         ])->assertCreated();
+        $this->getJson('/api/certificates/' . str_repeat('j', 64))
+            ->assertOk()
+            ->assertJsonPath('data.diploma_url', $diplomaUrl)
+            ->assertJsonPath('data.diploma_file_name', 'used-diploma.jpg');
         $this->assertDatabaseHas('certificates', [
             'student_id' => '20260007',
             'diploma_file_name' => 'used-diploma.jpg',
@@ -380,6 +384,11 @@ class AdminSubadminManagementTest extends TestCase
             'message' => 'Student message',
             'deleted_by' => [],
         ]);
+
+        $this->getJson('/api/chat/messages?with_user_id=' . $student->id)
+            ->assertOk()
+            ->assertJsonFragment(['id' => $studentMessage->id]);
+        $this->assertNotNull($studentMessage->fresh()->delivered_at);
 
         $this->deleteJson('/api/chat/conversation/' . $student->id . '?mode=everyone')
             ->assertOk()

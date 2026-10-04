@@ -1,9 +1,11 @@
+import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:async';
 import '../../services/api_service.dart';
 import '../dashboard/widgets/diploma_preview.dart';
+import '../dashboard/widgets/diploma_download.dart';
 
 class RecordsScreen extends StatefulWidget {
   const RecordsScreen({super.key});
@@ -146,36 +148,139 @@ class _RecordsScreenState extends State<RecordsScreen> {
                           final record = records[index];
                           final diplomaUrl =
                               record['diploma_url'] ?? record['cert_image_url'];
-                          return ListTile(
-                            leading:
-                                const Icon(Icons.verified, color: Colors.green),
-                            title: Text(record['student_name']?.toString() ??
-                                'Student'),
-                            subtitle: Text(
-                                '${record['degree'] ?? 'Credential'}\nID: ${record['student_id'] ?? 'N/A'}\n${record['student_email'] ?? record['email'] ?? ''}'),
-                            isThreeLine: true,
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
+                          final diplomaFileName =
+                              'Diploma_${(record['student_id'] ?? record['student_name'] ?? 'Student').toString().replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')}.jpg';
+                          final studentId =
+                              record['student_id']?.toString() ?? 'N/A';
+                          final email = (record['student_email'] ??
+                                  record['email'] ??
+                                  'N/A')
+                              .toString();
+                          final verificationCode =
+                              (record['cert_hash'] ?? record['certificate_code'])
+                                  ?.toString();
+                          return Card(
+                            clipBehavior: Clip.antiAlias,
+                            child: ExpansionTile(
+                              leading: const Icon(Icons.school_outlined),
+                              title: Text(
+                                record['student_name']?.toString() ?? 'Student',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600),
+                              ),
+                              subtitle: const Text(
+                                  'Tap to view credential information'),
+                              childrenPadding:
+                                  const EdgeInsets.fromLTRB(16, 0, 16, 16),
                               children: [
+                                _recordDetailRow(
+                                    'Student name',
+                                    record['student_name']?.toString() ??
+                                        'N/A'),
+                                _recordDetailRow('Student ID', studentId),
+                                _recordDetailRow(
+                                    'Course / program',
+                                    record['degree']?.toString() ??
+                                        record['course_or_event']?.toString() ??
+                                        'N/A'),
+                                _recordDetailRow('Gmail', email),
+                                _recordDetailRow(
+                                    'Certificate code',
+                                    record['certificate_code']?.toString() ??
+                                        'N/A'),
+                                _recordDetailRow(
+                                    'Issue date',
+                                    record['issue_date']?.toString() ?? 'N/A'),
+                                _recordDetailRow(
+                                    'Status',
+                                    record['status']?.toString() ?? 'Issued'),
                                 if (diplomaUrl != null &&
                                     diplomaUrl.toString().isNotEmpty)
-                                  IconButton(
-                                    tooltip: 'View diploma image',
-                                    icon: const Icon(Icons.visibility_outlined),
-                                    onPressed: () => showDiplomaPreview(
-                                        context, diplomaUrl.toString()),
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 12),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: SizedBox(
+                                        width: double.infinity,
+                                        height: 190,
+                                        child: Image.network(
+                                          diplomaUrl.toString(),
+                                          fit: BoxFit.contain,
+                                          errorBuilder:
+                                              (context, error, stackTrace) =>
+                                                  const Center(
+                                            child: Text(
+                                                'Could not load diploma image.'),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                if (ApiService.authRole == 'admin' &&
-                                    !ApiService.isSuperAdmin)
-                                  IconButton(
-                                    tooltip: 'Request deletion approval',
-                                    icon: const Icon(Icons.delete_outline),
-                                    onPressed: () => _requestDeletion(record),
-                                  ),
+                                Wrap(
+                                  alignment: WrapAlignment.end,
+                                  spacing: 8,
+                                  children: [
+                                    if (diplomaUrl != null &&
+                                        diplomaUrl.toString().isNotEmpty) ...[
+                                      TextButton.icon(
+                                        onPressed: () => showDiplomaPreview(
+                                          context,
+                                          diplomaUrl.toString(),
+                                          fileName: diplomaFileName,
+                                        ),
+                                        icon: const Icon(
+                                            Icons.visibility_outlined),
+                                        label: const Text('View diploma'),
+                                      ),
+                                      TextButton.icon(
+                                        onPressed: () async {
+                                          try {
+                                            await downloadDiplomaImage(
+                                              diplomaUrl.toString(),
+                                              fileName: diplomaFileName,
+                                            );
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(context)
+                                                  .showSnackBar(const SnackBar(
+                                                content: Text(
+                                                    'Diploma download started.'),
+                                              ));
+                                            }
+                                          } catch (error) {
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(context)
+                                                  .showSnackBar(SnackBar(
+                                                content: Text(
+                                                    'Could not download diploma: $error'),
+                                              ));
+                                            }
+                                          }
+                                        },
+                                        icon: const Icon(Icons.download_outlined),
+                                        label: const Text('Download'),
+                                      ),
+                                    ],
+                                    TextButton.icon(
+                                      onPressed: verificationCode == null ||
+                                              verificationCode.isEmpty
+                                          ? null
+                                          : () => context.go(
+                                              '/verify?hash=${Uri.encodeQueryComponent(verificationCode)}'),
+                                      icon: const Icon(Icons.verified_outlined),
+                                      label: const Text('Verify this record'),
+                                    ),
+                                    if (ApiService.authRole == 'admin' &&
+                                        !ApiService.isSuperAdmin)
+                                      TextButton.icon(
+                                        onPressed: () =>
+                                            _requestDeletion(record),
+                                        icon: const Icon(Icons.delete_outline),
+                                        label: const Text('Request deletion'),
+                                      ),
+                                  ],
+                                ),
                               ],
                             ),
-                            onTap: () => context
-                                .push('/verify?hash=${record['cert_hash']}'),
                           );
                         },
                       ),
@@ -185,6 +290,21 @@ class _RecordsScreenState extends State<RecordsScreen> {
         ),
         bottomNavigationBar:
             RoleBottomNavigationBar(isAdmin: ApiService.authRole == 'admin'),
+      );
+
+  Widget _recordDetailRow(String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 130,
+              child: Text(label,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            Expanded(child: SelectableText(value)),
+          ],
+        ),
       );
 }
 
@@ -388,6 +508,11 @@ class _ChatScreenState extends State<ChatScreen> {
       if (selectedContact != null) {
         items = await ApiService.getChatMessagesForStudent(
             selectedContact['id'].toString());
+        final unsentMessages = _items.where((message) =>
+            message['_local_id'] != null &&
+            (message['_delivery_status'] == 'sending' ||
+                message['_delivery_status'] == 'failed'));
+        items = [...items, ...unsentMessages];
       } else {
         items = await ApiService.getChatContacts(search: search);
         final initialContactId = _pendingInitialContactId;
@@ -516,24 +641,163 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendMessage() async {
     final message = _controller.text.trim();
     if (message.isEmpty && _attachment == null) return;
-    final sent = await ApiService.sendChatMessage(message,
-        recipientUserId: _selectedContact?['id']?.toString(),
-        fileBytes: _attachment?.bytes,
-        fileName: _attachment?.name,
-        replyToId: _replyTo?['id']?.toString());
-    if (!mounted) return;
-    if (!sent) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Message could not be sent.')));
-      return;
-    }
-    _controller.clear();
+    final contact = _selectedContact;
+    if (contact == null) return;
+
+    final attachment = _attachment;
+    final replyToId = _replyTo?['id']?.toString();
+    final localId = 'local-${DateTime.now().microsecondsSinceEpoch}';
+    final pendingMessage = <String, dynamic>{
+      '_local_id': localId,
+      '_delivery_status': 'sending',
+      '_local_attachment_bytes': attachment?.bytes,
+      '_local_attachment_name': attachment?.name,
+      '_local_reply_to_id': replyToId,
+      '_is_own': true,
+      'attachment_type': _isVideoAttachment(attachment?.extension)
+          ? 'video'
+          : attachment == null
+              ? null
+              : 'image',
+      'message': message,
+      'sender_email': ApiService.authEmail,
+      'sender_name': 'You',
+      'reply_to': _replyTo == null
+          ? null
+          : {
+              'sender_name': _replyTo!['sender_name'],
+              'message': _replyTo!['message'],
+            },
+      'is_report': false,
+    };
     setState(() {
+      _items = [..._items, pendingMessage];
+      _controller.clear();
       _attachment = null;
       _replyTo = null;
     });
-    await _loadItems(reportErrors: true);
     _scrollMessagesToLatest();
+
+    try {
+      final sentMessage = await ApiService.sendChatMessage(
+        message,
+        recipientUserId: contact['id']?.toString(),
+        fileBytes: attachment?.bytes,
+        fileName: attachment?.name,
+        replyToId: replyToId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _items = _items.map((item) {
+          if (item['_local_id'] != localId) return item;
+          return {
+            ...sentMessage,
+            '_delivery_status': sentMessage['delivered_at'] == null
+                ? 'sent'
+                : 'delivered',
+          };
+        }).toList();
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _items = _items.map((item) {
+          if (item['_local_id'] != localId) return item;
+          return {...item, '_delivery_status': 'failed'};
+        }).toList();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Message failed to send: $error')),
+      );
+    }
+  }
+
+  Widget _buildDeliveryStatus(Map<String, dynamic> message) {
+    final status = message['_delivery_status']?.toString() ??
+        (message['delivered_at'] != null ? 'delivered' : 'sent');
+    final isFailed = status == 'failed';
+    final icon = switch (status) {
+      'sending' => Icons.schedule,
+      'delivered' => Icons.done_all,
+      'failed' => Icons.error_outline,
+      _ => Icons.check,
+    };
+    final label = switch (status) {
+      'sending' => 'Sending',
+      'delivered' => 'Delivered',
+      'failed' => 'Failed',
+      _ => 'Sent',
+    };
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.white70),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
+          ),
+          if (isFailed)
+            TextButton(
+              onPressed: () => _retryMessage(message),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text('Retry', style: TextStyle(fontSize: 11)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  bool _isVideoAttachment(String? extension) =>
+      const {'mp4', 'mov', 'webm'}.contains(extension?.toLowerCase());
+
+  Future<void> _retryMessage(Map<String, dynamic> message) async {
+    final localId = message['_local_id']?.toString();
+    if (localId == null) return;
+    setState(() {
+      _items = _items.map((item) => item['_local_id'] == localId
+          ? {...item, '_delivery_status': 'sending'}
+          : item).toList();
+    });
+    try {
+      final bytes = message['_local_attachment_bytes'] as List<int>?;
+      final sentMessage = await ApiService.sendChatMessage(
+        message['message']?.toString() ?? '',
+        recipientUserId: _selectedContact?['id']?.toString(),
+        fileBytes: bytes,
+        fileName: message['_local_attachment_name']?.toString(),
+        replyToId: message['_local_reply_to_id']?.toString(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _items = _items.map((item) {
+          if (item['_local_id'] != localId) return item;
+          return {
+            ...sentMessage,
+            '_delivery_status': sentMessage['delivered_at'] == null
+                ? 'sent'
+                : 'delivered',
+          };
+        }).toList();
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _items = _items.map((item) => item['_local_id'] == localId
+            ? {...item, '_delivery_status': 'failed'}
+            : item).toList();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Message failed to send: $error')),
+      );
+    }
   }
 
   Future<void> _reportSubadmin() async {
@@ -580,12 +844,11 @@ class _ChatScreenState extends State<ChatScreen> {
         throw Exception('Super Admin contact is unavailable.');
       final reason = reasonController.text.trim();
       if (reason.isEmpty) throw Exception('Enter a concern before sending.');
-      final sent = await ApiService.sendChatMessage(
+      await ApiService.sendChatMessage(
         'Report about ${subadmin['name']} (${subadmin['email']}): $reason',
         recipientUserId: superAdmin['id'].toString(),
         isReport: true,
       );
-      if (!sent) throw Exception('The report could not be delivered.');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Your report was sent to the Super Admin.'),
@@ -823,10 +1086,13 @@ class _ChatScreenState extends State<ChatScreen> {
             itemBuilder: (context, index) {
               final message = messages[index];
               final attachmentUrl = message['attachment_url']?.toString();
+              final localAttachmentBytes =
+                  message['_local_attachment_bytes'] as Uint8List?;
               final senderEmail =
                   message['sender_email']?.toString().trim().toLowerCase();
               final currentEmail = ApiService.authEmail?.trim().toLowerCase();
-              final own = currentEmail != null && senderEmail == currentEmail;
+              final own = message['_is_own'] == true ||
+                  (currentEmail != null && senderEmail == currentEmail);
               final quoted = message['reply_to'] is Map
                   ? Map<String, dynamic>.from(message['reply_to'] as Map)
                   : null;
@@ -970,7 +1236,20 @@ class _ChatScreenState extends State<ChatScreen> {
                                           own ? Colors.white : Colors.black87,
                                     ),
                                   ),
-                                if (attachmentUrl != null &&
+                                if (localAttachmentBytes != null &&
+                                    message['attachment_type'] == 'image')
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: SizedBox(
+                                      width: 260,
+                                      height: 320,
+                                      child: Image.memory(
+                                        localAttachmentBytes,
+                                        fit: BoxFit.contain,
+                                      ),
+                                    ),
+                                  )
+                                else if (attachmentUrl != null &&
                                     message['attachment_type'] == 'image')
                                   GestureDetector(
                                     onTap: () => showDialog<void>(
@@ -1027,6 +1306,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                 if (attachmentUrl != null &&
                                     message['attachment_type'] == 'video')
                                   Text('Video attachment: $attachmentUrl'),
+                                if (own)
+                                  _buildDeliveryStatus(message),
                               ],
                             ),
                           ),

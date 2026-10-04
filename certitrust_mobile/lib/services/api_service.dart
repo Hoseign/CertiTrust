@@ -336,14 +336,20 @@ class ApiService {
       if (response.statusCode == 200) {
         _recordConnectionSuccess();
         final jsonResponse = jsonDecode(response.body);
-        return jsonResponse['data'] ?? jsonResponse;
-      } else {
+        final data = jsonResponse is Map<String, dynamic>
+            ? jsonResponse['data'] ?? jsonResponse
+            : null;
+        return data is Map
+            ? Map<String, dynamic>.from(data)
+            : null;
+      } else if (response.statusCode == 404) {
         return null;
       }
+      throw ApiRequestException(
+          response.statusCode, 'Certificate lookup failed.');
     } catch (e) {
       _recordConnectionFailure(_connectionMessage(e));
-      print('Verification error: $e');
-      return null;
+      rethrow;
     }
   }
 
@@ -875,7 +881,7 @@ class ApiService {
     return List<Map<String, dynamic>>.from(body['data'] ?? const []);
   }
 
-  static Future<bool> sendChatMessage(String message,
+  static Future<Map<String, dynamic>> sendChatMessage(String message,
       {String? recipientUserId,
       List<int>? fileBytes,
       String? fileName,
@@ -895,7 +901,14 @@ class ApiService {
     }
     final streamed = await request.send();
     final response = await http.Response.fromStream(streamed);
-    return response.statusCode == 201;
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 201) {
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Message could not be sent.',
+      );
+    }
+    return Map<String, dynamic>.from(body['data'] as Map);
   }
 
   static Future<bool> deleteChatMessage(int messageId,

@@ -34,6 +34,11 @@ class ChatController extends Controller
             if (!$target || !$this->canChatWith($user, $target)) {
                 return response()->json(['message' => 'This contact is not available to your account.'], 403);
             }
+            ChatMessage::where('user_id', $targetId)
+                ->where('recipient_user_id', $user->id)
+                ->whereNull('delivered_at')
+                ->whereNull('deleted_for_everyone_at')
+                ->update(['delivered_at' => now()]);
             $query->where(function ($messages) use ($user, $targetId) {
                 $messages->where(function ($thread) use ($user, $targetId) {
                     $thread->where('user_id', $user->id)->where('recipient_user_id', $targetId);

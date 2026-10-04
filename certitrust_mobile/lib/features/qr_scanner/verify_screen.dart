@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
-import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 
 // Fixed absolute package imports to resolve path errors (pointing directly to /services/)
 import 'package:certitrust_mobile/features/dashboard/widgets/qr_code_dialog.dart';
+import 'package:certitrust_mobile/features/dashboard/widgets/diploma_download.dart';
+import 'package:certitrust_mobile/features/dashboard/widgets/diploma_preview.dart';
 import '../navigation/role_pages.dart';
 import '../../services/api_service.dart';
 
@@ -23,13 +23,25 @@ class _VerifyScreenState extends State<VerifyScreen> {
   bool _isDownloading = false;
   Map<String, dynamic>? _certResult;
   bool _hasSearched = false;
+  int _verificationAttempt = 0;
 
   @override
   void initState() {
     super.initState();
     if (widget.certHash != null && widget.certHash!.isNotEmpty) {
       _hashController.text = widget.certHash!;
-      _verifyHash(widget.certHash!);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant VerifyScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.certHash != oldWidget.certHash) {
+      _verificationAttempt++;
+      _hashController.text = widget.certHash ?? '';
+      _certResult = null;
+      _hasSearched = false;
+      _isVerifying = false;
     }
   }
 
@@ -39,11 +51,12 @@ class _VerifyScreenState extends State<VerifyScreen> {
     super.dispose();
   }
 
-  void _verifyHash(String hash) async {
+  Future<void> _verifyHash(String hash) async {
     if (hash.trim().isEmpty) {
       return;
     }
 
+    final attempt = ++_verificationAttempt;
     setState(() {
       _isVerifying = true;
       _hasSearched = true;
@@ -53,14 +66,14 @@ class _VerifyScreenState extends State<VerifyScreen> {
     try {
       final result = await ApiService.getCertificateByCode(hash.trim());
 
-      if (mounted) {
+      if (mounted && attempt == _verificationAttempt) {
         setState(() {
           _certResult = result;
           _isVerifying = false;
         });
-        if (result != null) {
+        if (result != null && _isCertificateVerified(result)) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
+            if (mounted && attempt == _verificationAttempt) {
               context.push('/verification-confirmation', extra: result);
             }
           });
@@ -68,7 +81,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
       }
     } catch (e) {
       debugPrint('Error verifying hash: $e');
-      if (mounted) {
+      if (mounted && attempt == _verificationAttempt) {
         setState(() {
           _certResult = null;
           _isVerifying = false;
@@ -82,32 +95,29 @@ class _VerifyScreenState extends State<VerifyScreen> {
     }
   }
 
+  bool _isCertificateVerified(Map<String, dynamic> certificate) {
+    final status = certificate['status']?.toString().trim().toLowerCase();
+    return status == 'verified' || status == 'valid';
+  }
+
   Future<void> _downloadDiploma(String imageUrl) async {
     setState(() => _isDownloading = true);
     try {
-      final response = await http.get(Uri.parse(imageUrl));
-      if (response.statusCode == 200) {
-        final result = await ImageGallerySaverPlus.saveImage(
-          response.bodyBytes,
-          quality: 100,
-          name:
-              "${ApiService.authUniversity ?? 'CertiTrust'}_Diploma_${DateTime.now().millisecondsSinceEpoch}",
-        );
-
-        if (mounted) {
-          final isSuccess = result != null &&
-              (result['isSuccess'] == true || result['filePath'] != null);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(isSuccess
-                  ? 'Diploma saved successfully to your gallery!'
-                  : 'Failed to save diploma image.'),
-              backgroundColor: isSuccess ? Colors.green : Colors.red,
-            ),
-          );
-        }
-      } else {
-        throw Exception('Failed to download image');
+      final studentId =
+          _certResult?['student_id']?.toString().replaceAll(
+                    RegExp(r'[^A-Za-z0-9_-]'),
+                    '_',
+                  ) ??
+              'Student';
+      await downloadDiplomaImage(
+        imageUrl,
+        fileName: 'Diploma_$studentId.jpg',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Diploma downloaded successfully.'),
+          backgroundColor: Colors.green,
+        ));
       }
     } catch (e) {
       if (mounted) {
@@ -195,12 +205,16 @@ class _VerifyScreenState extends State<VerifyScreen> {
                                 await context.push<String>('/qr-scanner');
                             if (scanned != null && mounted) {
                               _hashController.text = scanned;
-                              _verifyHash(scanned);
+                              setState(() {
+                                _certResult = null;
+                                _hasSearched = false;
+                              });
                             }
                           },
                         ),
                         IconButton(
                           icon: const Icon(Icons.search),
+                          tooltip: 'Verify record',
                           onPressed: () => _verifyHash(_hashController.text),
                         ),
                       ],
@@ -266,7 +280,14 @@ class _VerifyScreenState extends State<VerifyScreen> {
         _certResult!['cert_image_url'] ??
         _certResult!['image_url'];
     final certHash = _certResult!['cert_hash'] ?? _certResult!['hash'] ?? '';
+    final studentId =
+        _certResult!['student_id']?.toString().replaceAll(
+                  RegExp(r'[^A-Za-z0-9_-]'),
+                  '_',
+                ) ??
+            'Student';
 
+    final isVerified = _isCertificateVerified(_certResult!);
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -277,12 +298,20 @@ class _VerifyScreenState extends State<VerifyScreen> {
           children: [
             Row(
               children: [
-                const Icon(Icons.verified, color: Colors.green, size: 28),
+                Icon(
+                  isVerified ? Icons.verified : Icons.info_outline,
+                  color: isVerified ? Colors.green : Colors.orange,
+                  size: 28,
+                ),
                 const SizedBox(width: 8),
                 Text(
-                  'AUTHENTIC CREDENTIAL',
+                  isVerified
+                      ? 'AUTHENTIC CREDENTIAL'
+                      : 'CREDENTIAL FOUND - NOT VERIFIED',
                   style: TextStyle(
-                    color: Colors.green.shade800,
+                    color: isVerified
+                        ? Colors.green.shade800
+                        : Colors.orange.shade900,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 1.1,
                   ),
@@ -334,34 +363,24 @@ class _VerifyScreenState extends State<VerifyScreen> {
                 ],
               ),
               const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => showDiplomaPreview(
+                    context,
+                    imageUrl.toString(),
+                    fileName: 'Diploma_$studentId.jpg',
+                  ),
+                  icon: const Icon(Icons.visibility_outlined),
+                  label: const Text('View attached diploma'),
+                ),
+              ),
               GestureDetector(
-                onTap: () {
-                  showDialog(
-                    context: context,
-                    builder: (context) => Dialog(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          AppBar(
-                            title: const Text('Digital Diploma Copy'),
-                            automaticallyImplyLeading: false,
-                            actions: [
-                              IconButton(
-                                icon: const Icon(Icons.close),
-                                onPressed: () => Navigator.pop(context),
-                              ),
-                            ],
-                          ),
-                          Flexible(
-                            child: InteractiveViewer(
-                              child: Image.network(imageUrl),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
+                onTap: () => showDiplomaPreview(
+                  context,
+                  imageUrl.toString(),
+                  fileName: 'Diploma_$studentId.jpg',
+                ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Container(
@@ -370,7 +389,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
                     color: Colors.grey.shade200,
                     child: Image.network(
                       imageUrl,
-                      fit: BoxFit.cover,
+                      fit: BoxFit.contain,
                       errorBuilder: (context, error, stackTrace) =>
                           const Center(
                         child: Text('Could not load image preview'),

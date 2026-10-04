@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:certitrust_mobile/features/dashboard/widgets/diploma_download.dart';
+import 'package:certitrust_mobile/features/dashboard/widgets/diploma_preview.dart';
 import '../../services/api_service.dart';
 
 class VerificationConfirmationScreen extends StatelessWidget {
@@ -23,6 +25,22 @@ class VerificationConfirmationScreen extends StatelessWidget {
         : school == 'UCU'
             ? 'web/assets/images/UCU_LOGO.png'
             : 'web/assets/images/certitrustlogo.png';
+    final diplomaUrl = (certificate['diploma_url'] ??
+            certificate['cert_image_url'] ??
+            certificate['image_url'])
+        ?.toString();
+    final studentId = (certificate['student_id'] ?? 'Student')
+        .toString()
+        .replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final diplomaFileName = 'Diploma_$studentId.jpg';
+    final status = certificate['status']?.toString().trim().toLowerCase();
+    final hasVerificationCode =
+        (certificate['cert_hash'] ?? certificate['certificate_code'])
+                ?.toString()
+                .isNotEmpty ==
+            true;
+    final isVerified = hasVerificationCode &&
+        (status == 'verified' || status == 'valid');
     return Scaffold(
       appBar: AppBar(title: const Text('Credential Status')),
       body: Center(
@@ -33,13 +51,22 @@ class VerificationConfirmationScreen extends StatelessWidget {
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
-                  const Icon(Icons.verified, color: Colors.green, size: 76),
+                  Icon(
+                    isVerified ? Icons.verified : Icons.error_outline,
+                    color: isVerified ? Colors.green : Colors.red,
+                    size: 76,
+                  ),
                   const SizedBox(height: 12),
-                  const Text('Legitimate Credential',
-                      style: TextStyle(
-                          color: Colors.green,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold)),
+                  Text(
+                    isVerified
+                        ? 'Legitimate Credential'
+                        : 'Credential Not Verified',
+                    style: TextStyle(
+                      color: isVerified ? Colors.green : Colors.red,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const Divider(height: 32),
                   Image.asset(schoolLogo, height: 92, fit: BoxFit.contain),
                   const SizedBox(height: 12),
@@ -52,7 +79,9 @@ class VerificationConfirmationScreen extends StatelessWidget {
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 12),
                   Text(
-                      'This credential proves that ${certificate['student_name'] ?? certificate['recipient_name'] ?? 'the student'} graduated from $schoolName and was verified by CertiTrust.',
+                      isVerified
+                          ? 'This credential proves that ${certificate['student_name'] ?? certificate['recipient_name'] ?? 'the student'} graduated from $schoolName and was verified by CertiTrust.'
+                          : 'This credential record was found, but its status is not valid.',
                       textAlign: TextAlign.center,
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 24),
@@ -68,6 +97,66 @@ class VerificationConfirmationScreen extends StatelessWidget {
                           certificate['course_or_event'] ??
                           'N/A'),
                   _row('Issue date', certificate['issue_date'] ?? 'N/A'),
+                  if (diplomaUrl != null && diplomaUrl.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Attached diploma image',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    GestureDetector(
+                      onTap: () => showDiplomaPreview(
+                        context,
+                        diplomaUrl,
+                        fileName: diplomaFileName,
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: SizedBox(
+                          width: double.infinity,
+                          height: 200,
+                          child: Image.network(
+                            diplomaUrl,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) =>
+                                const Center(
+                              child: Text('Could not load diploma preview.'),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () async {
+                          try {
+                            await downloadDiplomaImage(
+                              diplomaUrl,
+                              fileName: diplomaFileName,
+                            );
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text('Diploma downloaded.')),
+                            );
+                          } catch (error) {
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                  content:
+                                      Text('Could not download diploma: $error')),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.download),
+                        label: const Text('Download diploma'),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 18),
                   Container(
                     width: double.infinity,
@@ -75,10 +164,17 @@ class VerificationConfirmationScreen extends StatelessWidget {
                     decoration: BoxDecoration(
                         color: Colors.blue.shade50,
                         borderRadius: BorderRadius.circular(12)),
-                    child: const Row(children: [
-                      Icon(Icons.verified_user, color: Colors.green),
-                      SizedBox(width: 10),
-                      Expanded(child: Text('Verified on the CertiTrust ledger'))
+                    child: Row(children: [
+                      Icon(
+                        isVerified ? Icons.verified_user : Icons.error_outline,
+                        color: isVerified ? Colors.green : Colors.red,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(isVerified
+                            ? 'Verified on the CertiTrust ledger'
+                            : 'Verification failed for this credential'),
+                      ),
                     ]),
                   ),
                   const SizedBox(height: 20),

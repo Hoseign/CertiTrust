@@ -2,9 +2,13 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'universal_html/html.dart' as html;
 
-Future<void> downloadFileWeb(Uint8List bytes, String fileName) async {
+Future<void> downloadFileWeb(
+  Uint8List bytes,
+  String fileName, {
+  String mimeType = 'image/png',
+}) async {
   if (kIsWeb) {
-    final blob = html.createBlob(bytes, html.BlobPropertyBag(type: 'image/png'));
+    final blob = html.createBlob(bytes, html.BlobPropertyBag(type: mimeType));
     final url = html.URL.createObjectURL(blob);
     final anchor = html.document.createElement('a') as html.HTMLAnchorElement;
     anchor.href = url;

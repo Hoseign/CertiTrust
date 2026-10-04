@@ -11,12 +11,13 @@ class ChatMessage extends Model
     use HasFactory;
 
     protected $fillable = [
-        'user_id', 'recipient_user_id', 'university_code', 'sender_email', 'sender_name', 'message', 'attachment_url', 'attachment_type', 'reply_to_id', 'is_report', 'deleted_by', 'deleted_for_everyone_at',
+        'user_id', 'recipient_user_id', 'university_code', 'sender_email', 'sender_name', 'message', 'attachment_url', 'attachment_type', 'reply_to_id', 'is_report', 'deleted_by', 'deleted_for_everyone_at', 'delivered_at',
     ];
 
     protected $casts = [
         'deleted_by' => 'array',
         'deleted_for_everyone_at' => 'datetime',
+        'delivered_at' => 'datetime',
         'is_report' => 'boolean',
     ];
 

@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'diploma_download.dart';
 
-void showDiplomaPreview(BuildContext context, String imageUrl) {
+void showDiplomaPreview(
+  BuildContext context,
+  String imageUrl, {
+  String fileName = 'Diploma.jpg',
+}) {
   showDialog<void>(
     context: context,
     builder: (dialogContext) => Dialog(
@@ -16,6 +21,21 @@ void showDiplomaPreview(BuildContext context, String imageUrl) {
                     padding: EdgeInsets.only(left: 20),
                     child: Text('Digital Diploma Copy'),
                   ),
+                ),
+                IconButton(
+                  tooltip: 'Download diploma',
+                  onPressed: () async {
+                    try {
+                      await downloadDiplomaImage(imageUrl, fileName: fileName);
+                    } catch (error) {
+                      if (!dialogContext.mounted) return;
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(
+                        SnackBar(
+                            content: Text('Could not download diploma: $error')),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.download),
                 ),
                 IconButton(
                   tooltip: 'Close',
