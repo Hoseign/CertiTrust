@@ -455,64 +455,126 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                     padding: EdgeInsets.all(16),
                     child: Text('No subadmin accounts registered yet.')))
           else
-            ..._admins.map((admin) => Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    title:
-                        Text(admin['name']?.toString() ?? 'University Admin'),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(admin['email']?.toString() ?? 'No email'),
-                        const SizedBox(height: 4),
-                        Text(
-                            'University: ${admin['university_code'] ?? 'Unassigned'}'),
-                        const SizedBox(height: 4),
-                        Text(
-                          admin['access_frozen'] == true
-                              ? 'Subadmin access: Frozen'
-                              : 'Subadmin access: Active',
-                          style: TextStyle(
-                            color: admin['access_frozen'] == true
-                                ? Colors.red
-                                : Colors.green,
+            ..._admins.map((admin) {
+              final frozenStudents = (admin['frozen_students'] as List? ?? [])
+                  .whereType<Map>()
+                  .toList();
+              return Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                child: Column(
+                  children: [
+                    ListTile(
+                      title:
+                          Text(admin['name']?.toString() ?? 'University Admin'),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(admin['email']?.toString() ?? 'No email'),
+                          const SizedBox(height: 4),
+                          Text(
+                              'University: ${admin['university_code'] ?? 'Unassigned'}'),
+                          const SizedBox(height: 4),
+                          Text(
+                            admin['access_frozen'] == true
+                                ? 'Subadmin access: Frozen'
+                                : 'Subadmin access: Active',
+                            style: TextStyle(
+                              color: admin['access_frozen'] == true
+                                  ? Colors.red
+                                  : Colors.green,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Icon(
+                                frozenStudents.isEmpty
+                                    ? Icons.lock_open_outlined
+                                    : Icons.lock_outline,
+                                size: 18,
+                                color: frozenStudents.isEmpty
+                                    ? Colors.green
+                                    : Colors.red,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  frozenStudents.isEmpty
+                                      ? 'Frozen students: None'
+                                      : 'Frozen students: ${frozenStudents.length}',
+                                  style: TextStyle(
+                                    color: frozenStudents.isEmpty
+                                        ? Colors.green
+                                        : Colors.red,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (value) async {
+                          if (value == 'edit') _startEdit(admin);
+                          if (value == 'unbind') await _unbindGoogle(admin);
+                          if (value == 'delete') await _deleteAdmin(admin);
+                          if (value == 'freeze') {
+                            await _manageUniversityAccess(admin, true);
+                          }
+                          if (value == 'unfreeze') {
+                            await _manageUniversityAccess(admin, false);
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
+                              value: 'edit', child: Text('Edit')),
+                          PopupMenuItem(
+                            value: 'freeze',
+                            child: Text(
+                                'Freeze access for ${admin['university_code']}'),
+                          ),
+                          PopupMenuItem(
+                            value: 'unfreeze',
+                            child: Text(
+                                'Restore access for ${admin['university_code']}'),
+                          ),
+                          const PopupMenuItem(
+                              value: 'unbind',
+                              child: Text('Remove Google binding')),
+                          const PopupMenuItem(
+                              value: 'delete', child: Text('Delete')),
+                        ],
+                      ),
+                    ),
+                    if (frozenStudents.isNotEmpty)
+                      ExpansionTile(
+                        leading: const Icon(Icons.warning_amber_outlined,
+                            color: Colors.red),
+                        title: Text(
+                          'View frozen students (${frozenStudents.length})',
+                          style: const TextStyle(
+                            color: Colors.red,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ],
-                    ),
-                    trailing: PopupMenuButton<String>(
-                      onSelected: (value) async {
-                        if (value == 'edit') _startEdit(admin);
-                        if (value == 'unbind') await _unbindGoogle(admin);
-                        if (value == 'delete') await _deleteAdmin(admin);
-                        if (value == 'freeze') {
-                          await _manageUniversityAccess(admin, true);
-                        }
-                        if (value == 'unfreeze') {
-                          await _manageUniversityAccess(admin, false);
-                        }
-                      },
-                      itemBuilder: (context) => [
-                        const PopupMenuItem(
-                            value: 'edit', child: Text('Edit')),
-                        PopupMenuItem(
-                          value: 'freeze',
-                          child: Text('Freeze access for ${admin['university_code']}'),
-                        ),
-                        PopupMenuItem(
-                          value: 'unfreeze',
-                          child: Text('Restore access for ${admin['university_code']}'),
-                        ),
-                        const PopupMenuItem(
-                            value: 'unbind',
-                            child: Text('Remove Google binding')),
-                        const PopupMenuItem(
-                            value: 'delete', child: Text('Delete')),
-                      ],
-                    ),
-                  ),
-                )),
+                        children: [
+                          for (final student in frozenStudents)
+                            ListTile(
+                              dense: true,
+                              leading: const Icon(Icons.person_outline),
+                              title: Text(
+                                  student['name']?.toString() ?? 'Student'),
+                              subtitle: Text(
+                                  'Student ID: ${student['student_id'] ?? 'Not recorded'}'),
+                            ),
+                        ],
+                      ),
+                  ],
+                ),
+              );
+            }),
         ],
       ),
     );

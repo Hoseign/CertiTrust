@@ -244,10 +244,58 @@ class AuthController extends Controller
             $query->where('university_code', $request->string('university_code')->toString());
         }
 
+        $admins = $query->orderBy('university_code')->orderBy('email')->get([
+            'id', 'name', 'email', 'role', 'university_code', 'google_id', 'access_frozen', 'created_at', 'updated_at',
+        ]);
+        $universityCodes = $admins->pluck('university_code')->filter()->unique()->values();
+        $studentAccounts = User::whereIn('role', ['student', 'user'])
+            ->whereIn('university_code', $universityCodes)
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'university_code', 'access_frozen']);
+        $certificatesByStudentEmail = [];
+        foreach (
+            DB::table('certificates')
+                ->whereIn('university_code', $universityCodes)
+                ->orderByDesc('id')
+                ->get([
+                    'university_code',
+                    'student_email',
+                    'email',
+                    'student_id',
+                    'student_name',
+                    'recipient_name',
+                ]) as $certificate
+        ) {
+            foreach ([$certificate->student_email, $certificate->email] as $email) {
+                $normalizedEmail = strtolower(trim((string) $email));
+                if ($normalizedEmail === '') {
+                    continue;
+                }
+                $key = $certificate->university_code . ':' . $normalizedEmail;
+                $certificatesByStudentEmail[$key] ??= $certificate;
+            }
+        }
+        $frozenStudentsByUniversity = [];
+        foreach ($studentAccounts as $student) {
+            if (!$student->isAccessFrozen()) {
+                continue;
+            }
+            $key = $student->university_code . ':' . strtolower(trim((string) $student->email));
+            $certificate = $certificatesByStudentEmail[$key] ?? null;
+            $frozenStudentsByUniversity[$student->university_code][] = [
+                'name' => $certificate?->student_name
+                    ?: $certificate?->recipient_name
+                    ?: $student->name,
+                'student_id' => $certificate?->student_id ?: 'Not recorded',
+            ];
+        }
+
         return response()->json([
-            'data' => $query->orderBy('university_code')->orderBy('email')->get([
-                'id', 'name', 'email', 'role', 'university_code', 'google_id', 'access_frozen', 'created_at', 'updated_at',
-            ]),
+            'data' => $admins->map(function (User $admin) use ($frozenStudentsByUniversity) {
+                return array_merge($admin->toArray(), [
+                    'frozen_students' => $frozenStudentsByUniversity[$admin->university_code] ?? [],
+                ]);
+            }),
         ]);
     }
 

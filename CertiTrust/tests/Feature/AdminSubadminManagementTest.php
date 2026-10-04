@@ -174,6 +174,12 @@ class AdminSubadminManagementTest extends TestCase
             'updated_at' => now(),
         ]);
         $this->actingAs($superAdmin, 'sanctum')
+            ->getJson('/api/admin/subadmins')
+            ->assertOk()
+            ->assertJsonPath('data.0.frozen_students.0.name', 'UCU Student')
+            ->assertJsonPath('data.0.frozen_students.0.student_id', 'UCU-12345');
+
+        $this->actingAs($superAdmin, 'sanctum')
             ->patchJson('/api/admin/universities/UCU/access', [
                 'scope' => 'students',
                 'frozen' => false,

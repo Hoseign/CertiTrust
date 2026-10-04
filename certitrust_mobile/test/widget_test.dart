@@ -275,6 +275,11 @@ void main() {
           const MaterialApp(home: AdminManagementScreen()),
         );
         await tester.pumpAndSettle();
+        expect(find.text('Frozen students: 1'), findsOneWidget);
+        await tester.tap(find.text('View frozen students (1)'));
+        await tester.pumpAndSettle();
+        expect(find.text('UCU Student'), findsOneWidget);
+        expect(find.text('Student ID: UCU-12345'), findsOneWidget);
         final actionMenu = find.byType(PopupMenuButton<String>).last;
         await tester.ensureVisible(actionMenu);
         await tester.tap(actionMenu);
@@ -305,6 +310,9 @@ void main() {
                   'email': 'ucu-admin@example.edu',
                   'university_code': 'UCU',
                   'access_frozen': false,
+                  'frozen_students': [
+                    {'name': 'UCU Student', 'student_id': 'UCU-12345'},
+                  ],
                 },
               ],
             }),
