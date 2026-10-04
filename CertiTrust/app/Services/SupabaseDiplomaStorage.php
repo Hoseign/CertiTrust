@@ -45,7 +45,12 @@ class SupabaseDiplomaStorage
                     return $this->httpError('create the diploma bucket', $createdBucket->status());
                 }
             } elseif (!$bucketResponse->successful()) {
-                return $this->httpError('check the diploma bucket', $bucketResponse->status());
+                return $this->httpError(
+                    'check the diploma bucket',
+                    $bucketResponse->status(),
+                    false,
+                    $bucketResponse->json('message'),
+                );
             }
 
             $extension = strtolower($file->getClientOriginalExtension()) ?: 'bin';
@@ -58,19 +63,22 @@ class SupabaseDiplomaStorage
                 ];
             }
             $uploadResponse = Http::timeout(30)
-                ->withHeaders($headers + ['x-upsert' => 'false'])
-                ->attach(
-                    'file',
-                    $contents,
-                    $objectName,
-                    ['Content-Type' => $file->getMimeType() ?: 'application/octet-stream'],
-                )
+                ->withHeaders($headers + [
+                    'x-upsert' => 'false',
+                    'Content-Type' => $file->getMimeType() ?: 'application/octet-stream',
+                ])
+                ->withBody($contents, $file->getMimeType() ?: 'application/octet-stream')
                 ->post(
                     $baseUrl . '/storage/v1/object/' . rawurlencode($bucket) . '/' . rawurlencode($objectName),
                 );
 
             if (!$uploadResponse->successful()) {
-                return $this->httpError('upload the diploma', $uploadResponse->status());
+                return $this->httpError(
+                    'upload the diploma',
+                    $uploadResponse->status(),
+                    false,
+                    $uploadResponse->json('message'),
+                );
             }
         } catch (ConnectionException $exception) {
             Log::warning('Could not connect to Supabase Storage.', [
@@ -153,7 +161,12 @@ class SupabaseDiplomaStorage
         }
 
         if (!$response->successful()) {
-            return $this->httpError('delete the diploma', $response->status(), true);
+            return $this->httpError(
+                'delete the diploma',
+                $response->status(),
+                true,
+                $response->json('message'),
+            );
         }
 
         return null;
@@ -181,22 +194,37 @@ class SupabaseDiplomaStorage
 
     private function headers(string $serviceRoleKey): array
     {
-        return [
+        $headers = [
             'apikey' => $serviceRoleKey,
-            'Authorization' => 'Bearer ' . $serviceRoleKey,
         ];
+        if (str_starts_with($serviceRoleKey, 'eyJ')) {
+            $headers['Authorization'] = 'Bearer ' . $serviceRoleKey;
+        }
+
+        return $headers;
     }
 
-    private function httpError(string $operation, int $status, bool $deleting = false): array
+    private function httpError(
+        string $operation,
+        int $status,
+        bool $deleting = false,
+        ?string $providerMessage = null,
+    ): array
     {
         Log::warning('Supabase Storage rejected a diploma operation.', [
             'operation' => $operation,
             'status' => $status,
+            'provider_message' => $providerMessage,
         ]);
+
+        $detail = is_string($providerMessage) && trim($providerMessage) !== ''
+            ? ' Supabase: ' . trim($providerMessage)
+            : '';
 
         return [
             'status' => 502,
             'message' => 'Supabase Storage could not ' . $operation . ' (HTTP ' . $status . ').'
+                . $detail
                 . ($deleting ? ' The credential was not deleted; check the bucket and service key, then retry.' : ' Check the bucket and service key, then retry.'),
         ];
     }

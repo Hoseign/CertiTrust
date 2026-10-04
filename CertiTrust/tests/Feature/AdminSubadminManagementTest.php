@@ -570,9 +570,15 @@ class AdminSubadminManagementTest extends TestCase
 
     public function test_school_admin_diploma_upload_creates_the_bucket_and_uses_a_unique_object_path(): void
     {
+        $serviceRoleKey = 'sb_secret_test-service-role-key';
+        $fileBytes = str_pad(
+            base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+nmAAAAABJRU5ErkJggg=='),
+            2048,
+            "\0",
+        );
         config([
             'services.supabase.url' => 'https://test-project.supabase.co',
-            'services.supabase.service_role_key' => 'test-service-role-key',
+            'services.supabase.service_role_key' => $serviceRoleKey,
             'services.supabase.diploma_bucket' => 'diplomas',
         ]);
         Http::fake([
@@ -593,11 +599,7 @@ class AdminSubadminManagementTest extends TestCase
             ->post('/api/certificates/diploma', [
                 'diploma_file' => UploadedFile::fake()->createWithContent(
                     'reused-name.png',
-                    str_pad(
-                        base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+nmAAAAABJRU5ErkJggg=='),
-                        2048,
-                        "\0",
-                    ),
+                    $fileBytes,
                 ),
             ], ['Accept' => 'application/json'])
             ->assertCreated()
@@ -615,6 +617,8 @@ class AdminSubadminManagementTest extends TestCase
             && $request->data()['public'] === true);
         Http::assertSent(fn (HttpRequest $request) => $request->method() === 'POST'
             && preg_match('#/storage/v1/object/diplomas/[0-9a-f-]+\.png$#', $request->url()) === 1
-            && $request->hasHeader('apikey', 'test-service-role-key'));
+            && $request->hasHeader('apikey', $serviceRoleKey)
+            && !$request->hasHeader('Authorization')
+            && $request->body() === $fileBytes);
     }
 }

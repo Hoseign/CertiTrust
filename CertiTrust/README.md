@@ -23,7 +23,7 @@ Laravel is accessible, powerful, and provides tools required for large, robust a
 
 ## Diploma storage configuration
 
-Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the Laravel backend environment (for example, Render). Keep the service-role key on the backend; do not add it to the Flutter app. The first authenticated school-admin diploma upload creates the public `diplomas` bucket if it does not exist. The backend uses the same key to remove the stored file when a credential deletion is approved.
+Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the Laravel backend environment (for example, Render). Use the Supabase secret/service-role key (`sb_secret_...` or the legacy service-role JWT), not the publishable/anon key. Keep it on the backend; do not add it to the Flutter app. The first authenticated school-admin diploma upload creates the public `diplomas` bucket if it does not exist. The backend uses the same key to remove the stored file when a credential deletion is approved.
 
 Diploma URLs are public so verification pages can show and download the attached files. Only the Laravel backend handles uploads and deletions.
 
