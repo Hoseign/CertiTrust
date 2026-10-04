@@ -182,6 +182,10 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                     record['degree']?.toString() ??
                                         record['course_or_event']?.toString() ??
                                         'N/A'),
+                                _recordDetailRow(
+                                    'Degree number',
+                                    record['degree_number']?.toString() ??
+                                        '1'),
                                 _recordDetailRow('Gmail', email),
                                 _recordDetailRow(
                                     'Certificate code',
@@ -222,6 +226,14 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                           Icons.workspace_premium_outlined),
                                       label: const Text('View Your Diploma'),
                                     ),
+                                    if (ApiService.authRole == 'admin' &&
+                                        !ApiService.isSuperAdmin)
+                                      TextButton.icon(
+                                        onPressed: () =>
+                                            context.push('/issue', extra: record),
+                                        icon: const Icon(Icons.add_circle_outline),
+                                        label: const Text('Add another degree'),
+                                      ),
                                     if (ApiService.authRole == 'admin' &&
                                         !ApiService.isSuperAdmin)
                                       TextButton.icon(

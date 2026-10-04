@@ -177,6 +177,15 @@ class AdminSubadminManagementTest extends TestCase
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('certificate.cert_hash', $hash);
+
+        $this->withToken($login->json('token'))
+            ->postJson('/api/auth/verify-student', [
+                'email' => 'STUDENT@example.edu',
+                'student_id' => 'wrong-id',
+            ])
+            ->assertNotFound()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'The Student ID does not match database records for this email.');
     }
 
     public function test_batch_issuance_rejects_duplicate_student_ids_but_allows_duplicate_names(): void
@@ -232,12 +241,12 @@ class AdminSubadminManagementTest extends TestCase
                 $credential('20260002', 'h', 'alex-three@example.edu'),
             ],
         ])->assertStatus(422)
-            ->assertJsonPath('message', 'Student ID "20260002" already belongs to Alex Student (Student ID 20260002). Enter a unique Student ID.');
+            ->assertJsonPath('message', 'Student ID "20260002" already belongs to Alex Student (Student ID 20260002). Confirm this as an additional degree to continue.');
 
         $this->postJson('/api/certificates/batch', [
             'certificates' => [$credential('20260004', 'e', 'alex-one@example.edu')],
         ])->assertStatus(422)
-            ->assertJsonPath('message', 'A Google email is already linked to a student or administrator account. Use a unique email.');
+            ->assertJsonPath('message', 'Google email "alex-one@example.edu" is already linked to Alex Student. Each student must use a unique email.');
 
         $duplicateEmailBatch = $this->postJson('/api/certificates/batch', [
             'certificates' => [
@@ -295,6 +304,148 @@ class AdminSubadminManagementTest extends TestCase
             ],
         ])->assertStatus(422)
             ->assertJsonPath('message', 'Diploma image "used-diploma.jpg" already belongs to Alex Student (Student ID 20260007). Choose another image file.');
+
+        $ucuAdmin = User::create([
+            'name' => 'UCU Admin',
+            'email' => 'ucu-admin-cross-campus@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        $this->actingAs($ucuAdmin, 'sanctum')->postJson('/api/certificates/batch', [
+            'certificates' => [[
+                'student_id' => '20260008',
+                'student_name' => 'Alex Student',
+                'student_email' => 'cross-campus-email@example.edu',
+                'degree' => 'BSIT',
+                'university_code' => 'UCU',
+                'issue_date' => '2026-09-30',
+                'cert_hash' => str_repeat('n', 64),
+                'diploma_url' => 'https://storage.example/diplomas/UCU-DIPLOMA.jpg',
+                'diploma_file_name' => 'UCU-DIPLOMA.jpg',
+            ]],
+        ])->assertCreated();
+
+        $this->actingAs($admin, 'sanctum')->postJson('/api/certificates/validate-batch', [
+            'certificates' => [[
+                'student_id' => '20260008',
+                'student_name' => 'New PSU Student',
+                'student_email' => 'new-psu-student@example.edu',
+                'diploma_file_name' => 'fresh-diploma.jpg',
+            ]],
+        ])->assertStatus(422)
+            ->assertJsonPath('message', 'Student ID "20260008" already belongs to Alex Student (Student ID 20260008) at UCU. Student IDs must be unique across universities.');
+
+        $this->postJson('/api/certificates/batch', [
+            'certificates' => [[
+                'student_id' => '20260008',
+                'student_name' => 'New PSU Student',
+                'student_email' => 'new-psu-student@example.edu',
+                'degree' => 'BSIT',
+                'university_code' => 'PSU',
+                'issue_date' => '2026-09-30',
+                'cert_hash' => str_repeat('p', 64),
+            ]],
+        ])->assertStatus(422)
+            ->assertJsonPath('message', 'Student ID "20260008" already belongs to Alex Student (Student ID 20260008) at UCU. Student IDs must be unique across universities.');
+
+        $this->postJson('/api/certificates/validate-batch', [
+            'certificates' => [[
+                'student_id' => '20260011',
+                'student_name' => 'Alex Student',
+                'student_email' => 'another-psu-student@example.edu',
+                'diploma_file_name' => 'new-psu-diploma.jpg',
+            ]],
+        ])->assertOk()
+            ->assertJsonPath('warnings.0', 'The name "Alex Student" is also used at UCU. Same names are allowed; you may continue.');
+
+        $this->postJson('/api/certificates/validate-batch', [
+            'certificates' => [[
+                'student_id' => '20260011',
+                'student_name' => 'Another Student',
+                'student_email' => 'cross-campus-email@example.edu',
+                'diploma_file_name' => 'fresh-diploma.jpg',
+            ]],
+        ])->assertStatus(422)
+            ->assertJsonPath('message', 'Google email "cross-campus-email@example.edu" is already linked to Alex Student at UCU. Each student must use a unique email.');
+
+        $this->actingAs($ucuAdmin, 'sanctum')->postJson('/api/certificates/validate-batch', [
+            'certificates' => [[
+                'student_id' => '20260008',
+                'student_name' => 'Alex Student',
+                'student_email' => 'cross-campus-email@example.edu',
+                'degree' => 'BSIT',
+                'diploma_file_name' => 'UCU-SECOND-DIPLOMA.jpg',
+            ]],
+        ])->assertOk()
+            ->assertJsonPath('additional_degree_candidates.0.next_degree_number', 2)
+            ->assertJsonPath('additional_degree_candidates.0.existing_degrees.0.degree', 'BSIT')
+            ->assertJsonPath('additional_degree_candidates.0.existing_degrees.0.degree_number', 1);
+
+        $confirmedAdditionalDegree = [[
+            'student_id' => '20260008',
+            'student_name' => 'Alex Student',
+            'student_email' => 'cross-campus-email@example.edu',
+            'degree' => 'BSCS',
+            'degree_number' => 2,
+            'additional_degree' => true,
+            'university_code' => 'UCU',
+            'issue_date' => '2026-09-30',
+            'cert_hash' => str_repeat('r', 64),
+            'diploma_file_name' => 'UCU-SECOND-DIPLOMA.jpg',
+        ]];
+        $this->actingAs($ucuAdmin, 'sanctum')->postJson('/api/certificates/validate-batch', [
+            'certificates' => $confirmedAdditionalDegree,
+        ])->assertOk()
+            ->assertJsonPath('additional_degree_candidates', []);
+
+        $this->actingAs($ucuAdmin, 'sanctum')->postJson('/api/certificates/batch', [
+            'certificates' => $confirmedAdditionalDegree,
+        ])->assertCreated();
+        $this->assertDatabaseHas('certificates', [
+            'student_id' => '20260008',
+            'degree' => 'BSCS',
+            'degree_number' => 2,
+            'university_code' => 'UCU',
+            'student_email' => 'cross-campus-email@example.edu',
+        ]);
+
+        $this->actingAs($admin, 'sanctum')->postJson('/api/certificates/batch', [
+            'certificates' => [[
+                'student_id' => '20260011',
+                'student_name' => 'Another Student',
+                'student_email' => 'cross-campus-email@example.edu',
+                'degree' => 'BSIT',
+                'university_code' => 'PSU',
+                'issue_date' => '2026-09-30',
+                'cert_hash' => str_repeat('q', 64),
+            ]],
+        ])->assertStatus(422)
+            ->assertJsonPath('message', 'Google email "cross-campus-email@example.edu" is already linked to Alex Student at UCU. Each student must use a unique email.');
+
+        $this->actingAs($admin, 'sanctum')->postJson('/api/certificates/validate-batch', [
+            'certificates' => [[
+                'student_id' => '20260012',
+                'student_name' => 'Different PSU Student',
+                'student_email' => 'different-psu-student@example.edu',
+                'diploma_file_name' => 'USED-DIPLOMA.jpg',
+            ]],
+        ])->assertStatus(422)
+            ->assertJsonPath('message', 'Diploma image "used-diploma.jpg" already belongs to Alex Student (Student ID 20260007). Choose another image file.');
+
+        $this->actingAs($admin, 'sanctum')->postJson('/api/certificates/batch', [
+            'certificates' => [[
+                'student_id' => '20260013',
+                'student_name' => 'Different PSU Student',
+                'student_email' => 'different-psu-student@example.edu',
+                'degree' => 'BSIT',
+                'university_code' => 'PSU',
+                'issue_date' => '2026-09-30',
+                'cert_hash' => str_repeat('o', 64),
+                'diploma_url' => 'https://storage.example/diplomas/UCU-DIPLOMA.jpg',
+                'diploma_file_name' => 'UCU-DIPLOMA.jpg',
+            ]],
+        ])->assertCreated();
 
         $this->postJson('/api/certificates/check-diploma-file-names', [
             'file_names' => ['USED-DIPLOMA.jpg'],

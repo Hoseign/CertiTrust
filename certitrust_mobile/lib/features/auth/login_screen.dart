@@ -229,7 +229,19 @@ class _LoginScreenState extends State<LoginScreen> {
               } catch (err) {
                 debugPrint('Error verifying Student ID: $err');
                 if (context.mounted) {
-                  _showErrorDialog('Verification Error', '$err');
+                  if (err is ApiRequestException &&
+                      (err.statusCode == 404 || err.statusCode == 422)) {
+                    Navigator.of(context).pop();
+                    _showWarningDialog(
+                      'Student ID Warning',
+                      err.message,
+                    );
+                  } else {
+                    final message = err is ApiRequestException
+                        ? err.message
+                        : err.toString();
+                    _showErrorDialog('Verification Error', message);
+                  }
                 }
               }
             },

@@ -339,9 +339,7 @@ class ApiService {
         final data = jsonResponse is Map<String, dynamic>
             ? jsonResponse['data'] ?? jsonResponse
             : null;
-        return data is Map
-            ? Map<String, dynamic>.from(data)
-            : null;
+        return data is Map ? Map<String, dynamic>.from(data) : null;
       } else if (response.statusCode == 404) {
         return null;
       }
@@ -458,7 +456,11 @@ class ApiService {
         authProfileIcon = profile['profile_icon']?.toString();
         return jsonResponse;
       } else {
-        throw 'Server error [${response.statusCode}]: ${jsonResponse['message'] ?? response.body}';
+        throw ApiRequestException(
+          response.statusCode,
+          jsonResponse['message']?.toString() ??
+              'Student ID verification failed. Please check the ID and try again.',
+        );
       }
     } catch (e) {
       _recordConnectionFailure(_connectionMessage(e));
@@ -818,26 +820,23 @@ class ApiService {
     }
   }
 
-  static Future<void> checkDiplomaFileNames(List<String> fileNames) async {
-    final names = fileNames
-        .map((name) => name.trim())
-        .where((name) => name.isNotEmpty)
-        .toList();
-    if (names.isEmpty) return;
-
+  static Future<Map<String, dynamic>> validateBatchIssuance(
+    List<Map<String, dynamic>> certificates,
+  ) async {
     final response = await http.post(
-      Uri.parse('$baseUrl/certificates/check-diploma-file-names'),
+      Uri.parse('$baseUrl/certificates/validate-batch'),
       headers: _jsonHeaders,
-      body: jsonEncode({'file_names': names}),
+      body: jsonEncode({'certificates': certificates}),
     );
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
     if (response.statusCode != 200) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
       throw ApiRequestException(
         response.statusCode,
         body['message']?.toString() ??
-            'Unable to validate diploma image names.',
+            'Unable to validate credential issuance.',
       );
     }
+    return body;
   }
 
   static Future<List<Map<String, dynamic>>>

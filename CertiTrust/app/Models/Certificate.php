@@ -15,6 +15,7 @@ class Certificate extends Model
         'student_name',
         'recipient_name',
         'degree',
+        'degree_number',
         'course_or_event',
         'university_code',
         'issue_date',

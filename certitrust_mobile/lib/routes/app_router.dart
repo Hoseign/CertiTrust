@@ -82,7 +82,11 @@ class AppRouter {
             routes: [
               GoRoute(
                 path: '/issue',
-                builder: (context, state) => const IssueScreen(),
+                builder: (context, state) => IssueScreen(
+                  initialRecord: state.extra is Map<String, dynamic>
+                      ? state.extra as Map<String, dynamic>
+                      : null,
+                ),
               ),
             ],
           ),

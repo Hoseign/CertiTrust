@@ -84,16 +84,17 @@ class CertificateController extends Controller
             return response()->json(['message' => 'This admin is not authorized to issue for that school.'], 403);
         }
         $studentId = strtolower(trim($validated['student_id']));
-        $existingStudent = $this->findStudentByIds($universityCode, [$studentId]);
+        $existingStudent = $this->findStudentByIds([$studentId]);
         if ($existingStudent) {
             return response()->json([
-                'message' => 'Student ID "' . trim($validated['student_id']) . '" already belongs to ' . $this->studentOwnerLabel($existingStudent) . '. Enter a unique Student ID.',
+                'message' => 'Student ID "' . trim($validated['student_id']) . '" already belongs to ' . $this->studentOwnerLabel($existingStudent) . $this->studentUniversityLabel($existingStudent, $universityCode) . '. Enter a unique Student ID.',
             ], 422);
         }
         $studentEmail = strtolower(trim($validated['student_email']));
-        if ($this->studentEmailIsUnavailable($studentEmail)) {
+        $emailOwner = $this->findStudentByEmail($studentEmail);
+        if ($emailOwner) {
             return response()->json([
-                'message' => 'This Google email is already linked to a student or administrator account. Use a unique email.',
+                'message' => $this->emailConflictMessage($studentEmail, $emailOwner, $universityCode),
             ], 422);
         }
         $diplomaUrl = $validated['diploma_url'] ?? null;
@@ -101,10 +102,11 @@ class CertificateController extends Controller
             ($validated['diploma_file_name'] ?? '') ?: $diplomaUrl
         );
         if ($diplomaFileName !== '') {
-            $existingDiplomas = Certificate::where(function ($query) {
+            $existingDiplomas = Certificate::where('university_code', $universityCode)
+                ->where(function ($query) {
                 $query->whereNotNull('diploma_file_name')
                     ->orWhereNotNull('diploma_url');
-            })
+                })
                 ->get(['student_id', 'student_name', 'recipient_name', 'diploma_url', 'diploma_file_name']);
             $existingOwner = $existingDiplomas->first(
                 fn (Certificate $certificate) => $this->normalizedDiplomaFileName($certificate->diploma_file_name ?: $certificate->diploma_url) === $diplomaFileName
@@ -137,6 +139,8 @@ class CertificateController extends Controller
             'certificates.*.student_name' => ['required', 'string', 'max:255'],
             'certificates.*.student_email' => ['required', 'email'],
             'certificates.*.degree' => ['required', 'string', 'max:255'],
+            'certificates.*.degree_number' => ['nullable', 'integer', 'min:1', 'max:65535'],
+            'certificates.*.additional_degree' => ['nullable', 'boolean'],
             'certificates.*.issue_date' => ['required', 'date'],
             'certificates.*.cert_hash' => ['required', 'string'],
             'certificates.*.diploma_url' => ['nullable', 'url'],
@@ -163,12 +167,38 @@ class CertificateController extends Controller
             }
             $batchStudentOwners[$studentId] = $owner;
         }
-        $studentIds = array_keys($batchStudentOwners);
-        $existingStudent = $this->findStudentByIds($universityCode, $studentIds);
-        if ($existingStudent) {
-            return response()->json([
-                'message' => 'Student ID "' . $existingStudent->student_id . '" already belongs to ' . $this->studentOwnerLabel($existingStudent) . '. Enter a unique Student ID.',
-            ], 422);
+        foreach ($certificates as $certificate) {
+            $existingStudent = $this->findStudentByIds([
+                strtolower(trim($certificate['student_id'])),
+            ]);
+            $isAdditionalDegree = (bool) ($certificate['additional_degree'] ?? false);
+            if (!$existingStudent && $isAdditionalDegree) {
+                return response()->json([
+                    'message' => 'An additional degree can only be issued for an existing student.',
+                ], 422);
+            }
+            if ($existingStudent) {
+                if ($existingStudent->university_code !== $universityCode) {
+                    return response()->json([
+                        'message' => 'Student ID "' . $existingStudent->student_id . '" already belongs to ' . $this->studentOwnerLabel($existingStudent) . $this->studentUniversityLabel($existingStudent, $universityCode) . '. Student IDs must be unique across universities.',
+                    ], 422);
+                }
+                if (!$isAdditionalDegree) {
+                    return response()->json([
+                        'message' => 'Student ID "' . $existingStudent->student_id . '" already belongs to ' . $this->studentOwnerLabel($existingStudent) . '. Confirm this as an additional degree to continue.',
+                    ], 422);
+                }
+                $nextDegreeNumber = $this->nextDegreeNumber($universityCode, $certificate['student_id']);
+                if ((int) ($certificate['degree_number'] ?? 0) !== $nextDegreeNumber) {
+                    return response()->json([
+                        'message' => 'This student is ready for degree ' . $nextDegreeNumber . '. Refresh issuance validation and confirm the suggested degree number.',
+                    ], 422);
+                }
+            } elseif ((int) ($certificate['degree_number'] ?? 1) !== 1) {
+                return response()->json([
+                    'message' => 'A student’s first credential must use degree number 1.',
+                ], 422);
+            }
         }
         $studentEmails = $certificates->map(fn (array $certificate) => strtolower(trim($certificate['student_email'])));
         if ($studentEmails->duplicates()->isNotEmpty()) {
@@ -176,15 +206,29 @@ class CertificateController extends Controller
                 'message' => 'A Google email is repeated in this batch. Each student must use a unique email.',
             ], 422);
         }
-        if (DB::table('certificates')->where(function ($query) use ($studentEmails) {
-            $query->whereIn(DB::raw('LOWER(TRIM(student_email))'), $studentEmails->all())
-                ->orWhereIn(DB::raw('LOWER(TRIM(email))'), $studentEmails->all());
-        })->exists() || User::where('role', 'admin')
-            ->whereIn(DB::raw('LOWER(TRIM(email))'), $studentEmails->all())
-            ->exists()) {
-            return response()->json([
-                'message' => 'A Google email is already linked to a student or administrator account. Use a unique email.',
-            ], 422);
+        foreach ($studentEmails as $studentEmail) {
+            $emailOwner = $this->findStudentByEmail($studentEmail);
+            if ($emailOwner) {
+                $emailCertificate = DB::table('certificates')
+                    ->whereRaw('LOWER(TRIM(student_email)) = ?', [$studentEmail])
+                    ->orWhereRaw('LOWER(TRIM(email)) = ?', [$studentEmail])
+                    ->first(['student_id', 'university_code']);
+                $batchCredential = $certificates->first(
+                    fn (array $certificate) => strtolower(trim($certificate['student_email'])) === $studentEmail
+                );
+                if (
+                    $batchCredential
+                    && $emailCertificate
+                    && strtolower(trim((string) $emailCertificate->student_id))
+                        === strtolower(trim($batchCredential['student_id']))
+                    && $emailCertificate->university_code === $universityCode
+                ) {
+                    continue;
+                }
+                return response()->json([
+                    'message' => $this->emailConflictMessage($studentEmail, $emailOwner, $universityCode),
+                ], 422);
+            }
         }
 
         $batchFileOwners = [];
@@ -206,10 +250,11 @@ class CertificateController extends Controller
 
         if ($batchFileOwners !== []) {
             $existingFileOwners = [];
-            $existingDiplomas = Certificate::where(function ($query) {
+            $existingDiplomas = Certificate::where('university_code', $universityCode)
+                ->where(function ($query) {
                 $query->whereNotNull('diploma_file_name')
                     ->orWhereNotNull('diploma_url');
-            })
+                })
                 ->get(['student_id', 'student_name', 'recipient_name', 'diploma_url', 'diploma_file_name']);
             foreach ($existingDiplomas as $existingDiploma) {
                 $existingFileName = $this->normalizedDiplomaFileName(
@@ -232,11 +277,14 @@ class CertificateController extends Controller
             $diplomaFileName = $this->normalizedDiplomaFileName(
                 ($certificate['diploma_file_name'] ?? '') ?: ($certificate['diploma_url'] ?? null)
             );
+            unset($certificate['additional_degree']);
+
             return array_merge($certificate, [
                 'student_id' => trim($certificate['student_id']),
                 'student_email' => strtolower(trim($certificate['student_email'])),
                 'email' => strtolower(trim($certificate['student_email'])),
                 'diploma_file_name' => $diplomaFileName ?: null,
+                'degree_number' => (int) ($certificate['degree_number'] ?? 1),
                 'certificate_code' => 'CERT-' . strtoupper(Str::random(10)),
                 'recipient_name' => $certificate['student_name'],
                 'course_or_event' => $certificate['degree'],
@@ -275,10 +323,11 @@ class CertificateController extends Controller
             $requestedNames[$normalizedName] = true;
         }
 
-        $existingDiplomas = Certificate::where(function ($query) {
+        $existingDiplomas = Certificate::where('university_code', $user->university_code)
+            ->where(function ($query) {
             $query->whereNotNull('diploma_file_name')
                 ->orWhereNotNull('diploma_url');
-        })
+            })
             ->get(['student_id', 'student_name', 'recipient_name', 'diploma_url', 'diploma_file_name']);
         foreach ($existingDiplomas as $existingDiploma) {
             $existingFileName = $this->normalizedDiplomaFileName(
@@ -294,16 +343,174 @@ class CertificateController extends Controller
         return response()->json(['message' => 'Diploma image file names are available.']);
     }
 
-    private function studentEmailIsUnavailable(string $email): bool
+    public function validateBatchIssuance(Request $request)
     {
-        $normalizedEmail = strtolower(trim($email));
+        $user = $request->user();
+        if ($user->role !== 'admin' || !$user->university_code) {
+            return response()->json(['message' => 'Only a school administrator can validate credential issuance.'], 403);
+        }
 
-        return DB::table('certificates')->where(function ($query) use ($normalizedEmail) {
-            $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$normalizedEmail])
-                ->orWhereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail]);
-        })->exists() || User::where('role', 'admin')
-            ->whereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail])
-            ->exists();
+        $validated = $request->validate([
+            'certificates' => ['required', 'array', 'min:1'],
+            'certificates.*.student_id' => ['required', 'string', 'max:255'],
+            'certificates.*.student_name' => ['required', 'string', 'max:255'],
+            'certificates.*.student_email' => ['required', 'email'],
+            'certificates.*.diploma_file_name' => ['nullable', 'string', 'max:255'],
+            'certificates.*.additional_degree' => ['nullable', 'boolean'],
+            'certificates.*.degree_number' => ['nullable', 'integer', 'min:1', 'max:65535'],
+        ]);
+        $certificates = collect($validated['certificates']);
+        $batchStudentOwners = [];
+        foreach ($certificates as $certificate) {
+            $studentId = strtolower(trim($certificate['student_id']));
+            $owner = ($certificate['student_name'] ?: 'Student') . ' (Student ID ' . trim($certificate['student_id']) . ')';
+            if (isset($batchStudentOwners[$studentId])) {
+                return response()->json([
+                    'message' => 'Student ID "' . trim($certificate['student_id']) . '" is repeated in this batch and already belongs to ' . $batchStudentOwners[$studentId] . '.',
+                ], 422);
+            }
+            $batchStudentOwners[$studentId] = $owner;
+        }
+
+        $additionalDegreeCandidates = [];
+        foreach ($certificates as $index => $certificate) {
+            $existingStudent = $this->findStudentByIds([
+                strtolower(trim($certificate['student_id'])),
+            ]);
+            $isAdditionalDegree = (bool) ($certificate['additional_degree'] ?? false);
+            if ($existingStudent && $existingStudent->university_code !== $user->university_code) {
+                return response()->json([
+                    'message' => 'Student ID "' . $existingStudent->student_id . '" already belongs to ' . $this->studentOwnerLabel($existingStudent) . $this->studentUniversityLabel($existingStudent, $user->university_code) . '. Student IDs must be unique across universities.',
+                ], 422);
+            }
+            if ($existingStudent && !$isAdditionalDegree) {
+                $degreeRecords = Certificate::where('university_code', $user->university_code)
+                    ->whereRaw('LOWER(TRIM(student_id)) = ?', [strtolower(trim($certificate['student_id']))])
+                    ->orderBy('degree_number')
+                    ->get(['degree', 'degree_number']);
+                $additionalDegreeCandidates[] = [
+                    'draft_index' => $index,
+                    'student_name' => $certificate['student_name'],
+                    'student_id' => $certificate['student_id'],
+                    'existing_degrees' => $degreeRecords->map(fn (Certificate $degree) => [
+                        'degree' => $degree->degree,
+                        'degree_number' => $degree->degree_number,
+                    ])->values(),
+                    'next_degree_number' => $this->nextDegreeNumber(
+                        $user->university_code,
+                        $certificate['student_id'],
+                    ),
+                ];
+            } elseif ($existingStudent && $isAdditionalDegree) {
+                if ((int) ($certificate['degree_number'] ?? 0) !== $this->nextDegreeNumber(
+                    $user->university_code,
+                    $certificate['student_id'],
+                )) {
+                    return response()->json([
+                        'message' => 'The degree number changed because another credential was issued. Please try again.',
+                    ], 422);
+                }
+            } elseif ($isAdditionalDegree || (int) ($certificate['degree_number'] ?? 1) !== 1) {
+                return response()->json([
+                    'message' => 'An additional degree must refer to a student with an existing credential.',
+                ], 422);
+            }
+        }
+
+        $emails = $certificates->map(fn (array $certificate) => strtolower(trim($certificate['student_email'])));
+        if ($emails->duplicates()->isNotEmpty()) {
+            return response()->json([
+                'message' => 'A Google email is repeated in this batch. Each student must use a unique email.',
+            ], 422);
+        }
+        foreach ($emails as $email) {
+            $emailOwner = $this->findStudentByEmail($email);
+            if ($emailOwner) {
+                $emailCertificate = DB::table('certificates')
+                    ->whereRaw('LOWER(TRIM(student_email)) = ?', [$email])
+                    ->orWhereRaw('LOWER(TRIM(email)) = ?', [$email])
+                    ->first(['student_id', 'university_code']);
+                $batchCredential = $certificates->first(
+                    fn (array $certificate) => strtolower(trim($certificate['student_email'])) === $email
+                );
+                if (
+                    $batchCredential
+                    && $emailCertificate
+                    && strtolower(trim((string) $emailCertificate->student_id))
+                        === strtolower(trim($batchCredential['student_id']))
+                    && $emailCertificate->university_code === $user->university_code
+                ) {
+                    continue;
+                }
+                return response()->json([
+                    'message' => $this->emailConflictMessage($email, $emailOwner, $user->university_code),
+                ], 422);
+            }
+        }
+
+        $requestedFileNames = [];
+        foreach ($certificates as $certificate) {
+            $fileName = $this->normalizedDiplomaFileName($certificate['diploma_file_name'] ?? null);
+            if ($fileName === '') {
+                continue;
+            }
+            if (isset($requestedFileNames[$fileName])) {
+                return response()->json([
+                    'message' => 'Diploma image "' . $fileName . '" is repeated in this batch. Choose a different image file for each student.',
+                ], 422);
+            }
+            $requestedFileNames[$fileName] = true;
+        }
+        if ($requestedFileNames !== []) {
+            $existingDiplomas = Certificate::where('university_code', $user->university_code)
+                ->where(function ($query) {
+                    $query->whereNotNull('diploma_file_name')
+                        ->orWhereNotNull('diploma_url');
+                })
+                ->get(['student_id', 'student_name', 'recipient_name', 'diploma_url', 'diploma_file_name']);
+            foreach ($existingDiplomas as $existingDiploma) {
+                $fileName = $this->normalizedDiplomaFileName(
+                    $existingDiploma->diploma_file_name ?: $existingDiploma->diploma_url
+                );
+                if (isset($requestedFileNames[$fileName])) {
+                    return response()->json([
+                        'message' => 'Diploma image "' . $fileName . '" already belongs to ' . $this->studentOwnerLabel($existingDiploma) . '. Choose another image file.',
+                    ], 422);
+                }
+            }
+        }
+
+        $warnings = [];
+        $normalizedNames = $certificates
+            ->map(fn (array $certificate) => strtolower(trim($certificate['student_name'])))
+            ->filter()
+            ->unique();
+        foreach ($normalizedNames as $name) {
+            $otherUniversities = Certificate::whereRaw('LOWER(TRIM(student_name)) = ?', [$name])
+                ->where('university_code', '!=', $user->university_code)
+                ->distinct()
+                ->pluck('university_code')
+                ->filter()
+                ->values();
+            if ($otherUniversities->isNotEmpty()) {
+                $warnings[] = 'The name "' . $certificates->first(
+                    fn (array $certificate) => strtolower(trim($certificate['student_name'])) === $name
+                )['student_name'] . '" is also used at ' . $otherUniversities->implode(', ')
+                    . '. Same names are allowed; you may continue.';
+            }
+        }
+
+        return response()->json([
+            'warnings' => $warnings,
+            'additional_degree_candidates' => $additionalDegreeCandidates,
+        ]);
+    }
+
+    private function nextDegreeNumber(string $universityCode, string $studentId): int
+    {
+        return (int) Certificate::where('university_code', $universityCode)
+            ->whereRaw('LOWER(TRIM(student_id)) = ?', [strtolower(trim($studentId))])
+            ->max('degree_number') + 1;
     }
 
     private function studentOwnerLabel(object $certificate): string
@@ -314,22 +521,49 @@ class CertificateController extends Controller
         return $studentId === '' ? $name : $name . ' (Student ID ' . $studentId . ')';
     }
 
-    private function findStudentByIds(string $universityCode, array $studentIds): ?Certificate
+    private function findStudentByIds(array $studentIds): ?Certificate
     {
-        $existingStudent = Certificate::where('university_code', $universityCode)
-            ->whereIn('student_id', $studentIds)
-            ->first();
-        if ($existingStudent) {
-            return $existingStudent;
+        if ($studentIds === []) {
+            return null;
+        }
+        $studentIds = array_map('strval', $studentIds);
+        $placeholders = implode(', ', array_fill(0, count($studentIds), '?'));
+
+        return Certificate::whereRaw(
+            'LOWER(TRIM(student_id)) IN (' . $placeholders . ')',
+            $studentIds,
+        )->first();
+    }
+
+    private function findStudentByEmail(string $email): ?object
+    {
+        $normalizedEmail = strtolower(trim($email));
+        $certificate = DB::table('certificates')
+            ->whereRaw('LOWER(TRIM(student_email)) = ?', [$normalizedEmail])
+            ->orWhereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail])
+            ->first(['student_name', 'recipient_name', 'student_id', 'university_code']);
+        if ($certificate) {
+            return $certificate;
         }
 
-        return Certificate::where('university_code', $universityCode)
-            ->get(['student_id', 'student_name', 'recipient_name'])
-            ->first(fn (Certificate $certificate) => in_array(
-                strtolower(trim((string) $certificate->student_id)),
-                $studentIds,
-                true,
-            ));
+        return User::where('role', 'admin')
+            ->whereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail])
+            ->first(['name', 'university_code', 'email']);
+    }
+
+    private function emailConflictMessage(string $email, object $owner, string $currentUniversity): string
+    {
+        $ownerName = $owner->student_name ?? $owner->recipient_name ?? $owner->name ?? 'an existing account';
+        $university = $owner->university_code ?? null;
+        $location = $university && $university !== $currentUniversity ? ' at ' . $university : '';
+
+        return 'Google email "' . $email . '" is already linked to ' . $ownerName . $location . '. Each student must use a unique email.';
+    }
+
+    private function studentUniversityLabel(object $student, string $currentUniversity): string
+    {
+        $university = $student->university_code ?? null;
+        return $university && $university !== $currentUniversity ? ' at ' . $university : '';
     }
 
     private function normalizedDiplomaFileName(?string $value): string
