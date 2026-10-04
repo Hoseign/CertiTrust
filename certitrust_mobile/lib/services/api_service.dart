@@ -777,6 +777,28 @@ class ApiService {
     }
   }
 
+  static Future<void> checkDiplomaFileNames(List<String> fileNames) async {
+    final names = fileNames
+        .map((name) => name.trim())
+        .where((name) => name.isNotEmpty)
+        .toList();
+    if (names.isEmpty) return;
+
+    final response = await http.post(
+      Uri.parse('$baseUrl/certificates/check-diploma-file-names'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'file_names': names}),
+    );
+    if (response.statusCode != 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ??
+            'Unable to validate diploma image names.',
+      );
+    }
+  }
+
   static Future<List<Map<String, dynamic>>>
       getCertificatesForCurrentUser() async {
     try {

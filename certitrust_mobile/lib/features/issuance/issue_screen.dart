@@ -97,7 +97,7 @@ class _IssueScreenState extends State<IssueScreen> {
       await Supabase.instance.client.storage.from('diplomas').uploadBinary(
             name,
             file.bytes!,
-            fileOptions: const FileOptions(upsert: true),
+            fileOptions: const FileOptions(upsert: false),
           );
       return Supabase.instance.client.storage
           .from('diplomas')
@@ -140,7 +140,9 @@ class _IssueScreenState extends State<IssueScreen> {
         existingNames.putIfAbsent(name, () => <String>{}).add(owner);
       }
 
-      final url = record['diploma_url']?.toString() ?? '';
+      final url = (record['diploma_file_name'] ?? record['diploma_url'])
+              ?.toString() ??
+          '';
       if (url.isNotEmpty) {
         existingFileOwners.putIfAbsent(
             _normalizeDiplomaFileName(url), () => owner);
@@ -203,9 +205,10 @@ class _IssueScreenState extends State<IssueScreen> {
   }
 
   String _normalizeDiplomaFileName(String value) {
-    final pathSegments = Uri.tryParse(value)?.pathSegments ?? const <String>[];
-    final fileName =
-        pathSegments.isEmpty ? value.split('/').last : pathSegments.last;
+    final uri = Uri.tryParse(value);
+    final fileName = uri?.hasScheme == true && uri?.hasAuthority == true
+        ? uri!.pathSegments.last
+        : value.replaceAll('\\', '/').split('/').last;
     return fileName.trim().toLowerCase();
   }
 
@@ -229,6 +232,12 @@ class _IssueScreenState extends State<IssueScreen> {
 
     setState(() => _isProcessing = true);
     try {
+      await ApiService.checkDiplomaFileNames(
+        _drafts
+            .map((draft) => draft.diploma?.name ?? '')
+            .where((name) => name.isNotEmpty)
+            .toList(),
+      );
       final records = <Map<String, dynamic>>[];
       for (final draft in _drafts) {
         records.add({
@@ -239,6 +248,7 @@ class _IssueScreenState extends State<IssueScreen> {
           'university_code': draft.school,
           'issue_date': DateTime.now().toIso8601String().split('T').first,
           'cert_hash': draft.hash,
+          'diploma_file_name': draft.diploma?.name,
           'diploma_url': await _uploadDiploma(draft),
         });
       }

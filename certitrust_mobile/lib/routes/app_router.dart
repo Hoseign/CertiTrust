@@ -52,10 +52,6 @@ class AppRouter {
         builder: (context, state) => const LoginScreen(),
       ),
       GoRoute(
-        path: '/dashboard',
-        builder: (context, state) => const DashboardScreen(),
-      ),
-      GoRoute(
         path: '/admin-management',
         builder: (context, state) => const AdminManagementScreen(),
       ),
@@ -63,16 +59,71 @@ class AppRouter {
         path: '/deletion-requests',
         builder: (context, state) => const CertificateDeletionRequestsScreen(),
       ),
-      GoRoute(
-        path: '/issue',
-        builder: (context, state) => const IssueScreen(),
-      ),
-      GoRoute(
-        path: '/verify',
-        builder: (context, state) {
-          final hash = state.uri.queryParameters['hash'];
-          return VerifyScreen(certHash: hash);
-        },
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) => navigationShell,
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/dashboard',
+                builder: (context, state) => const DashboardScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/records',
+                builder: (context, state) => const RecordsScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/issue',
+                builder: (context, state) => const IssueScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/verify',
+                builder: (context, state) => VerifyScreen(
+                  certHash: state.uri.queryParameters['hash'],
+                ),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/profile',
+                builder: (context, state) => const ProfileScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/ansq',
+                builder: (context, state) => ChatScreen(
+                  isAdmin: true,
+                  initialContactId: state.uri.queryParameters['with_user_id'],
+                ),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/askq',
+                builder: (context, state) => const ChatScreen(isAdmin: false),
+              ),
+            ],
+          ),
+        ],
       ),
       GoRoute(
         path: '/qr-scanner',
@@ -84,20 +135,6 @@ class AppRouter {
           certificate: state.extra as Map<String, dynamic>? ?? const {},
         ),
       ),
-      GoRoute(
-          path: '/records', builder: (context, state) => const RecordsScreen()),
-      GoRoute(
-          path: '/profile', builder: (context, state) => const ProfileScreen()),
-      GoRoute(
-        path: '/ansq',
-        builder: (context, state) => ChatScreen(
-          isAdmin: true,
-          initialContactId: state.uri.queryParameters['with_user_id'],
-        ),
-      ),
-      GoRoute(
-          path: '/askq',
-          builder: (context, state) => const ChatScreen(isAdmin: false)),
     ],
     errorBuilder: (context, state) => Scaffold(
       appBar: AppBar(title: const Text('Page Not Found')),

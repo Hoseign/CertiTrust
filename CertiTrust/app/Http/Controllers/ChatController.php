@@ -437,9 +437,15 @@ class ChatController extends Controller
             return response()->json(['message' => 'This conversation is not available to your account.'], 403);
         }
         if ($mode === 'everyone') {
-            return response()->json([
-                'message' => 'Clear-for-everyone is disabled. Delete only messages you sent for everyone.',
-            ], 403);
+            ChatMessage::where(function ($query) use ($user, $userId) {
+                $query->where(function ($thread) use ($user, $userId) {
+                    $thread->where('user_id', $user->id)->where('recipient_user_id', $userId);
+                })->orWhere(function ($thread) use ($user, $userId) {
+                    $thread->where('user_id', $userId)->where('recipient_user_id', $user->id);
+                });
+            })->update(['deleted_for_everyone_at' => now()]);
+
+            return response()->json(['message' => 'Conversation deleted for everyone.']);
         }
 
         $messages = ChatMessage::where(function ($query) use ($user, $userId) {

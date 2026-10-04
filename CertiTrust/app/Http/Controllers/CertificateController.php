@@ -16,8 +16,15 @@ class CertificateController extends Controller
     public function index(Request $request)
     {
         $query = Certificate::query()->latest('issue_date');
-        if ($request->user()?->university_code) {
-            $query->where('university_code', $request->user()->university_code);
+        $user = $request->user();
+        if ($user?->role === 'student') {
+            $email = strtolower(trim((string) $user->email));
+            $query->where(function ($studentCertificates) use ($email) {
+                $studentCertificates->whereRaw('LOWER(TRIM(student_email)) = ?', [$email])
+                    ->orWhereRaw('LOWER(TRIM(email)) = ?', [$email]);
+            });
+        } elseif ($user?->university_code) {
+            $query->where('university_code', $user->university_code);
         }
         return response()->json(['data' => $query->get()]);
     }
@@ -44,6 +51,7 @@ class CertificateController extends Controller
             'issue_date' => ['required', 'date'],
             'cert_hash' => ['required', 'string', 'unique:certificates,cert_hash'],
             'diploma_url' => ['nullable', 'url'],
+            'diploma_file_name' => ['nullable', 'string', 'max:255'],
             'university_code' => ['nullable', 'in:UCU,PSU'],
         ]);
 
@@ -65,16 +73,21 @@ class CertificateController extends Controller
             ], 422);
         }
         $diplomaUrl = $validated['diploma_url'] ?? null;
-        if ($diplomaUrl) {
-            $existingDiplomas = Certificate::whereNotNull('diploma_url')
-                ->get(['student_id', 'student_name', 'recipient_name', 'diploma_url']);
+        $diplomaFileName = $this->normalizedDiplomaFileName(
+            ($validated['diploma_file_name'] ?? '') ?: $diplomaUrl
+        );
+        if ($diplomaFileName !== '') {
+            $existingDiplomas = Certificate::where(function ($query) {
+                $query->whereNotNull('diploma_file_name')
+                    ->orWhereNotNull('diploma_url');
+            })
+                ->get(['student_id', 'student_name', 'recipient_name', 'diploma_url', 'diploma_file_name']);
             $existingOwner = $existingDiplomas->first(
-                fn (Certificate $certificate) => $this->normalizedDiplomaFileName($certificate->diploma_url) === $this->normalizedDiplomaFileName($diplomaUrl)
+                fn (Certificate $certificate) => $this->normalizedDiplomaFileName($certificate->diploma_file_name ?: $certificate->diploma_url) === $diplomaFileName
             );
             if ($existingOwner) {
-                $fileName = $this->normalizedDiplomaFileName($diplomaUrl);
                 return response()->json([
-                    'message' => 'Diploma image "' . $fileName . '" already belongs to ' . $this->studentOwnerLabel($existingOwner) . '. Choose another image file.',
+                    'message' => 'Diploma image "' . $diplomaFileName . '" already belongs to ' . $this->studentOwnerLabel($existingOwner) . '. Choose another image file.',
                 ], 422);
             }
         }
@@ -83,6 +96,7 @@ class CertificateController extends Controller
         $validated['student_email'] = $studentEmail;
         $validated['certificate_code'] = 'CERT-' . strtoupper(Str::random(10));
         $validated['email'] = $studentEmail;
+        $validated['diploma_file_name'] = $diplomaFileName ?: null;
         $validated['recipient_name'] = $validated['student_name'];
         $validated['course_or_event'] = $validated['degree'];
         $validated['university_code'] = $universityCode;
@@ -102,6 +116,7 @@ class CertificateController extends Controller
             'certificates.*.issue_date' => ['required', 'date'],
             'certificates.*.cert_hash' => ['required', 'string'],
             'certificates.*.diploma_url' => ['nullable', 'url'],
+            'certificates.*.diploma_file_name' => ['nullable', 'string', 'max:255'],
             'certificates.*.university_code' => ['nullable', 'in:UCU,PSU'],
         ]);
 
@@ -150,11 +165,12 @@ class CertificateController extends Controller
 
         $batchFileOwners = [];
         foreach ($certificates as $certificate) {
-            $url = $certificate['diploma_url'] ?? null;
-            if (!$url) {
+            $fileName = $this->normalizedDiplomaFileName(
+                ($certificate['diploma_file_name'] ?? '') ?: ($certificate['diploma_url'] ?? null)
+            );
+            if ($fileName === '') {
                 continue;
             }
-            $fileName = $this->normalizedDiplomaFileName($url);
             $owner = ($certificate['student_name'] ?: 'Student') . ' (Student ID ' . trim($certificate['student_id']) . ')';
             if (isset($batchFileOwners[$fileName])) {
                 return response()->json([
@@ -166,11 +182,18 @@ class CertificateController extends Controller
 
         if ($batchFileOwners !== []) {
             $existingFileOwners = [];
-            $existingDiplomas = Certificate::whereNotNull('diploma_url')
-                ->get(['student_id', 'student_name', 'recipient_name', 'diploma_url']);
+            $existingDiplomas = Certificate::where(function ($query) {
+                $query->whereNotNull('diploma_file_name')
+                    ->orWhereNotNull('diploma_url');
+            })
+                ->get(['student_id', 'student_name', 'recipient_name', 'diploma_url', 'diploma_file_name']);
             foreach ($existingDiplomas as $existingDiploma) {
-                $fileName = $this->normalizedDiplomaFileName($existingDiploma->diploma_url);
-                $existingFileOwners[$fileName] ??= $this->studentOwnerLabel($existingDiploma);
+                $existingFileName = $this->normalizedDiplomaFileName(
+                    $existingDiploma->diploma_file_name ?: $existingDiploma->diploma_url
+                );
+                if ($existingFileName !== '') {
+                    $existingFileOwners[$existingFileName] ??= $this->studentOwnerLabel($existingDiploma);
+                }
             }
             foreach ($batchFileOwners as $fileName => $owner) {
                 if (isset($existingFileOwners[$fileName])) {
@@ -182,10 +205,14 @@ class CertificateController extends Controller
         }
 
         $records = $certificates->map(function (array $certificate) use ($universityCode) {
+            $diplomaFileName = $this->normalizedDiplomaFileName(
+                ($certificate['diploma_file_name'] ?? '') ?: ($certificate['diploma_url'] ?? null)
+            );
             return array_merge($certificate, [
                 'student_id' => trim($certificate['student_id']),
                 'student_email' => strtolower(trim($certificate['student_email'])),
                 'email' => strtolower(trim($certificate['student_email'])),
+                'diploma_file_name' => $diplomaFileName ?: null,
                 'certificate_code' => 'CERT-' . strtoupper(Str::random(10)),
                 'recipient_name' => $certificate['student_name'],
                 'course_or_event' => $certificate['degree'],
@@ -199,6 +226,48 @@ class CertificateController extends Controller
         DB::transaction(fn () => Certificate::insert($records));
 
         return response()->json(['message' => 'Certificates issued.', 'count' => count($records)], 201);
+    }
+
+    public function checkDiplomaFileNames(Request $request)
+    {
+        $user = $request->user();
+        if ($user->role !== 'admin' || !$user->university_code) {
+            return response()->json(['message' => 'Only a school administrator can validate diploma image names.'], 403);
+        }
+
+        $validated = $request->validate([
+            'file_names' => ['required', 'array', 'min:1'],
+            'file_names.*' => ['required', 'string', 'max:255'],
+        ]);
+
+        $requestedNames = [];
+        foreach ($validated['file_names'] as $fileName) {
+            $normalizedName = $this->normalizedDiplomaFileName($fileName);
+            if (isset($requestedNames[$normalizedName])) {
+                return response()->json([
+                    'message' => 'Diploma image "' . $normalizedName . '" is repeated in this batch. Choose a different image file for each student.',
+                ], 422);
+            }
+            $requestedNames[$normalizedName] = true;
+        }
+
+        $existingDiplomas = Certificate::where(function ($query) {
+            $query->whereNotNull('diploma_file_name')
+                ->orWhereNotNull('diploma_url');
+        })
+            ->get(['student_id', 'student_name', 'recipient_name', 'diploma_url', 'diploma_file_name']);
+        foreach ($existingDiplomas as $existingDiploma) {
+            $existingFileName = $this->normalizedDiplomaFileName(
+                $existingDiploma->diploma_file_name ?: $existingDiploma->diploma_url
+            );
+            if (isset($requestedNames[$existingFileName])) {
+                return response()->json([
+                    'message' => 'Diploma image "' . $existingFileName . '" already belongs to ' . $this->studentOwnerLabel($existingDiploma) . '. Choose another image file.',
+                ], 422);
+            }
+        }
+
+        return response()->json(['message' => 'Diploma image file names are available.']);
     }
 
     private function studentEmailIsUnavailable(string $email): bool
@@ -239,9 +308,16 @@ class CertificateController extends Controller
             ));
     }
 
-    private function normalizedDiplomaFileName(string $url): string
+    private function normalizedDiplomaFileName(?string $value): string
     {
-        $path = parse_url($url, PHP_URL_PATH) ?: $url;
+        if ($value === null || trim($value) === '') {
+            return '';
+        }
+
+        $path = str_contains($value, '://')
+            ? (parse_url($value, PHP_URL_PATH) ?: $value)
+            : $value;
+        $path = str_replace('\\', '/', $path);
 
         return strtolower(trim(rawurldecode(basename($path))));
     }

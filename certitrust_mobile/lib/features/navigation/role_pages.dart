@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:async';
 import '../../services/api_service.dart';
+import '../dashboard/widgets/diploma_preview.dart';
 
 class RecordsScreen extends StatefulWidget {
   const RecordsScreen({super.key});
@@ -143,6 +144,8 @@ class _RecordsScreenState extends State<RecordsScreen> {
                         separatorBuilder: (_, __) => const Divider(),
                         itemBuilder: (context, index) {
                           final record = records[index];
+                          final diplomaUrl =
+                              record['diploma_url'] ?? record['cert_image_url'];
                           return ListTile(
                             leading:
                                 const Icon(Icons.verified, color: Colors.green),
@@ -151,14 +154,26 @@ class _RecordsScreenState extends State<RecordsScreen> {
                             subtitle: Text(
                                 '${record['degree'] ?? 'Credential'}\nID: ${record['student_id'] ?? 'N/A'}\n${record['student_email'] ?? record['email'] ?? ''}'),
                             isThreeLine: true,
-                            trailing: ApiService.authRole == 'admin' &&
-                                    !ApiService.isSuperAdmin
-                                ? IconButton(
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (diplomaUrl != null &&
+                                    diplomaUrl.toString().isNotEmpty)
+                                  IconButton(
+                                    tooltip: 'View diploma image',
+                                    icon: const Icon(Icons.visibility_outlined),
+                                    onPressed: () => showDiplomaPreview(
+                                        context, diplomaUrl.toString()),
+                                  ),
+                                if (ApiService.authRole == 'admin' &&
+                                    !ApiService.isSuperAdmin)
+                                  IconButton(
                                     tooltip: 'Request deletion approval',
                                     icon: const Icon(Icons.delete_outline),
                                     onPressed: () => _requestDeletion(record),
-                                  )
-                                : null,
+                                  ),
+                              ],
+                            ),
                             onTap: () => context
                                 .push('/verify?hash=${record['cert_hash']}'),
                           );
@@ -327,44 +342,160 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _controller = TextEditingController();
   final _searchController = TextEditingController();
+  final _messagesScrollController = ScrollController();
   PlatformFile? _attachment;
   Map<String, dynamic>? _selectedContact;
   Map<String, dynamic>? _replyTo;
-  double _horizontalDrag = 0;
-  late Future<List<Map<String, dynamic>>> _items;
+  final Map<String, double> _messageDragOffsets = {};
+  List<Map<String, dynamic>> _items = [];
+  String? _pendingInitialContactId;
+  Object? _loadError;
+  int _loadGeneration = 0;
+  bool _isLoading = true;
+  bool _hasLoaded = false;
   Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
-    _items = widget.initialContactId == null
-        ? ApiService.getChatContacts()
-        : _loadInitialConversation(widget.initialContactId!);
+    _pendingInitialContactId = widget.initialContactId;
+    _loadItems();
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!mounted) return;
-      setState(() {
-        _items = _selectedContact == null
-            ? ApiService.getChatContacts(search: _searchController.text)
-            : ApiService.getChatMessagesForStudent(
-                _selectedContact!['id'].toString());
-      });
+      _loadItems();
     });
   }
 
-  Future<List<Map<String, dynamic>>> _loadInitialConversation(
-      String contactId) async {
-    final contacts = await ApiService.getChatContacts();
-    for (final contact in contacts) {
-      if (contact['id'].toString() == contactId) {
-        _selectedContact = contact;
-        final messages = await ApiService.getChatMessagesForStudent(contactId);
-        if (mounted) {
-          setState(() => _items = Future.value(messages));
+  Future<void> _loadItems({
+    bool showLoading = false,
+    bool reportErrors = false,
+  }) async {
+    final generation = ++_loadGeneration;
+    final selectedContact = _selectedContact;
+    final search = _searchController.text;
+    final wasAtBottom = !_messagesScrollController.hasClients ||
+        _messagesScrollController.position.maxScrollExtent -
+                _messagesScrollController.position.pixels <=
+            120;
+    if (showLoading && !_hasLoaded) {
+      setState(() {
+        _isLoading = true;
+        _loadError = null;
+      });
+    }
+
+    try {
+      List<Map<String, dynamic>> items;
+      if (selectedContact != null) {
+        items = await ApiService.getChatMessagesForStudent(
+            selectedContact['id'].toString());
+      } else {
+        items = await ApiService.getChatContacts(search: search);
+        final initialContactId = _pendingInitialContactId;
+        _pendingInitialContactId = null;
+        if (initialContactId != null) {
+          final contact = items
+              .where((item) => item['id'].toString() == initialContactId)
+              .firstOrNull;
+          if (contact != null) {
+            _selectedContact = contact;
+            items =
+                await ApiService.getChatMessagesForStudent(initialContactId);
+          }
         }
-        return messages;
+      }
+
+      if (!mounted || generation != _loadGeneration) return;
+      final previousLastMessageId =
+          _items.isEmpty ? null : _items.last['id']?.toString();
+      final nextLastMessageId =
+          items.isEmpty ? null : items.last['id']?.toString();
+      final shouldFollowNewMessages = _selectedContact != null &&
+          (!_hasLoaded ||
+              (items.length > _items.length &&
+                  nextLastMessageId != previousLastMessageId &&
+                  wasAtBottom));
+      setState(() {
+        _items = items;
+        _isLoading = false;
+        _hasLoaded = true;
+        _loadError = null;
+      });
+      if (shouldFollowNewMessages) _scrollMessagesToLatest();
+    } catch (error) {
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() {
+        _isLoading = false;
+        _loadError = error;
+      });
+      if (reportErrors) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not refresh this chat: $error')),
+        );
       }
     }
-    return contacts;
+  }
+
+  Widget _loadErrorView() => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Could not load this chat.'),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => _loadItems(showLoading: true),
+                child: const Text('Try again'),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  Widget _refreshErrorBanner() => MaterialBanner(
+        content:
+            const Text('Could not refresh. Showing previously loaded data.'),
+        actions: [
+          TextButton(
+            onPressed: () => _loadItems(reportErrors: true),
+            child: const Text('Retry'),
+          ),
+        ],
+      );
+
+  void _scrollMessagesToLatest() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_messagesScrollController.hasClients) return;
+      _messagesScrollController.animateTo(
+        _messagesScrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  void _openContact(Map<String, dynamic> contact) {
+    setState(() {
+      _selectedContact = contact;
+      _items = [];
+      _replyTo = null;
+      _isLoading = true;
+      _hasLoaded = false;
+      _loadError = null;
+    });
+    _loadItems();
+  }
+
+  void _closeConversation() {
+    setState(() {
+      _selectedContact = null;
+      _replyTo = null;
+      _items = [];
+      _isLoading = true;
+      _hasLoaded = false;
+      _loadError = null;
+    });
+    _loadItems();
   }
 
   @override
@@ -372,12 +503,13 @@ class _ChatScreenState extends State<ChatScreen> {
     _refreshTimer?.cancel();
     _controller.dispose();
     _searchController.dispose();
+    _messagesScrollController.dispose();
     super.dispose();
   }
 
   void _searchStudents(String value) {
     if (_selectedContact == null) {
-      setState(() => _items = ApiService.getChatContacts(search: value));
+      _loadItems(showLoading: true, reportErrors: true);
     }
   }
 
@@ -399,9 +531,9 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _attachment = null;
       _replyTo = null;
-      _items = ApiService.getChatMessagesForStudent(
-          _selectedContact!['id'].toString());
     });
+    await _loadItems(reportErrors: true);
+    _scrollMessagesToLatest();
   }
 
   Future<void> _reportSubadmin() async {
@@ -491,10 +623,7 @@ class _ChatScreenState extends State<ChatScreen> {
           const SnackBar(content: Text('This message could not be deleted.')));
       return;
     }
-    setState(() {
-      _items = ApiService.getChatMessagesForStudent(
-          _selectedContact!['id'].toString());
-    });
+    _loadItems(reportErrors: true);
   }
 
   Future<void> _clearConversation({bool forEveryone = false}) async {
@@ -508,10 +637,7 @@ class _ChatScreenState extends State<ChatScreen> {
           content: Text('The conversation could not be cleared.')));
       return;
     }
-    setState(() {
-      _items = ApiService.getChatMessagesForStudent(
-          _selectedContact!['id'].toString());
-    });
+    _loadItems(reportErrors: true);
   }
 
   void _showUserProfile(Map<String, dynamic>? profile) {
@@ -592,202 +718,318 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _contactsBody() => FutureBuilder<List<Map<String, dynamic>>>(
-        future: _items,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting)
-            return const Center(child: CircularProgressIndicator());
-          final contacts = snapshot.data ?? const <Map<String, dynamic>>[];
-          return Column(children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-              child: TextField(
-                  controller: _searchController,
-                  onChanged: _searchStudents,
-                  decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search),
-                      labelText: 'Search people or credentials',
-                      border: OutlineInputBorder())),
-            ),
-            Expanded(
-              child: contacts.isEmpty
-                  ? const Center(child: Text('No matching contacts found.'))
-                  : ListView.separated(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: contacts.length,
-                      separatorBuilder: (_, __) => const Divider(),
-                      itemBuilder: (context, index) {
-                        final contact = contacts[index];
-                        final active = contact['is_active'] == true;
-                        final displayName =
-                            contact['name']?.toString() ?? 'Contact';
-                        final imageUrl =
-                            contact['profile_image_url']?.toString();
-                        final imageAsset = contact['profile_logo']?.toString();
-                        final ImageProvider? avatarImage =
-                            imageUrl != null && imageUrl.isNotEmpty
-                                ? NetworkImage(imageUrl)
-                                : imageAsset != null && imageAsset.isNotEmpty
-                                    ? AssetImage(imageAsset)
-                                    : null;
-                        return ListTile(
-                          leading: Stack(children: [
-                            CircleAvatar(
-                              backgroundImage: avatarImage,
-                              child: avatarImage == null
-                                  ? Icon(contact['profile_icon'] == 'girl'
-                                      ? Icons.face_3_rounded
-                                      : contact['profile_icon'] == 'boy'
-                                          ? Icons.face_rounded
-                                          : Icons.person)
-                                  : null,
-                            ),
-                            if (active)
-                              Positioned(
-                                  right: 0,
-                                  bottom: 0,
-                                  child: Container(
-                                      width: 12,
-                                      height: 12,
-                                      decoration: BoxDecoration(
-                                          color: Colors.green,
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                              color: Colors.white, width: 2))))
-                          ]),
-                          title: Text(displayName),
-                          subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(contact['role_label']?.toString() ?? ''),
-                                if (contact['student_id'] != null)
-                                  Text('Student ID: ${contact['student_id']}'),
-                                Text(
-                                    contact['last_seen_label']?.toString() ??
-                                        'Last active: unknown',
-                                    style: const TextStyle(
-                                        fontSize: 12, color: Colors.grey))
-                              ]),
-                          trailing: IconButton(
-                            tooltip: 'View profile and credential details',
-                            icon: const Icon(Icons.more_horiz),
-                            onPressed: () => _showUserProfile(contact),
-                          ),
-                          onTap: () => setState(() {
-                            _selectedContact = contact;
-                            _items = ApiService.getChatMessagesForStudent(
-                                contact['id'].toString());
-                            _replyTo = null;
-                          }),
-                        );
-                      },
+  Widget _contactsBody() {
+    if (_isLoading && !_hasLoaded) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_loadError != null && !_hasLoaded) return _loadErrorView();
+    final contacts = _items;
+    return Column(children: [
+      if (_loadError != null) _refreshErrorBanner(),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+        child: TextField(
+            controller: _searchController,
+            onChanged: _searchStudents,
+            decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                labelText: 'Search people or credentials',
+                border: OutlineInputBorder())),
+      ),
+      Expanded(
+        child: contacts.isEmpty
+            ? const Center(child: Text('No matching contacts found.'))
+            : ListView.separated(
+                padding: const EdgeInsets.all(16),
+                itemCount: contacts.length,
+                separatorBuilder: (_, __) => const Divider(),
+                itemBuilder: (context, index) {
+                  final contact = contacts[index];
+                  final active = contact['is_active'] == true;
+                  final displayName = contact['name']?.toString() ?? 'Contact';
+                  final imageUrl = contact['profile_image_url']?.toString();
+                  final imageAsset = contact['profile_logo']?.toString();
+                  final ImageProvider? avatarImage =
+                      imageUrl != null && imageUrl.isNotEmpty
+                          ? NetworkImage(imageUrl)
+                          : imageAsset != null && imageAsset.isNotEmpty
+                              ? AssetImage(imageAsset)
+                              : null;
+                  return ListTile(
+                    leading: Stack(children: [
+                      CircleAvatar(
+                        backgroundImage: avatarImage,
+                        child: avatarImage == null
+                            ? Icon(contact['profile_icon'] == 'girl'
+                                ? Icons.face_3_rounded
+                                : contact['profile_icon'] == 'boy'
+                                    ? Icons.face_rounded
+                                    : Icons.person)
+                            : null,
+                      ),
+                      if (active)
+                        Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                                width: 12,
+                                height: 12,
+                                decoration: BoxDecoration(
+                                    color: Colors.green,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                        color: Colors.white, width: 2))))
+                    ]),
+                    title: Text(displayName),
+                    subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(contact['role_label']?.toString() ?? ''),
+                          if (contact['student_id'] != null)
+                            Text('Student ID: ${contact['student_id']}'),
+                          Text(
+                              contact['last_seen_label']?.toString() ??
+                                  'Last active: unknown',
+                              style: const TextStyle(
+                                  fontSize: 12, color: Colors.grey))
+                        ]),
+                    trailing: IconButton(
+                      tooltip: 'View profile and credential details',
+                      icon: const Icon(Icons.more_horiz),
+                      onPressed: () => _showUserProfile(contact),
                     ),
-            ),
-          ]);
-        },
-      );
+                    onTap: () => _openContact(contact),
+                  );
+                },
+              ),
+      ),
+    ]);
+  }
 
-  Widget _messagesBody() => FutureBuilder<List<Map<String, dynamic>>>(
-        future: _items,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final messages = snapshot.data ?? const <Map<String, dynamic>>[];
-          return ListView.builder(
+  Widget _messagesBody() {
+    if (_isLoading && !_hasLoaded) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_loadError != null && !_hasLoaded) return _loadErrorView();
+    final messages = _items;
+    return Column(
+      children: [
+        if (_loadError != null) _refreshErrorBanner(),
+        Expanded(
+          child: ListView.builder(
+            controller: _messagesScrollController,
             padding: const EdgeInsets.all(16),
             itemCount: messages.length,
             itemBuilder: (context, index) {
               final message = messages[index];
               final attachmentUrl = message['attachment_url']?.toString();
-              final own = message['sender_email'] == ApiService.authEmail;
+              final senderEmail =
+                  message['sender_email']?.toString().trim().toLowerCase();
+              final currentEmail = ApiService.authEmail?.trim().toLowerCase();
+              final own = currentEmail != null && senderEmail == currentEmail;
               final quoted = message['reply_to'] is Map
                   ? Map<String, dynamic>.from(message['reply_to'] as Map)
                   : null;
+              final messageId = message['id']?.toString() ?? 'message-$index';
+              final dragOffset = _messageDragOffsets[messageId] ?? 0.0;
               return GestureDetector(
+                onHorizontalDragStart: (_) => setState(() {
+                  _messageDragOffsets[messageId] = 0;
+                }),
                 onHorizontalDragUpdate: (details) {
-                  _horizontalDrag += details.delta.dx;
+                  setState(() {
+                    _messageDragOffsets[messageId] =
+                        ((_messageDragOffsets[messageId] ?? 0) +
+                                details.delta.dx)
+                            .clamp(0.0, 88.0)
+                            .toDouble();
+                  });
                 },
                 onHorizontalDragEnd: (_) {
-                  if (_horizontalDrag.abs() > 55 && mounted) {
-                    setState(() => _replyTo = message);
+                  final shouldReply =
+                      (_messageDragOffsets[messageId] ?? 0) > 55;
+                  setState(() {
+                    _messageDragOffsets.remove(messageId);
+                    if (shouldReply) _replyTo = message;
+                  });
+                  if (shouldReply) {
+                    _controller.selection = TextSelection.collapsed(
+                        offset: _controller.text.length);
                   }
-                  _horizontalDrag = 0;
                 },
-                child: Align(
-                  alignment: own ? Alignment.centerRight : Alignment.centerLeft,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 340),
-                    child: Card(
-                      color: own ? Colors.blue.shade50 : Colors.grey.shade100,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
+                key: ValueKey(messageId),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Align(
+                    alignment:
+                        own ? Alignment.centerRight : Alignment.centerLeft,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 120),
+                      transform: Matrix4.translationValues(dragOffset, 0, 0),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: MediaQuery.sizeOf(context).width * 0.78,
+                        ),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: own
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.grey.shade200,
+                            borderRadius: BorderRadius.only(
+                              topLeft: const Radius.circular(18),
+                              topRight: const Radius.circular(18),
+                              bottomLeft: Radius.circular(own ? 18 : 4),
+                              bottomRight: Radius.circular(own ? 4 : 18),
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: Text(
-                                    message['sender_name']?.toString() ??
-                                        'User',
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                                if (message['is_report'] == true)
-                                  const Icon(Icons.flag_outlined, size: 16),
-                                if (own)
-                                  PopupMenuButton<String>(
-                                    padding: EdgeInsets.zero,
-                                    icon: const Icon(Icons.more_vert, size: 18),
-                                    onSelected: (value) async {
-                                      if (value == 'delete_me')
-                                        await _deleteMessage(message);
-                                      if (value == 'delete_everyone') {
-                                        await _deleteMessage(message,
-                                            forEveryone: true);
-                                      }
-                                    },
-                                    itemBuilder: (context) => const [
-                                      PopupMenuItem(
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        own
+                                            ? 'You'
+                                            : message['sender_name']
+                                                    ?.toString() ??
+                                                'User',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: own
+                                              ? Colors.white
+                                              : Colors.black87,
+                                        ),
+                                      ),
+                                    ),
+                                    if (message['is_report'] == true)
+                                      const Icon(Icons.flag_outlined, size: 16),
+                                    PopupMenuButton<String>(
+                                      padding: EdgeInsets.zero,
+                                      icon:
+                                          const Icon(Icons.more_vert, size: 18),
+                                      onSelected: (value) async {
+                                        if (value == 'delete_me') {
+                                          await _deleteMessage(message);
+                                        } else if (value == 'delete_everyone') {
+                                          await _deleteMessage(message,
+                                              forEveryone: true);
+                                        }
+                                      },
+                                      itemBuilder: (context) => [
+                                        const PopupMenuItem(
                                           value: 'delete_me',
-                                          child: Text('Delete for me')),
-                                      PopupMenuItem(
-                                          value: 'delete_everyone',
-                                          child: Text('Delete for everyone')),
-                                    ],
+                                          child: Text('Delete for me'),
+                                        ),
+                                        if (own)
+                                          const PopupMenuItem(
+                                            value: 'delete_everyone',
+                                            child: Text('Delete for everyone'),
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                                if (quoted != null)
+                                  Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: own
+                                          ? Colors.white.withAlpha(28)
+                                          : Colors.black.withAlpha(15),
+                                      border: Border(
+                                        left: BorderSide(
+                                          color: own
+                                              ? Colors.white70
+                                              : Colors.blue,
+                                          width: 3,
+                                        ),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      '${quoted['sender_name'] ?? 'Message'}: ${quoted['message'] ?? ''}',
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: own
+                                            ? Colors.white70
+                                            : Colors.black54,
+                                      ),
+                                    ),
                                   ),
+                                if ((message['message']?.toString() ?? '')
+                                    .isNotEmpty)
+                                  Text(
+                                    message['message'].toString(),
+                                    style: TextStyle(
+                                      color:
+                                          own ? Colors.white : Colors.black87,
+                                    ),
+                                  ),
+                                if (attachmentUrl != null &&
+                                    message['attachment_type'] == 'image')
+                                  GestureDetector(
+                                    onTap: () => showDialog<void>(
+                                      context: context,
+                                      builder: (dialogContext) => Dialog(
+                                        insetPadding: const EdgeInsets.all(16),
+                                        child: InteractiveViewer(
+                                          child: SizedBox(
+                                            width:
+                                                MediaQuery.sizeOf(dialogContext)
+                                                        .width *
+                                                    0.9,
+                                            height:
+                                                MediaQuery.sizeOf(dialogContext)
+                                                        .height *
+                                                    0.8,
+                                            child: Image.network(
+                                              attachmentUrl,
+                                              fit: BoxFit.contain,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: SizedBox(
+                                        width: 260,
+                                        height: 320,
+                                        child: Image.network(
+                                          attachmentUrl,
+                                          fit: BoxFit.contain,
+                                          filterQuality: FilterQuality.medium,
+                                          loadingBuilder: (context, child,
+                                              loadingProgress) {
+                                            if (loadingProgress == null) {
+                                              return child;
+                                            }
+                                            return const Center(
+                                              child:
+                                                  CircularProgressIndicator(),
+                                            );
+                                          },
+                                          errorBuilder:
+                                              (context, error, stack) =>
+                                                  const Center(
+                                            child: Text(
+                                                'Image could not be loaded'),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                if (attachmentUrl != null &&
+                                    message['attachment_type'] == 'video')
+                                  Text('Video attachment: $attachmentUrl'),
                               ],
                             ),
-                            if (quoted != null)
-                              Container(
-                                width: double.infinity,
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withAlpha(15),
-                                  border: const Border(
-                                      left: BorderSide(
-                                          color: Colors.blue, width: 3)),
-                                ),
-                                child: Text(
-                                  '${quoted['sender_name'] ?? 'Message'}: ${quoted['message'] ?? ''}',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            if ((message['message']?.toString() ?? '')
-                                .isNotEmpty)
-                              Text(message['message'].toString()),
-                            if (attachmentUrl != null &&
-                                message['attachment_type'] == 'image')
-                              Image.network(attachmentUrl,
-                                  width: 180, height: 180, fit: BoxFit.cover),
-                            if (attachmentUrl != null &&
-                                message['attachment_type'] == 'video')
-                              Text('Video attachment: $attachmentUrl'),
-                          ],
+                          ),
                         ),
                       ),
                     ),
@@ -795,20 +1037,17 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               );
             },
-          );
-        },
-      );
+          ),
+        ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) => PopScope(
         canPop: _selectedContact == null,
         onPopInvokedWithResult: (didPop, result) {
-          if (!didPop && _selectedContact != null)
-            setState(() {
-              _selectedContact = null;
-              _items =
-                  ApiService.getChatContacts(search: _searchController.text);
-            });
+          if (!didPop && _selectedContact != null) _closeConversation();
         },
         child: Scaffold(
           appBar: AppBar(
@@ -842,12 +1081,7 @@ class _ChatScreenState extends State<ChatScreen> {
             leading: _selectedContact != null
                 ? IconButton(
                     icon: const Icon(Icons.arrow_back),
-                    onPressed: () => setState(() {
-                          _selectedContact = null;
-                          _replyTo = null;
-                          _items = ApiService.getChatContacts(
-                              search: _searchController.text);
-                        }))
+                    onPressed: _closeConversation)
                 : null,
             actions: _selectedContact != null
                 ? [
@@ -920,10 +1154,32 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               if (_attachment != null)
                 Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text('Attached: ${_attachment!.name}'))),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      if (_attachment!.bytes != null &&
+                          !['mp4', 'mov', 'webm']
+                              .contains(_attachment!.extension?.toLowerCase()))
+                        Image.memory(_attachment!.bytes!,
+                            width: 64, height: 64, fit: BoxFit.contain)
+                      else
+                        const SizedBox(
+                            width: 64,
+                            height: 64,
+                            child: Icon(Icons.video_file_outlined)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(_attachment!.name,
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ),
+                      IconButton(
+                        tooltip: 'Remove attachment',
+                        onPressed: () => setState(() => _attachment = null),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                ),
               SafeArea(
                   child: Padding(
                       padding: const EdgeInsets.all(12),
@@ -961,6 +1217,11 @@ class RoleBottomNavigationBar extends StatelessWidget {
         : isAdmin
             ? const ['/dashboard', '/records', '/issue', '/verify', '/ansq']
             : const ['/dashboard', '/records', '/verify', '/profile', '/askq'];
+    final branchIndexes = isSuperAdmin
+        ? const [0, 1, 3, 5]
+        : isAdmin
+            ? const [0, 1, 2, 3, 5]
+            : const [0, 1, 3, 4, 6];
     final currentIndex = routes.indexOf(GoRouterState.of(context).uri.path);
 
     if (currentIndex < 0) return const SizedBox.shrink();
@@ -1004,7 +1265,9 @@ class RoleBottomNavigationBar extends StatelessWidget {
                       icon: Icon(Icons.help), label: 'AskQ'),
                 ],
       onTap: (index) {
-        if (index != currentIndex) context.go(routes[index]);
+        if (index != currentIndex) {
+          StatefulNavigationShell.of(context).goBranch(branchIndexes[index]);
+        }
       },
     );
   }

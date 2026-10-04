@@ -261,16 +261,53 @@ class AdminSubadminManagementTest extends TestCase
         $diplomaUrl = 'https://storage.example/diplomas/used-diploma.jpg';
         $this->postJson('/api/certificates/batch', [
             'certificates' => [
-                $credential('20260007', 'j', 'file-owner@example.edu', $diplomaUrl),
+                array_merge(
+                    $credential('20260007', 'j', 'file-owner@example.edu', $diplomaUrl),
+                    ['diploma_file_name' => 'used-diploma.jpg'],
+                ),
             ],
         ])->assertCreated();
+        $this->assertDatabaseHas('certificates', [
+            'student_id' => '20260007',
+            'diploma_file_name' => 'used-diploma.jpg',
+        ]);
+        DB::table('certificates')
+            ->where('student_id', '20260007')
+            ->update(['diploma_file_name' => null]);
 
         $this->postJson('/api/certificates/batch', [
             'certificates' => [
-                $credential('20260008', 'k', 'file-reuse@example.edu', $diplomaUrl),
+                array_merge(
+                    $credential(
+                        '20260008',
+                        'k',
+                        'file-reuse@example.edu',
+                        'https://another-storage.example/other-folder/USED-DIPLOMA.jpg?download=1',
+                    ),
+                    ['diploma_file_name' => 'USED-DIPLOMA.jpg'],
+                ),
             ],
         ])->assertStatus(422)
             ->assertJsonPath('message', 'Diploma image "used-diploma.jpg" already belongs to Alex Student (Student ID 20260007). Choose another image file.');
+
+        $this->postJson('/api/certificates/check-diploma-file-names', [
+            'file_names' => ['USED-DIPLOMA.jpg'],
+        ])->assertStatus(422)
+            ->assertJsonPath('message', 'Diploma image "used-diploma.jpg" already belongs to Alex Student (Student ID 20260007). Choose another image file.');
+
+        $this->postJson('/api/certificates/batch', [
+            'certificates' => [
+                array_merge(
+                    $credential('20260009', 'l', 'file-batch-one@example.edu'),
+                    ['diploma_file_name' => 'new-diploma.png'],
+                ),
+                array_merge(
+                    $credential('20260010', 'm', 'file-batch-two@example.edu'),
+                    ['diploma_file_name' => 'NEW-DIPLOMA.PNG'],
+                ),
+            ],
+        ])->assertStatus(422)
+            ->assertJsonPath('message', 'Diploma image "new-diploma.png" is repeated in this batch and already belongs to Alex Student (Student ID 20260009).');
     }
 
     public function test_chat_presence_and_delete_for_me_work_for_school_users(): void
@@ -324,6 +361,34 @@ class AdminSubadminManagementTest extends TestCase
         $conversationResponse = $this->getJson('/api/chat/messages?student_id=' . $student->id);
         $conversationResponse->assertOk();
         $this->assertSame([], $conversationResponse->json('data'));
+
+        $adminMessage = ChatMessage::create([
+            'user_id' => $admin->id,
+            'recipient_user_id' => $student->id,
+            'university_code' => 'UCU',
+            'sender_email' => $admin->email,
+            'sender_name' => $admin->name,
+            'message' => 'Admin message',
+            'deleted_by' => [],
+        ]);
+        $studentMessage = ChatMessage::create([
+            'user_id' => $student->id,
+            'recipient_user_id' => $admin->id,
+            'university_code' => 'UCU',
+            'sender_email' => $student->email,
+            'sender_name' => $student->name,
+            'message' => 'Student message',
+            'deleted_by' => [],
+        ]);
+
+        $this->deleteJson('/api/chat/conversation/' . $student->id . '?mode=everyone')
+            ->assertOk()
+            ->assertJsonPath('message', 'Conversation deleted for everyone.');
+        $this->assertNotNull($adminMessage->fresh()->deleted_for_everyone_at);
+        $this->assertNotNull($studentMessage->fresh()->deleted_for_everyone_at);
+        $this->getJson('/api/chat/messages?student_id=' . $student->id)
+            ->assertOk()
+            ->assertJsonPath('data', []);
     }
 
     public function test_student_reports_and_super_admin_reply_and_approves_deletion_requests(): void

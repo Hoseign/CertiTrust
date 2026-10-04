@@ -37,8 +37,32 @@ class CertiTrustApp extends StatelessWidget {
           secondary: const Color(0xFFD4AF37), // Gold Accent
         ),
         useMaterial3: true,
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: _InstantPageTransitionsBuilder(),
+            TargetPlatform.iOS: _InstantPageTransitionsBuilder(),
+            TargetPlatform.linux: _InstantPageTransitionsBuilder(),
+            TargetPlatform.macOS: _InstantPageTransitionsBuilder(),
+            TargetPlatform.windows: _InstantPageTransitionsBuilder(),
+            TargetPlatform.fuchsia: _InstantPageTransitionsBuilder(),
+          },
+        ),
       ),
       routerConfig: AppRouter.router,
     );
   }
+}
+
+class _InstantPageTransitionsBuilder extends PageTransitionsBuilder {
+  const _InstantPageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) =>
+      child;
 }

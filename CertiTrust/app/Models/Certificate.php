@@ -20,6 +20,7 @@ class Certificate extends Model
         'issue_date',
         'student_email',
         'diploma_url',
+        'diploma_file_name',
         'cert_hash',
         'status',
     ];

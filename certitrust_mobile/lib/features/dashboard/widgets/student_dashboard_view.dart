@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'qr_code_dialog.dart';
+import 'diploma_preview.dart';
 
 class StudentDashboardView extends StatelessWidget {
   final bool isLoadingCertificate;
@@ -15,6 +16,8 @@ class StudentDashboardView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final diplomaUrl = studentCertificate?['diploma_url'] ??
+        studentCertificate?['cert_image_url'];
 
     if (isLoadingCertificate) {
       return const Center(
@@ -113,8 +116,7 @@ class StudentDashboardView extends StatelessWidget {
                 const SizedBox(height: 12),
                 _buildDetailRow('Issue Date', studentCertificate!['issue_date'] ?? studentCertificate!['created_at'] ?? 'N/A'),
 
-                if (studentCertificate!['cert_image_url'] != null && 
-                    studentCertificate!['cert_image_url'].toString().isNotEmpty) ...[
+                if (diplomaUrl != null && diplomaUrl.toString().isNotEmpty) ...[
                   const SizedBox(height: 20),
                   const Text(
                     'Digital Diploma Copy:',
@@ -123,31 +125,7 @@ class StudentDashboardView extends StatelessWidget {
                   const SizedBox(height: 8),
                   GestureDetector(
                     onTap: () {
-                      showDialog(
-                        context: context,
-                        builder: (context) => Dialog(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              AppBar(
-                                title: const Text('Digital Diploma Copy'),
-                                automaticallyImplyLeading: false,
-                                actions: [
-                                  IconButton(
-                                    icon: const Icon(Icons.close),
-                                    onPressed: () => Navigator.pop(context),
-                                  ),
-                                ],
-                              ),
-                              Flexible(
-                                child: InteractiveViewer(
-                                  child: Image.network(studentCertificate!['cert_image_url']),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
+                      showDiplomaPreview(context, diplomaUrl.toString());
                     },
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
@@ -156,8 +134,8 @@ class StudentDashboardView extends StatelessWidget {
                         width: double.infinity,
                         color: Colors.grey.shade200,
                         child: Image.network(
-                          studentCertificate!['cert_image_url'],
-                          fit: BoxFit.cover,
+                          diplomaUrl.toString(),
+                          fit: BoxFit.contain,
                           errorBuilder: (context, error, stackTrace) => const Center(
                             child: Text('Could not load image preview'),
                           ),

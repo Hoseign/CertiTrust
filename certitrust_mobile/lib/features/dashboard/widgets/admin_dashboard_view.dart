@@ -1,8 +1,7 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:universal_html/html.dart' as html;
 import 'qr_code_dialog.dart';
+import 'diploma_preview.dart';
 
 class AdminDashboardView extends StatelessWidget {
   final Future<List<Map<String, dynamic>>> Function() fetchCertificates;
@@ -61,7 +60,7 @@ class AdminDashboardView extends StatelessWidget {
                   final item = certificates[index];
                   final status = item['status'] ?? 'Verified';
                   final studentEmail = item['student_email'] ?? 'No email linked';
-                  final imageUrl = item['cert_image_url'];
+                  final imageUrl = item['diploma_url'] ?? item['cert_image_url'];
                   return ListTile(
                     leading: const Icon(Icons.verified_outlined, color: Colors.green),
                     title: Text(item['student_name'] ?? 'Unknown'),
@@ -70,18 +69,9 @@ class AdminDashboardView extends StatelessWidget {
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                       if (imageUrl != null && imageUrl.toString().isNotEmpty)
                         IconButton(
-                          icon: const Icon(Icons.download, color: Colors.blue),
-                          tooltip: 'Download Diploma',
-                          onPressed: () {
-                            if (kIsWeb) {
-                              html.AnchorElement(href: imageUrl)
-                                ..setAttribute('download', 'Diploma_${item['student_name']?.replaceAll(' ', '_')}.jpg')
-                                ..setAttribute('target', '_blank')
-                                ..click();
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Opening diploma image link...')));
-                            }
-                          },
+                          icon: const Icon(Icons.visibility_outlined, color: Colors.blue),
+                          tooltip: 'View Diploma',
+                          onPressed: () => showDiplomaPreview(context, imageUrl.toString()),
                         ),
                       IconButton(icon: const Icon(Icons.qr_code, color: Colors.teal), tooltip: 'Get QR Code', onPressed: () => showQRCodeDialog(context, item)),
                       Chip(
