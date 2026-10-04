@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'dart:async';
 import '../../services/api_service.dart';
 import '../dashboard/widgets/diploma_preview.dart';
-import '../dashboard/widgets/diploma_download.dart';
 
 class RecordsScreen extends StatefulWidget {
   const RecordsScreen({super.key});
@@ -194,72 +193,9 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                 _recordDetailRow(
                                     'Status',
                                     record['status']?.toString() ?? 'Issued'),
-                                if (diplomaUrl != null &&
-                                    diplomaUrl.toString().isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 12),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(10),
-                                      child: SizedBox(
-                                        width: double.infinity,
-                                        height: 190,
-                                        child: Image.network(
-                                          diplomaUrl.toString(),
-                                          fit: BoxFit.contain,
-                                          errorBuilder:
-                                              (context, error, stackTrace) =>
-                                                  const Center(
-                                            child: Text(
-                                                'Could not load diploma image.'),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                Wrap(
-                                  alignment: WrapAlignment.end,
-                                  spacing: 8,
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
-                                    if (diplomaUrl != null &&
-                                        diplomaUrl.toString().isNotEmpty) ...[
-                                      TextButton.icon(
-                                        onPressed: () => showDiplomaPreview(
-                                          context,
-                                          diplomaUrl.toString(),
-                                          fileName: diplomaFileName,
-                                        ),
-                                        icon: const Icon(
-                                            Icons.visibility_outlined),
-                                        label: const Text('View diploma'),
-                                      ),
-                                      TextButton.icon(
-                                        onPressed: () async {
-                                          try {
-                                            await downloadDiplomaImage(
-                                              diplomaUrl.toString(),
-                                              fileName: diplomaFileName,
-                                            );
-                                            if (context.mounted) {
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(const SnackBar(
-                                                content: Text(
-                                                    'Diploma download started.'),
-                                              ));
-                                            }
-                                          } catch (error) {
-                                            if (context.mounted) {
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(SnackBar(
-                                                content: Text(
-                                                    'Could not download diploma: $error'),
-                                              ));
-                                            }
-                                          }
-                                        },
-                                        icon: const Icon(Icons.download_outlined),
-                                        label: const Text('Download'),
-                                      ),
-                                    ],
                                     TextButton.icon(
                                       onPressed: verificationCode == null ||
                                               verificationCode.isEmpty
@@ -269,6 +205,18 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                       icon: const Icon(Icons.verified_outlined),
                                       label: const Text('Verify this record'),
                                     ),
+                                    if (diplomaUrl != null &&
+                                        diplomaUrl.toString().isNotEmpty)
+                                      TextButton.icon(
+                                        onPressed: () => showDiplomaPreview(
+                                          context,
+                                          diplomaUrl.toString(),
+                                          fileName: diplomaFileName,
+                                        ),
+                                        icon: const Icon(
+                                            Icons.workspace_premium_outlined),
+                                        label: const Text('View Your Diploma'),
+                                      ),
                                     if (ApiService.authRole == 'admin' &&
                                         !ApiService.isSuperAdmin)
                                       TextButton.icon(

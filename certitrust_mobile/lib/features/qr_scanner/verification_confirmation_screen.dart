@@ -39,8 +39,8 @@ class VerificationConfirmationScreen extends StatelessWidget {
                 ?.toString()
                 .isNotEmpty ==
             true;
-    final isVerified = hasVerificationCode &&
-        (status == 'verified' || status == 'valid');
+    final isVerified =
+        hasVerificationCode && (status == 'verified' || status == 'valid');
     return Scaffold(
       appBar: AppBar(title: const Text('Credential Status')),
       body: Center(
@@ -141,14 +141,16 @@ class VerificationConfirmationScreen extends StatelessWidget {
                             if (!context.mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                  content: Text('Diploma downloaded.')),
+                                content: Text(
+                                    'Diploma downloaded. Check your Downloads or gallery.'),
+                              ),
                             );
                           } catch (error) {
                             if (!context.mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                  content:
-                                      Text('Could not download diploma: $error')),
+                                  content: Text(
+                                      'Could not download diploma: $error')),
                             );
                           }
                         },

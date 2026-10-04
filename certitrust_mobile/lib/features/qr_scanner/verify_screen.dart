@@ -115,7 +115,8 @@ class _VerifyScreenState extends State<VerifyScreen> {
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Diploma downloaded successfully.'),
+          content:
+              Text('Diploma downloaded. Check your Downloads or gallery.'),
           backgroundColor: Colors.green,
         ));
       }

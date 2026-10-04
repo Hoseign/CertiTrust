@@ -27,6 +27,13 @@ void showDiplomaPreview(
                   onPressed: () async {
                     try {
                       await downloadDiplomaImage(imageUrl, fileName: fileName);
+                      if (!dialogContext.mounted) return;
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                              'Diploma downloaded. Check your Downloads or gallery.'),
+                        ),
+                      );
                     } catch (error) {
                       if (!dialogContext.mounted) return;
                       ScaffoldMessenger.of(dialogContext).showSnackBar(
@@ -49,8 +56,8 @@ void showDiplomaPreview(
                 child: Image.network(
                   imageUrl,
                   fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) =>
-                      const Center(child: Text('Could not load diploma image.')),
+                  errorBuilder: (context, error, stackTrace) => const Center(
+                      child: Text('Could not load diploma image.')),
                 ),
               ),
             ),
