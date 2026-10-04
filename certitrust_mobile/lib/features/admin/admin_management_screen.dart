@@ -181,9 +181,8 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
               Text(
                 frozen
                     ? 'Choose which accounts at $universityCode to freeze. Student-only or combined freezing affects all current and future student accounts.'
-                    : 'Choose which accounts at $universityCode to restore. Unfreezing students clears their individual freezes too.',
+                    : 'Choose which accounts at $universityCode to restore. Student accounts frozen individually by a university subadmin will remain frozen.',
               ),
-              const SizedBox(height: 12),
               const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
@@ -220,12 +219,20 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     if (scope == null || !mounted) return;
 
     try {
-      await ApiService.updateUniversityAccess(
+      final result = await ApiService.updateUniversityAccess(
         universityCode: universityCode,
         scope: scope,
         frozen: frozen,
       );
       await _loadAdmins();
+      final protectedStudents = result['protected_students'];
+      if (!frozen &&
+          protectedStudents is List &&
+          protectedStudents.isNotEmpty &&
+          mounted) {
+        await _showProtectedStudentWarning(protectedStudents);
+        return;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
@@ -234,11 +241,61 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
         ));
       }
     } catch (error) {
+      final protectedStudents = error is ApiRequestException
+          ? error.details['protected_students']
+          : null;
+      if (!frozen &&
+          protectedStudents is List &&
+          protectedStudents.isNotEmpty &&
+          mounted) {
+        await _showProtectedStudentWarning(protectedStudents);
+        return;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Could not update university access: $error')));
       }
     }
+  }
+
+  Future<void> _showProtectedStudentWarning(List<dynamic> students) async {
+    final studentDetails = students.whereType<Map>().map((student) {
+      final name = student['name']?.toString() ?? 'Student';
+      final studentId = student['student_id']?.toString() ?? 'Not recorded';
+      return '$name (Student ID: $studentId)';
+    }).toList();
+    if (studentDetails.isEmpty || !mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('You cannot unfreeze this student'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'You do not have authority to unfreeze the following student(s). '
+                'Only the administrator who froze each account can restore access:',
+              ),
+              const SizedBox(height: 12),
+              for (final student in studentDetails)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text('- $student'),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   String _scopeLabel(String scope) => switch (scope) {

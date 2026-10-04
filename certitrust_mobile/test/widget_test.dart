@@ -14,6 +14,7 @@ import 'package:http/testing.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:certitrust_mobile/main.dart';
+import 'package:certitrust_mobile/features/admin/admin_management_screen.dart';
 import 'package:certitrust_mobile/features/admin/student_access_screen.dart';
 import 'package:certitrust_mobile/features/dashboard/widgets/student_dashboard_view.dart';
 import 'package:certitrust_mobile/features/navigation/role_pages.dart';
@@ -117,7 +118,86 @@ void main() {
     );
   });
 
-  testWidgets('student access refresh updates state without Future callback error',
+  testWidgets('empty conversation prompts to start chatting until first send',
+      (WidgetTester tester) async {
+    ApiService.authRole = 'admin';
+    ApiService.authEmail = 'admin@example.edu';
+    final router = GoRouter(
+      initialLocation: '/ansq',
+      routes: [
+        GoRoute(
+          path: '/ansq',
+          builder: (context, state) => const ChatScreen(
+            isAdmin: true,
+            initialContactId: '7',
+          ),
+        ),
+      ],
+    );
+
+    await http.runWithClient(
+      () async {
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        await tester.pumpAndSettle();
+
+        expect(find.text('No messages yet'), findsOneWidget);
+        expect(
+            find.text('Start chatting by sending a message.'), findsOneWidget);
+
+        await tester.enterText(find.byType(TextField).last, 'Hello, student!');
+        await tester.tap(find.byIcon(Icons.send));
+        await tester.pumpAndSettle();
+
+        expect(find.text('No messages yet'), findsNothing);
+        expect(find.text('Start chatting by sending a message.'), findsNothing);
+        expect(find.text('Hello, student!'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+      () => MockClient((request) async {
+        if (request.method == 'GET' &&
+            request.url.path.endsWith('/chat/contacts')) {
+          return http.Response(
+            jsonEncode({
+              'data': [
+                {'id': 7, 'name': 'UCU Student', 'role_label': 'Student'},
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.method == 'GET' &&
+            request.url.path.endsWith('/chat/messages')) {
+          return http.Response(jsonEncode({'data': []}), 200);
+        }
+        if (request.method == 'POST' &&
+            request.url.path.endsWith('/chat/messages')) {
+          return http.Response(
+            jsonEncode({
+              'data': {
+                'id': 88,
+                'message': 'Hello, student!',
+                'sender_email': 'admin@example.edu',
+                'sender_name': 'Admin',
+                'delivered_at': null,
+              },
+            }),
+            201,
+          );
+        }
+        return http.Response(
+          jsonEncode({'message': 'Unexpected request'}),
+          404,
+        );
+      }),
+    );
+
+    router.dispose();
+    ApiService.authRole = null;
+    ApiService.authEmail = null;
+  });
+
+  testWidgets(
+      'student access refresh updates state without Future callback error',
       (WidgetTester tester) async {
     ApiService.authRole = 'admin';
     ApiService.authUniversity = 'UCU';
@@ -160,8 +240,7 @@ void main() {
         }
         if (request.method == 'PATCH' &&
             request.url.path.endsWith('/admin/students/22/access')) {
-          studentFrozen =
-              jsonDecode(request.body)['frozen'] as bool? ?? false;
+          studentFrozen = jsonDecode(request.body)['frozen'] as bool? ?? false;
           return http.Response(
             jsonEncode({'message': 'Student account frozen.'}),
             200,
@@ -179,7 +258,88 @@ void main() {
     ApiService.authUniversity = null;
   });
 
-  testWidgets('subadmin records list only groups students with multiple degrees',
+  testWidgets(
+      'superadmin gets a student name and ID warning when an owner freeze remains',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    ApiService.authRole = 'admin';
+    ApiService.authEmail = 'certitrust256@gmail.com';
+    ApiService.authToken = 'test-token';
+
+    await http.runWithClient(
+      () async {
+        await tester.pumpWidget(
+          const MaterialApp(home: AdminManagementScreen()),
+        );
+        await tester.pumpAndSettle();
+        final actionMenu = find.byType(PopupMenuButton<String>).last;
+        await tester.ensureVisible(actionMenu);
+        await tester.tap(actionMenu);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Restore access for UCU'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Students only'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Restore selected'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('You cannot unfreeze this student'), findsOneWidget);
+        expect(
+          find.text('- UCU Student (Student ID: UCU-12345)'),
+          findsOneWidget,
+        );
+        expect(find.text('OK'), findsOneWidget);
+      },
+      () => MockClient((request) async {
+        if (request.method == 'GET' &&
+            request.url.path.endsWith('/admin/subadmins')) {
+          return http.Response(
+            jsonEncode({
+              'data': [
+                {
+                  'id': 1,
+                  'name': 'UCU Admin',
+                  'email': 'ucu-admin@example.edu',
+                  'university_code': 'UCU',
+                  'access_frozen': false,
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.method == 'PATCH' &&
+            request.url.path.endsWith('/admin/universities/UCU/access')) {
+          return http.Response(
+            jsonEncode({
+              'message':
+                  'Only the administrator who froze student access for this university can restore it.',
+              'scope': 'students',
+              'frozen': false,
+              'protected_students': [
+                {'name': 'UCU Student', 'student_id': 'UCU-12345'},
+              ],
+            }),
+            403,
+          );
+        }
+        return http.Response(
+          jsonEncode({'message': 'Unexpected request'}),
+          404,
+        );
+      }),
+    );
+
+    ApiService.authRole = null;
+    ApiService.authEmail = null;
+    ApiService.authToken = null;
+  });
+
+  testWidgets(
+      'subadmin records list only groups students with multiple degrees',
       (WidgetTester tester) async {
     ApiService.authRole = 'admin';
     ApiService.authEmail = 'ucu-admin@example.edu';
@@ -233,8 +393,7 @@ void main() {
             ),
             GoRoute(
               path: '/verify',
-              builder: (context, state) =>
-                  const Scaffold(body: Text('Verify')),
+              builder: (context, state) => const Scaffold(body: Text('Verify')),
             ),
           ],
         );

@@ -229,7 +229,8 @@ class VerificationConfirmationScreen extends StatelessWidget {
   }
 
   Widget _degreeCard(BuildContext context, Map<String, dynamic> degree) {
-    final degreeNumber = int.tryParse(degree['degree_number']?.toString() ?? '');
+    final degreeNumber =
+        int.tryParse(degree['degree_number']?.toString() ?? '');
     final diplomaUrl = (degree['diploma_url'] ??
             degree['cert_image_url'] ??
             degree['image_url'])
@@ -304,7 +305,8 @@ class VerificationConfirmationScreen extends StatelessWidget {
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                            content: Text('Could not download diploma: $error')),
+                            content:
+                                Text('Could not download diploma: $error')),
                       );
                     }
                   },
@@ -315,7 +317,8 @@ class VerificationConfirmationScreen extends StatelessWidget {
             ] else
               const Padding(
                 padding: EdgeInsets.only(top: 8),
-                child: Text('No diploma image was attached to this credential.'),
+                child:
+                    Text('No diploma image was attached to this credential.'),
               ),
           ],
         ),

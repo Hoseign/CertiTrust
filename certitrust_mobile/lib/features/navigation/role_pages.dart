@@ -1309,11 +1309,38 @@ class _ChatScreenState extends State<ChatScreen> {
       children: [
         if (_loadError != null) _refreshErrorBanner(),
         Expanded(
-          child: ListView.builder(
-            controller: _messagesScrollController,
-            padding: const EdgeInsets.all(16),
-            itemCount: messages.length,
-            itemBuilder: (context, index) {
+          child: messages.isEmpty
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.chat_bubble_outline,
+                            size: 48, color: Colors.grey),
+                        SizedBox(height: 12),
+                        Text(
+                          'No messages yet',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Start chatting by sending a message.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  controller: _messagesScrollController,
+                  padding: const EdgeInsets.all(16),
+                  itemCount: messages.length,
+                  itemBuilder: (context, index) {
               final message = messages[index];
               final attachmentUrl = message['attachment_url']?.toString();
               final localAttachmentBytes =
@@ -1549,8 +1576,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
               );
-            },
-          ),
+                  },
+                ),
         ),
       ],
     );

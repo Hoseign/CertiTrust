@@ -159,11 +159,27 @@ class AdminSubadminManagementTest extends TestCase
                 'frozen' => true,
             ])->assertOk();
 
+        DB::table('certificates')->insert([
+            'certificate_code' => 'CERT-UCU-FROZEN-STUDENT',
+            'recipient_name' => 'UCU Student',
+            'student_name' => 'UCU Student',
+            'student_id' => 'UCU-12345',
+            'student_email' => $student->email,
+            'course_or_event' => 'BSIT',
+            'degree' => 'BSIT',
+            'university_code' => 'UCU',
+            'issue_date' => '2024-06-01',
+            'status' => 'valid',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         $this->actingAs($superAdmin, 'sanctum')
             ->patchJson('/api/admin/universities/UCU/access', [
                 'scope' => 'students',
                 'frozen' => false,
-            ])->assertOk();
+            ])->assertOk()
+            ->assertJsonPath('protected_students.0.name', 'UCU Student')
+            ->assertJsonPath('protected_students.0.student_id', 'UCU-12345');
         $this->assertTrue($student->fresh()->isAccessFrozen());
 
         $this->actingAs($otherUcuAdmin, 'sanctum')
@@ -186,7 +202,9 @@ class AdminSubadminManagementTest extends TestCase
             ->patchJson('/api/admin/universities/UCU/access', [
                 'scope' => 'students',
                 'frozen' => false,
-            ])->assertForbidden();
+            ])->assertForbidden()
+            ->assertJsonPath('protected_students.0.name', 'UCU Student')
+            ->assertJsonPath('protected_students.0.student_id', 'UCU-12345');
         $this->assertTrue($student->fresh()->isAccessFrozen());
 
         $this->actingAs($ucuAdmin, 'sanctum')

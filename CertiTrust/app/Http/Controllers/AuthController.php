@@ -276,6 +276,9 @@ class AuthController extends Controller
         }
 
         $actorId = (int) $request->user()->id;
+        $protectedStudents = !$frozen && in_array($scope, ['students', 'both'], true)
+            ? $this->studentsFrozenByOtherAdministrators($universityCode, $actorId)
+            : [];
         if (!$frozen && $admin?->access_frozen) {
             if ((int) $admin->access_frozen_by !== $actorId) {
                 return response()->json([
@@ -292,10 +295,15 @@ class AuthController extends Controller
                 $studentAccessControl?->students_frozen
                 && (int) $studentAccessControl->updated_by !== $actorId
             ) {
+                $protectedStudents = array_merge(
+                    $protectedStudents,
+                    $this->studentsFrozenByUniversityPolicy($universityCode),
+                );
                 return response()->json([
                     'message' => $frozen
                         ? 'Student access for this university is already frozen by another administrator.'
                         : 'Only the administrator who froze student access for this university can restore it.',
+                    'protected_students' => $protectedStudents,
                 ], 403);
             }
         }
@@ -358,7 +366,55 @@ class AuthController extends Controller
             'message' => $frozen ? 'Selected university access has been frozen.' : 'Selected university access has been restored.',
             'scope' => $scope,
             'frozen' => $frozen,
+            'protected_students' => $protectedStudents,
         ]);
+    }
+
+    private function studentsFrozenByOtherAdministrators(
+        string $universityCode,
+        int $actorId,
+    ): array {
+        return User::whereIn('role', ['student', 'user'])
+            ->where('university_code', $universityCode)
+            ->where('access_frozen', true)
+            ->where(function ($query) use ($actorId) {
+                $query->whereNull('access_frozen_by')
+                    ->orWhere('access_frozen_by', '!=', $actorId);
+            })
+            ->orderBy('name')
+            ->get(['name', 'email'])
+            ->map(fn (User $student) => $this->studentFreezeDetails($student))
+            ->all();
+    }
+
+    private function studentsFrozenByUniversityPolicy(string $universityCode): array
+    {
+        return User::whereIn('role', ['student', 'user'])
+            ->where('university_code', $universityCode)
+            ->whereNull('access_frozen')
+            ->orderBy('name')
+            ->get(['name', 'email'])
+            ->map(fn (User $student) => $this->studentFreezeDetails($student))
+            ->all();
+    }
+
+    private function studentFreezeDetails(User $student): array
+    {
+        $email = strtolower(trim((string) $student->email));
+        $certificate = DB::table('certificates')
+            ->where(function ($query) use ($email) {
+                $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$email])
+                    ->orWhereRaw('LOWER(TRIM(email)) = ?', [$email]);
+            })
+            ->latest('id')
+            ->first(['student_name', 'recipient_name', 'student_id']);
+
+        return [
+            'name' => $certificate?->student_name
+                ?: $certificate?->recipient_name
+                ?: $student->name,
+            'student_id' => $certificate?->student_id ?: 'Not recorded',
+        ];
     }
 
     public function listUniversityStudents(Request $request)

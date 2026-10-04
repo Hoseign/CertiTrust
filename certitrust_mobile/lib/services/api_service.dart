@@ -5,10 +5,15 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiRequestException implements Exception {
-  const ApiRequestException(this.statusCode, this.message);
+  const ApiRequestException(
+    this.statusCode,
+    this.message, {
+    this.details = const {},
+  });
 
   final int statusCode;
   final String message;
+  final Map<String, dynamic> details;
 
   @override
   String toString() => message;
@@ -617,6 +622,7 @@ class ApiService {
       throw ApiRequestException(
         response.statusCode,
         body['message']?.toString() ?? 'Unable to update account access.',
+        details: body,
       );
     }
     _recordConnectionSuccess();
