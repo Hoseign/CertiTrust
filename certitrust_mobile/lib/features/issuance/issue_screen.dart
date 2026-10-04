@@ -91,7 +91,10 @@ class _IssueScreenState extends State<IssueScreen> {
 
   Future<String?> _uploadDiploma(_CredentialDraft draft) async {
     final file = draft.diploma;
-    if (file?.bytes == null || file!.bytes!.isEmpty) return null;
+    if (file == null) return null;
+    if (file.bytes == null || file.bytes!.isEmpty) {
+      throw Exception('The selected diploma file could not be read.');
+    }
     final name = file.name;
     try {
       await Supabase.instance.client.storage.from('diplomas').uploadBinary(
@@ -104,16 +107,11 @@ class _IssueScreenState extends State<IssueScreen> {
           .getPublicUrl(name);
     } on StorageException catch (error) {
       if (error.statusCode == '404') {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text(
-                    'Diploma bucket is not configured. Credential will be issued without a file preview.')),
-          );
-        }
-        return null;
+        throw Exception(
+            'The diploma could not be uploaded because the Supabase diplomas bucket was not found. Configure the bucket and try issuing again.');
       }
-      rethrow;
+      throw Exception('The selected diploma could not be uploaded: '
+          '${error.message}');
     }
   }
 

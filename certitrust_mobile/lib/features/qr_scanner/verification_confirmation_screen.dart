@@ -97,67 +97,79 @@ class VerificationConfirmationScreen extends StatelessWidget {
                           certificate['course_or_event'] ??
                           'N/A'),
                   _row('Issue date', certificate['issue_date'] ?? 'N/A'),
-                  if (diplomaUrl != null && diplomaUrl.isNotEmpty) ...[
+                  if (isVerified) ...[
                     const SizedBox(height: 20),
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        'Attached diploma image',
+                        diplomaUrl != null && diplomaUrl.isNotEmpty
+                            ? 'Attached diploma image'
+                            : 'Diploma image',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    GestureDetector(
-                      onTap: () => showDiplomaPreview(
-                        context,
-                        diplomaUrl,
-                        fileName: diplomaFileName,
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: SizedBox(
-                          width: double.infinity,
-                          height: 200,
-                          child: Image.network(
-                            diplomaUrl,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) =>
-                                const Center(
-                              child: Text('Could not load diploma preview.'),
+                    if (diplomaUrl != null && diplomaUrl.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      GestureDetector(
+                        onTap: () => showDiplomaPreview(
+                          context,
+                          diplomaUrl,
+                          fileName: diplomaFileName,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: SizedBox(
+                            width: double.infinity,
+                            height: 200,
+                            child: Image.network(
+                              diplomaUrl,
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  const Center(
+                                child: Text('Could not load diploma preview.'),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton.icon(
-                        onPressed: () async {
-                          try {
-                            await downloadDiplomaImage(
-                              diplomaUrl,
-                              fileName: diplomaFileName,
-                            );
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                    'Diploma downloaded. Check your Downloads or gallery.'),
-                              ),
-                            );
-                          } catch (error) {
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () async {
+                            try {
+                              await downloadDiplomaImage(
+                                diplomaUrl,
+                                fileName: diplomaFileName,
+                              );
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
                                   content: Text(
-                                      'Could not download diploma: $error')),
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.download),
-                        label: const Text('Download diploma'),
+                                      'Diploma downloaded. Check your Downloads or gallery.'),
+                                ),
+                              );
+                            } catch (error) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                    content: Text(
+                                        'Could not download diploma: $error')),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.download),
+                          label: const Text('Download diploma'),
+                        ),
                       ),
-                    ),
+                    ] else
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                              'No diploma image was attached to this credential.'),
+                        ),
+                      ),
                   ],
                   const SizedBox(height: 18),
                   Container(

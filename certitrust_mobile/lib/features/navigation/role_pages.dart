@@ -155,9 +155,9 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                   record['email'] ??
                                   'N/A')
                               .toString();
-                          final verificationCode =
-                              (record['cert_hash'] ?? record['certificate_code'])
-                                  ?.toString();
+                          final verificationCode = (record['cert_hash'] ??
+                                  record['certificate_code'])
+                              ?.toString();
                           return Card(
                             clipBehavior: Clip.antiAlias,
                             child: ExpansionTile(
@@ -187,11 +187,9 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                     'Certificate code',
                                     record['certificate_code']?.toString() ??
                                         'N/A'),
-                                _recordDetailRow(
-                                    'Issue date',
+                                _recordDetailRow('Issue date',
                                     record['issue_date']?.toString() ?? 'N/A'),
-                                _recordDetailRow(
-                                    'Status',
+                                _recordDetailRow('Status',
                                     record['status']?.toString() ?? 'Issued'),
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -205,18 +203,25 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                       icon: const Icon(Icons.verified_outlined),
                                       label: const Text('Verify this record'),
                                     ),
-                                    if (diplomaUrl != null &&
-                                        diplomaUrl.toString().isNotEmpty)
-                                      TextButton.icon(
-                                        onPressed: () => showDiplomaPreview(
-                                          context,
-                                          diplomaUrl.toString(),
-                                          fileName: diplomaFileName,
-                                        ),
-                                        icon: const Icon(
-                                            Icons.workspace_premium_outlined),
-                                        label: const Text('View Your Diploma'),
-                                      ),
+                                    TextButton.icon(
+                                      onPressed: diplomaUrl == null ||
+                                              diplomaUrl.toString().isEmpty
+                                          ? () => ScaffoldMessenger.of(context)
+                                                  .showSnackBar(
+                                                const SnackBar(
+                                                  content: Text(
+                                                      'No diploma image was attached to this credential.'),
+                                                ),
+                                              )
+                                          : () => showDiplomaPreview(
+                                                context,
+                                                diplomaUrl.toString(),
+                                                fileName: diplomaFileName,
+                                              ),
+                                      icon: const Icon(
+                                          Icons.workspace_premium_outlined),
+                                      label: const Text('View Your Diploma'),
+                                    ),
                                     if (ApiService.authRole == 'admin' &&
                                         !ApiService.isSuperAdmin)
                                       TextButton.icon(
@@ -640,9 +645,8 @@ class _ChatScreenState extends State<ChatScreen> {
           if (item['_local_id'] != localId) return item;
           return {
             ...sentMessage,
-            '_delivery_status': sentMessage['delivered_at'] == null
-                ? 'sent'
-                : 'delivered',
+            '_delivery_status':
+                sentMessage['delivered_at'] == null ? 'sent' : 'delivered',
           };
         }).toList();
       });
@@ -710,9 +714,11 @@ class _ChatScreenState extends State<ChatScreen> {
     final localId = message['_local_id']?.toString();
     if (localId == null) return;
     setState(() {
-      _items = _items.map((item) => item['_local_id'] == localId
-          ? {...item, '_delivery_status': 'sending'}
-          : item).toList();
+      _items = _items
+          .map((item) => item['_local_id'] == localId
+              ? {...item, '_delivery_status': 'sending'}
+              : item)
+          .toList();
     });
     try {
       final bytes = message['_local_attachment_bytes'] as List<int>?;
@@ -729,18 +735,19 @@ class _ChatScreenState extends State<ChatScreen> {
           if (item['_local_id'] != localId) return item;
           return {
             ...sentMessage,
-            '_delivery_status': sentMessage['delivered_at'] == null
-                ? 'sent'
-                : 'delivered',
+            '_delivery_status':
+                sentMessage['delivered_at'] == null ? 'sent' : 'delivered',
           };
         }).toList();
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _items = _items.map((item) => item['_local_id'] == localId
-            ? {...item, '_delivery_status': 'failed'}
-            : item).toList();
+        _items = _items
+            .map((item) => item['_local_id'] == localId
+                ? {...item, '_delivery_status': 'failed'}
+                : item)
+            .toList();
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Message failed to send: $error')),
@@ -1254,8 +1261,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                 if (attachmentUrl != null &&
                                     message['attachment_type'] == 'video')
                                   Text('Video attachment: $attachmentUrl'),
-                                if (own)
-                                  _buildDeliveryStatus(message),
+                                if (own) _buildDeliveryStatus(message),
                               ],
                             ),
                           ),
