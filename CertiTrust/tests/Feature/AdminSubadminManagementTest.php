@@ -582,7 +582,9 @@ class AdminSubadminManagementTest extends TestCase
             'services.supabase.diploma_bucket' => 'diplomas',
         ]);
         Http::fake([
-            'https://test-project.supabase.co/storage/v1/bucket/diplomas' => Http::response([], 404),
+            'https://test-project.supabase.co/storage/v1/bucket/diplomas' => Http::response([
+                'message' => 'Bucket not found',
+            ], 400),
             'https://test-project.supabase.co/storage/v1/bucket' => Http::response([], 200),
             'https://test-project.supabase.co/storage/v1/object/diplomas/*' => Http::response([], 200),
         ]);

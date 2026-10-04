@@ -26,7 +26,12 @@ class SupabaseDiplomaStorage
                 ->withHeaders($headers)
                 ->get($bucketEndpoint);
 
-            if ($bucketResponse->status() === 404) {
+            $bucketError = strtolower((string) $bucketResponse->json('message'));
+            $bucketDoesNotExist = $bucketResponse->status() === 404
+                || ($bucketResponse->status() === 400
+                    && str_contains($bucketError, 'bucket not found'));
+
+            if ($bucketDoesNotExist) {
                 $createdBucket = Http::timeout(15)
                     ->withHeaders($headers)
                     ->post($baseUrl . '/storage/v1/bucket', [
