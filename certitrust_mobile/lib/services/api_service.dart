@@ -753,6 +753,41 @@ class ApiService {
     }
   }
 
+  static Future<Map<String, dynamic>> uploadDiploma({
+    required List<int> fileBytes,
+    required String fileName,
+  }) async {
+    try {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/certificates/diploma'),
+      )
+        ..headers.addAll(_getHeaders)
+        ..files.add(http.MultipartFile.fromBytes(
+          'diploma_file',
+          fileBytes,
+          filename: fileName,
+        ));
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+      if (response.statusCode == 201) {
+        _recordConnectionSuccess();
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        return Map<String, dynamic>.from(body['data'] as Map);
+      }
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Diploma upload failed.',
+      );
+    } catch (error) {
+      _recordConnectionFailure(_connectionMessage(error));
+      rethrow;
+    }
+  }
+
   /// Issue multiple certificates in a batch payload
   static Future<bool> issueBatchCertificates(
       List<Map<String, dynamic>> certificates) async {

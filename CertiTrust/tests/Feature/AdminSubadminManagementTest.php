@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Models\ChatMessage;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request as HttpRequest;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -402,6 +404,13 @@ class AdminSubadminManagementTest extends TestCase
 
     public function test_student_reports_and_super_admin_reply_and_approves_deletion_requests(): void
     {
+        config([
+            'services.supabase.url' => 'https://test-project.supabase.co',
+            'services.supabase.service_role_key' => 'test-service-role-key',
+            'services.supabase.diploma_bucket' => 'diplomas',
+        ]);
+        Http::fake(['*' => Http::response([], 404)]);
+
         $superAdmin = User::create([
             'name' => 'CertiTrust Super Admin',
             'email' => 'certitrust256@gmail.com',
@@ -435,6 +444,7 @@ class AdminSubadminManagementTest extends TestCase
             'issue_date' => '2026-09-30',
             'status' => 'Verified',
             'cert_hash' => str_repeat('c', 64),
+            'diploma_url' => 'https://test-project.supabase.co/storage/v1/object/public/diplomas/2026/diploma%20test.jpg',
         ]);
 
         $this->actingAs($student, 'sanctum');
@@ -497,5 +507,114 @@ class AdminSubadminManagementTest extends TestCase
             ->where('recipient_user_id', $admin->id)
             ->where('message', 'like', '%Deletion request%approved%')
             ->exists());
+        Http::assertSent(fn (HttpRequest $request) => $request->method() === 'DELETE'
+            && $request->url() === 'https://test-project.supabase.co/storage/v1/object/diplomas/2026/diploma%20test.jpg'
+            && $request->hasHeader('apikey', 'test-service-role-key'));
+    }
+
+    public function test_deletion_with_a_diploma_is_blocked_when_supabase_storage_is_not_configured(): void
+    {
+        config([
+            'services.supabase.url' => null,
+            'services.supabase.service_role_key' => null,
+            'services.supabase.diploma_bucket' => 'diplomas',
+        ]);
+        Http::fake();
+
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+        $admin = User::create([
+            'name' => 'PSU Admin',
+            'email' => 'psu-admin-storage@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'PSU',
+        ]);
+        $certificate = \App\Models\Certificate::create([
+            'certificate_code' => 'CERT-STORAGE-TEST',
+            'recipient_name' => 'Test Student',
+            'student_name' => 'Test Student',
+            'student_id' => '20260078',
+            'student_email' => 'storage-student@example.edu',
+            'email' => 'storage-student@example.edu',
+            'degree' => 'BSIT',
+            'course_or_event' => 'BSIT',
+            'university_code' => 'PSU',
+            'issue_date' => '2026-09-30',
+            'status' => 'Verified',
+            'cert_hash' => str_repeat('d', 64),
+            'diploma_url' => 'https://test-project.supabase.co/storage/v1/object/public/diplomas/diploma.jpg',
+        ]);
+
+        $this->actingAs($admin, 'sanctum');
+        $deletionRequest = $this->postJson('/api/certificates/' . $certificate->id . '/deletion-request')
+            ->assertCreated();
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->patchJson('/api/admin/certificate-deletion-requests/' . $deletionRequest->json('data.id'), [
+                'decision' => 'approved',
+            ])->assertServiceUnavailable()
+            ->assertJsonPath('message', 'Supabase Storage is not configured on the backend. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
+
+        $this->assertDatabaseHas('certificates', ['id' => $certificate->id]);
+        $this->assertDatabaseHas('certificate_deletion_requests', [
+            'id' => $deletionRequest->json('data.id'),
+            'status' => 'pending',
+        ]);
+        Http::assertNothingSent();
+    }
+
+    public function test_school_admin_diploma_upload_creates_the_bucket_and_uses_a_unique_object_path(): void
+    {
+        config([
+            'services.supabase.url' => 'https://test-project.supabase.co',
+            'services.supabase.service_role_key' => 'test-service-role-key',
+            'services.supabase.diploma_bucket' => 'diplomas',
+        ]);
+        Http::fake([
+            'https://test-project.supabase.co/storage/v1/bucket/diplomas' => Http::response([], 404),
+            'https://test-project.supabase.co/storage/v1/bucket' => Http::response([], 200),
+            'https://test-project.supabase.co/storage/v1/object/diplomas/*' => Http::response([], 200),
+        ]);
+
+        $admin = User::create([
+            'name' => 'PSU Admin',
+            'email' => 'psu-admin-upload@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'PSU',
+        ]);
+
+        $this->actingAs($admin, 'sanctum')
+            ->post('/api/certificates/diploma', [
+                'diploma_file' => UploadedFile::fake()->createWithContent(
+                    'reused-name.png',
+                    str_pad(
+                        base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+nmAAAAABJRU5ErkJggg=='),
+                        2048,
+                        "\0",
+                    ),
+                ),
+            ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('data.diploma_file_name', 'reused-name.png')
+            ->assertJsonPath(
+                'data.diploma_url',
+                fn (string $url) => preg_match(
+                    '#^https://test-project\.supabase\.co/storage/v1/object/public/diplomas/[0-9a-f-]+\.png$#',
+                    $url,
+                ) === 1,
+            );
+
+        Http::assertSent(fn (HttpRequest $request) => $request->method() === 'POST'
+            && $request->url() === 'https://test-project.supabase.co/storage/v1/bucket'
+            && $request->data()['public'] === true);
+        Http::assertSent(fn (HttpRequest $request) => $request->method() === 'POST'
+            && preg_match('#/storage/v1/object/diplomas/[0-9a-f-]+\.png$#', $request->url()) === 1
+            && $request->hasHeader('apikey', 'test-service-role-key'));
     }
 }

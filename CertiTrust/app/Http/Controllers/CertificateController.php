@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use App\Models\User;
 use App\Models\Certificate;
+use App\Services\SupabaseDiplomaStorage;
 
 class CertificateController extends Controller
 {
@@ -39,6 +40,29 @@ class CertificateController extends Controller
         return $certificate
             ? response()->json(['data' => $certificate])
             : response()->json(['message' => 'Certificate not found.'], 404);
+    }
+
+    public function uploadDiploma(Request $request, SupabaseDiplomaStorage $storage)
+    {
+        $user = $request->user();
+        if ($user?->role !== 'admin' || !$user->university_code) {
+            return response()->json(['message' => 'A school administrator is required to upload diploma files.'], 403);
+        }
+
+        $validated = $request->validate([
+            'diploma_file' => ['required', 'file', 'mimes:pdf,png,jpg,jpeg', 'min:1', 'max:20480'],
+        ]);
+        $result = $storage->upload($validated['diploma_file']);
+        if (!isset($result['url'])) {
+            return response()->json(['message' => $result['message']], $result['status']);
+        }
+
+        return response()->json([
+            'data' => [
+                'diploma_url' => $result['url'],
+                'diploma_file_name' => $validated['diploma_file']->getClientOriginalName(),
+            ],
+        ], 201);
     }
 
     public function store(Request $request)

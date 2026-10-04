@@ -2,7 +2,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/utils/hash_util.dart';
 import '../navigation/role_pages.dart';
 import '../../services/api_service.dart';
@@ -95,24 +94,15 @@ class _IssueScreenState extends State<IssueScreen> {
     if (file.bytes == null || file.bytes!.isEmpty) {
       throw Exception('The selected diploma file could not be read.');
     }
-    final name = file.name;
-    try {
-      await Supabase.instance.client.storage.from('diplomas').uploadBinary(
-            name,
-            file.bytes!,
-            fileOptions: const FileOptions(upsert: false),
-          );
-      return Supabase.instance.client.storage
-          .from('diplomas')
-          .getPublicUrl(name);
-    } on StorageException catch (error) {
-      if (error.statusCode == '404') {
-        throw Exception(
-            'The diploma could not be uploaded because the Supabase diplomas bucket was not found. Configure the bucket and try issuing again.');
-      }
-      throw Exception('The selected diploma could not be uploaded: '
-          '${error.message}');
+    final uploaded = await ApiService.uploadDiploma(
+      fileBytes: file.bytes!,
+      fileName: file.name,
+    );
+    final url = uploaded['diploma_url']?.toString();
+    if (url == null || url.isEmpty) {
+      throw StateError('The backend did not return a diploma URL.');
     }
+    return url;
   }
 
   Future<bool> _validateUniqueConstraints() async {
@@ -138,9 +128,9 @@ class _IssueScreenState extends State<IssueScreen> {
         existingNames.putIfAbsent(name, () => <String>{}).add(owner);
       }
 
-      final url = (record['diploma_file_name'] ?? record['diploma_url'])
-              ?.toString() ??
-          '';
+      final url =
+          (record['diploma_file_name'] ?? record['diploma_url'])?.toString() ??
+              '';
       if (url.isNotEmpty) {
         existingFileOwners.putIfAbsent(
             _normalizeDiplomaFileName(url), () => owner);

@@ -8,6 +8,7 @@ use App\Models\ChatMessage;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\SupabaseDiplomaStorage;
 
 class CertificateDeletionRequestController extends Controller
 {
@@ -68,8 +69,11 @@ class CertificateDeletionRequestController extends Controller
         ]);
     }
 
-    public function review(Request $request, int $deletionRequestId)
-    {
+    public function review(
+        Request $request,
+        int $deletionRequestId,
+        SupabaseDiplomaStorage $storage
+    ) {
         $reviewer = $request->user();
         if (!$this->isSuperAdmin($reviewer?->email)) {
             return response()->json(['message' => 'Only the Super Admin can review credential deletion requests.'], 403);
@@ -80,7 +84,7 @@ class CertificateDeletionRequestController extends Controller
             'reviewer_note' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        return DB::transaction(function () use ($validated, $reviewer, $deletionRequestId) {
+        return DB::transaction(function () use ($validated, $reviewer, $deletionRequestId, $storage) {
             $deletionRequest = CertificateDeletionRequest::lockForUpdate()->find($deletionRequestId);
             if (!$deletionRequest) {
                 return response()->json(['message' => 'Deletion request not found.'], 404);
@@ -94,6 +98,16 @@ class CertificateDeletionRequestController extends Controller
                 if (!$certificate) {
                     return response()->json(['message' => 'The credential no longer exists.'], 404);
                 }
+
+                if ($certificate->diploma_url) {
+                    $storageError = $storage->delete($certificate->diploma_url);
+                    if ($storageError) {
+                        return response()->json([
+                            'message' => $storageError['message'],
+                        ], $storageError['status']);
+                    }
+                }
+
                 $certificate->delete();
             }
 

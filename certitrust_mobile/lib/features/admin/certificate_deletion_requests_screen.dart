@@ -30,7 +30,9 @@ class _CertificateDeletionRequestsScreenState
 
   Future<void> _refresh() async {
     final requests = ApiService.getCertificateDeletionRequests();
-    setState(() => _requests = requests);
+    setState(() {
+      _requests = requests;
+    });
     await requests;
   }
 
@@ -143,7 +145,9 @@ class _CertificateDeletionRequestsScreenState
     BuildContext dialogContext,
     StateSetter setDialogState,
   ) async {
-    setDialogState(() => _isReviewing = true);
+    setDialogState(() {
+      _isReviewing = true;
+    });
     try {
       await ApiService.reviewCertificateDeletionRequest(
         requestId: request['id'].toString(),
@@ -151,7 +155,7 @@ class _CertificateDeletionRequestsScreenState
         reviewerNote: _noteController.text,
       );
       if (!mounted) return;
-      Navigator.pop(dialogContext);
+      if (dialogContext.mounted) Navigator.pop(dialogContext);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(decision == 'approved'
@@ -161,7 +165,11 @@ class _CertificateDeletionRequestsScreenState
       );
       await _refresh();
     } catch (error) {
-      setDialogState(() => _isReviewing = false);
+      if (dialogContext.mounted) {
+        setDialogState(() {
+          _isReviewing = false;
+        });
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not review request: $error')),
@@ -171,8 +179,9 @@ class _CertificateDeletionRequestsScreenState
   }
 
   Widget _detail(String label, dynamic value) {
-    if (value == null || value.toString().isEmpty)
+    if (value == null || value.toString().isEmpty) {
       return const SizedBox.shrink();
+    }
     return Padding(
       padding: const EdgeInsets.only(bottom: 5),
       child: Text('$label: $value'),

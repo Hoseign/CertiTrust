@@ -67,6 +67,7 @@ Route::middleware('auth:sanctum')->group(function () {
     
     Route::post('/certificates', [CertificateController::class, 'store']);
     Route::post('/certificates/upload', [CertificateController::class, 'storeWithFile']);
+    Route::post('/certificates/diploma', [CertificateController::class, 'uploadDiploma']);
     Route::post('/certificates/check-diploma-file-names', [CertificateController::class, 'checkDiplomaFileNames']);
     Route::post('/certificates/batch', [CertificateController::class, 'storeBatch']);
     Route::get('/certificates', [CertificateController::class, 'index']);
