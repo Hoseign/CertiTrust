@@ -71,7 +71,9 @@ class _VerifyScreenState extends State<VerifyScreen> {
           _certResult = result;
           _isVerifying = false;
         });
-        if (result != null && _isCertificateVerified(result)) {
+        if (result != null &&
+            (result['multi_degree'] == true ||
+                _isCertificateVerified(result))) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted && attempt == _verificationAttempt) {
               context.push('/verification-confirmation', extra: result);
@@ -96,6 +98,17 @@ class _VerifyScreenState extends State<VerifyScreen> {
   }
 
   bool _isCertificateVerified(Map<String, dynamic> certificate) {
+    final degrees = certificate['certificates'];
+    if (certificate['multi_degree'] == true && degrees is List) {
+      return degrees.isNotEmpty &&
+          degrees.every((degree) =>
+              degree is Map<String, dynamic> &&
+              _isSingleCertificateVerified(degree));
+    }
+    return _isSingleCertificateVerified(certificate);
+  }
+
+  bool _isSingleCertificateVerified(Map<String, dynamic> certificate) {
     final status = certificate['status']?.toString().trim().toLowerCase();
     return status == 'verified' || status == 'valid';
   }
@@ -103,20 +116,18 @@ class _VerifyScreenState extends State<VerifyScreen> {
   Future<void> _downloadDiploma(String imageUrl) async {
     setState(() => _isDownloading = true);
     try {
-      final studentId =
-          _certResult?['student_id']?.toString().replaceAll(
-                    RegExp(r'[^A-Za-z0-9_-]'),
-                    '_',
-                  ) ??
-              'Student';
+      final studentId = _certResult?['student_id']?.toString().replaceAll(
+                RegExp(r'[^A-Za-z0-9_-]'),
+                '_',
+              ) ??
+          'Student';
       await downloadDiplomaImage(
         imageUrl,
         fileName: 'Diploma_$studentId.jpg',
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content:
-              Text('Diploma downloaded. Check your Downloads or gallery.'),
+          content: Text('Diploma downloaded. Check your Downloads or gallery.'),
           backgroundColor: Colors.green,
         ));
       }
@@ -192,8 +203,8 @@ class _VerifyScreenState extends State<VerifyScreen> {
                 TextField(
                   controller: _hashController,
                   decoration: InputDecoration(
-                    labelText: 'SHA-256 Certificate Hash',
-                    hintText: 'Enter 64-character hash string or scan QR',
+                    labelText: 'Certificate or shared-degree code',
+                    hintText: 'Enter a certificate code or scan its QR',
                     border: const OutlineInputBorder(),
                     suffixIcon: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -281,12 +292,11 @@ class _VerifyScreenState extends State<VerifyScreen> {
         _certResult!['cert_image_url'] ??
         _certResult!['image_url'];
     final certHash = _certResult!['cert_hash'] ?? _certResult!['hash'] ?? '';
-    final studentId =
-        _certResult!['student_id']?.toString().replaceAll(
-                  RegExp(r'[^A-Za-z0-9_-]'),
-                  '_',
-                ) ??
-            'Student';
+    final studentId = _certResult!['student_id']?.toString().replaceAll(
+              RegExp(r'[^A-Za-z0-9_-]'),
+              '_',
+            ) ??
+        'Student';
 
     final isVerified = _isCertificateVerified(_certResult!);
     return Card(

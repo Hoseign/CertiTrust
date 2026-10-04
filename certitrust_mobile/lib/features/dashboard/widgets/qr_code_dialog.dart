@@ -9,13 +9,26 @@ import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 // Use the cross-platform conditional web helper instead of importing web packages directly
 import 'web_helper.dart';
 
-void showQRCodeDialog(BuildContext context, Map<String, dynamic> cert) {
-  final hash = cert['cert_hash'] ?? cert['ipfs_hash'] ?? cert['hash'] ?? '';
-  final studentName = cert['student_name'] ?? 'Certificate';
+void showQRCodeDialog(
+  BuildContext context,
+  Map<String, dynamic> cert, {
+  String? code,
+  String? title,
+}) {
+  final qrData = (code ??
+          cert['cert_hash'] ??
+          cert['ipfs_hash'] ??
+          cert['hash'] ??
+          cert['certificate_code'] ??
+          '')
+      .toString()
+      .trim();
+  final studentName = (cert['student_name'] ?? 'Certificate').toString();
 
-  if (hash.isEmpty) {
+  if (qrData.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Error: Certificate hash is missing, cannot generate QR code.')),
+      const SnackBar(
+          content: Text('Credential code is missing, cannot generate QR code.')),
     );
     return;
   }
@@ -26,14 +39,14 @@ void showQRCodeDialog(BuildContext context, Map<String, dynamic> cert) {
     context: context,
     builder: (dialogContext) {
       return AlertDialog(
-        title: Text('QR Code: $studentName'),
+        title: Text(title ?? 'QR Code: $studentName'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'Scan this QR code to access credential verification.',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+              Text(
+                'Scan this QR code to verify ${title == null ? 'this credential' : 'all degrees for this student'}.',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
@@ -50,7 +63,7 @@ void showQRCodeDialog(BuildContext context, Map<String, dynamic> cert) {
                     width: 180,
                     height: 180,
                     child: QrImageView(
-                      data: hash,
+                      data: qrData,
                       version: QrVersions.auto,
                       size: 180.0,
                       backgroundColor: Colors.white,
@@ -60,7 +73,8 @@ void showQRCodeDialog(BuildContext context, Map<String, dynamic> cert) {
               ),
               const SizedBox(height: 16),
               Text(
-                'Hash: ${hash.length > 20 ? '${hash.substring(0, 20)}...' : hash}',
+                '${title == null ? 'Code' : 'Shared verification code'}: '
+                '${qrData.length > 34 ? '${qrData.substring(0, 34)}...' : qrData}',
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
                 textAlign: TextAlign.center,
               ),

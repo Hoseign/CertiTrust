@@ -376,7 +376,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
               child: Text(label,
                   style: const TextStyle(fontWeight: FontWeight.w600)),
             ),
-            Expanded(child: SelectableText(value)),
+            Expanded(child: Text(value)),
           ],
         ),
       );
@@ -1407,6 +1407,11 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       );
 
+  Future<void> _logoutRestrictedAccount() async {
+    await ApiService.logout();
+    if (mounted) context.go('/');
+  }
+
   @override
   Widget build(BuildContext context) => PopScope(
         canPop: !widget.restrictedMode && _selectedContact == null,
@@ -1446,11 +1451,17 @@ class _ChatScreenState extends State<ChatScreen> {
                     ],
                   )
                 : const Text('Messages'),
-            leading: _selectedContact != null && !widget.restrictedMode
+            leading: widget.restrictedMode
                 ? IconButton(
-                    icon: const Icon(Icons.arrow_back),
-                    onPressed: _closeConversation)
-                : null,
+                    tooltip: 'Log out',
+                    icon: const Icon(Icons.logout),
+                    onPressed: _logoutRestrictedAccount,
+                  )
+                : _selectedContact != null
+                    ? IconButton(
+                        icon: const Icon(Icons.arrow_back),
+                        onPressed: _closeConversation)
+                    : null,
             actions: _selectedContact != null && !widget.restrictedMode
                 ? [
                     if (!widget.isAdmin &&

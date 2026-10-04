@@ -8,8 +8,21 @@ class VerificationConfirmationScreen extends StatelessWidget {
   final Map<String, dynamic> certificate;
   const VerificationConfirmationScreen({super.key, required this.certificate});
 
+  bool _isCredentialVerified(Map<String, dynamic> credential) {
+    final status = credential['status']?.toString().trim().toLowerCase();
+    return status == 'verified' || status == 'valid';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final degreeCertificates = certificate['certificates'] is List
+        ? (certificate['certificates'] as List)
+            .whereType<Map>()
+            .map((degree) => Map<String, dynamic>.from(degree))
+            .toList()
+        : <Map<String, dynamic>>[];
+    final isMultipleDegree =
+        certificate['multi_degree'] == true && degreeCertificates.length > 1;
     final school = (certificate['university_code'] ??
             ApiService.authUniversity ??
             'Verified Institution')
@@ -39,8 +52,9 @@ class VerificationConfirmationScreen extends StatelessWidget {
                 ?.toString()
                 .isNotEmpty ==
             true;
-    final isVerified =
-        hasVerificationCode && (status == 'verified' || status == 'valid');
+    final isVerified = isMultipleDegree
+        ? degreeCertificates.every(_isCredentialVerified)
+        : hasVerificationCode && (status == 'verified' || status == 'valid');
     return Scaffold(
       appBar: AppBar(title: const Text('Credential Status')),
       body: Center(
@@ -80,96 +94,107 @@ class VerificationConfirmationScreen extends StatelessWidget {
                   const SizedBox(height: 12),
                   Text(
                       isVerified
-                          ? 'This credential proves that ${certificate['student_name'] ?? certificate['recipient_name'] ?? 'the student'} graduated from $schoolName and was verified by CertiTrust.'
+                          ? isMultipleDegree
+                              ? 'These ${degreeCertificates.length} credentials belong to ${certificate['student_name'] ?? 'the student'} and were verified by CertiTrust.'
+                              : 'This credential proves that ${certificate['student_name'] ?? certificate['recipient_name'] ?? 'the student'} graduated from $schoolName and was verified by CertiTrust.'
                           : 'This credential record was found, but its status is not valid.',
                       textAlign: TextAlign.center,
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 24),
-                  _row(
-                      'Student name',
-                      certificate['student_name'] ??
-                          certificate['recipient_name'] ??
-                          'N/A'),
-                  _row('Student ID', certificate['student_id'] ?? 'N/A'),
-                  _row(
-                      'Degree and program',
-                      certificate['degree'] ??
-                          certificate['course_or_event'] ??
-                          'N/A'),
-                  _row('Issue date', certificate['issue_date'] ?? 'N/A'),
-                  if (isVerified) ...[
-                    const SizedBox(height: 20),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        diplomaUrl != null && diplomaUrl.isNotEmpty
-                            ? 'Attached diploma image'
-                            : 'Diploma image',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                    if (diplomaUrl != null && diplomaUrl.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      GestureDetector(
-                        onTap: () => showDiplomaPreview(
-                          context,
-                          diplomaUrl,
-                          fileName: diplomaFileName,
+                  if (isMultipleDegree) ...[
+                    _row('Student name', certificate['student_name'] ?? 'N/A'),
+                    _row('Student ID', certificate['student_id'] ?? 'N/A'),
+                    const SizedBox(height: 12),
+                    for (final degree in degreeCertificates)
+                      _degreeCard(context, degree),
+                  ] else ...[
+                    _row(
+                        'Student name',
+                        certificate['student_name'] ??
+                            certificate['recipient_name'] ??
+                            'N/A'),
+                    _row('Student ID', certificate['student_id'] ?? 'N/A'),
+                    _row(
+                        'Degree and program',
+                        certificate['degree'] ??
+                            certificate['course_or_event'] ??
+                            'N/A'),
+                    _row('Issue date', certificate['issue_date'] ?? 'N/A'),
+                    if (isVerified) ...[
+                      const SizedBox(height: 20),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          diplomaUrl != null && diplomaUrl.isNotEmpty
+                              ? 'Attached diploma image'
+                              : 'Diploma image',
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: SizedBox(
-                            width: double.infinity,
-                            height: 200,
-                            child: Image.network(
-                              diplomaUrl,
-                              fit: BoxFit.contain,
-                              errorBuilder: (context, error, stackTrace) =>
-                                  const Center(
-                                child: Text('Could not load diploma preview.'),
+                      ),
+                      if (diplomaUrl != null && diplomaUrl.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        GestureDetector(
+                          onTap: () => showDiplomaPreview(
+                            context,
+                            diplomaUrl,
+                            fileName: diplomaFileName,
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: SizedBox(
+                              width: double.infinity,
+                              height: 200,
+                              child: Image.network(
+                                diplomaUrl,
+                                fit: BoxFit.contain,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    const Center(
+                                  child:
+                                      Text('Could not load diploma preview.'),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton.icon(
-                          onPressed: () async {
-                            try {
-                              await downloadDiplomaImage(
-                                diplomaUrl,
-                                fileName: diplomaFileName,
-                              );
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                      'Diploma downloaded. Check your Downloads or gallery.'),
-                                ),
-                              );
-                            } catch (error) {
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () async {
+                              try {
+                                await downloadDiplomaImage(
+                                  diplomaUrl,
+                                  fileName: diplomaFileName,
+                                );
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
                                     content: Text(
-                                        'Could not download diploma: $error')),
-                              );
-                            }
-                          },
-                          icon: const Icon(Icons.download),
-                          label: const Text('Download diploma'),
+                                        'Diploma downloaded. Check your Downloads or gallery.'),
+                                  ),
+                                );
+                              } catch (error) {
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                      content: Text(
+                                          'Could not download diploma: $error')),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.download),
+                            label: const Text('Download diploma'),
+                          ),
                         ),
-                      ),
-                    ] else
-                      const Padding(
-                        padding: EdgeInsets.only(top: 8),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                              'No diploma image was attached to this credential.'),
+                      ] else
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                                'No diploma image was attached to this credential.'),
+                          ),
                         ),
-                      ),
+                    ],
                   ],
                   const SizedBox(height: 18),
                   Container(
@@ -198,6 +223,101 @@ class VerificationConfirmationScreen extends StatelessWidget {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _degreeCard(BuildContext context, Map<String, dynamic> degree) {
+    final degreeNumber = int.tryParse(degree['degree_number']?.toString() ?? '');
+    final diplomaUrl = (degree['diploma_url'] ??
+            degree['cert_image_url'] ??
+            degree['image_url'])
+        ?.toString();
+    final studentId = (degree['student_id'] ?? 'Student')
+        .toString()
+        .replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final fileName =
+        'Diploma_$studentId-degree${degreeNumber ?? 'credential'}.jpg';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              degreeNumber == null
+                  ? 'Degree credential'
+                  : 'Degree $degreeNumber',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            _row(
+              'Degree and program',
+              degree['degree'] ?? degree['course_or_event'] ?? 'N/A',
+            ),
+            _row('Issue date', degree['issue_date'] ?? 'N/A'),
+            _row('Status', degree['status'] ?? 'N/A'),
+            if (diplomaUrl != null && diplomaUrl.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: () => showDiplomaPreview(
+                  context,
+                  diplomaUrl,
+                  fileName: fileName,
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 200,
+                    child: Image.network(
+                      diplomaUrl,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const Center(
+                        child: Text('Could not load diploma preview.'),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () async {
+                    try {
+                      await downloadDiplomaImage(
+                        diplomaUrl,
+                        fileName: fileName,
+                      );
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                              'Diploma downloaded. Check your Downloads or gallery.'),
+                        ),
+                      );
+                    } catch (error) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                            content: Text('Could not download diploma: $error')),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.download),
+                  label: const Text('Download diploma'),
+                ),
+              ),
+            ] else
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text('No diploma image was attached to this credential.'),
+              ),
+          ],
         ),
       ),
     );

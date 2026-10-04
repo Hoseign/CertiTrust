@@ -38,6 +38,15 @@ class _StudentDashboardViewState extends State<StudentDashboardView> {
     }
   }
 
+  String? _verificationCode(Map<String, dynamic> certificate) {
+    final code = certificate['cert_hash'] ??
+        certificate['ipfs_hash'] ??
+        certificate['hash'] ??
+        certificate['certificate_code'];
+    final normalized = code?.toString().trim();
+    return normalized == null || normalized.isEmpty ? null : normalized;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -100,6 +109,10 @@ class _StudentDashboardViewState extends State<StudentDashboardView> {
             .where((certificate) =>
                 _degreeNumber(certificate) == _selectedDegreeNumber)
             .toList();
+    final firstDegreeCertificate = widget.studentCertificates.firstWhere(
+      (certificate) => _degreeNumber(certificate) == degrees.first,
+    );
+    final multipleDegreeCode = _verificationCode(firstDegreeCertificate);
 
     return Center(
       child: Container(
@@ -145,10 +158,44 @@ class _StudentDashboardViewState extends State<StudentDashboardView> {
                 color: theme.colorScheme.secondaryContainer,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
-                  child: Text(
-                    'All ${degrees.length} of your degrees and diploma images',
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'All ${degrees.length} of your degrees and diploma images',
+                        style: theme.textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: multipleDegreeCode == null
+                                ? null
+                                : () => showQRCodeDialog(
+                                      context,
+                                      firstDegreeCertificate,
+                                      code:
+                                          'CERTITRUST-MULTI:$multipleDegreeCode',
+                                      title: 'All ${degrees.length} Degrees',
+                                    ),
+                            icon: const Icon(Icons.qr_code),
+                            label: const Text('Get QR for all degrees'),
+                          ),
+                          FilledButton.tonalIcon(
+                            onPressed: multipleDegreeCode == null
+                                ? null
+                                : () => context.push(
+                                      '/verify?hash=${Uri.encodeQueryComponent('CERTITRUST-MULTI:$multipleDegreeCode')}',
+                                    ),
+                            icon: const Icon(Icons.verified_outlined),
+                            label: const Text('Verify all degrees'),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -280,31 +327,33 @@ class _StudentDashboardViewState extends State<StudentDashboardView> {
               spacing: 12,
               runSpacing: 8,
               children: [
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.teal,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                if (!multipleView) ...[
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.teal,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                    ),
+                    onPressed: () => showQRCodeDialog(context, certificate),
+                    icon: const Icon(Icons.qr_code),
+                    label: const Text('Get QR Code'),
                   ),
-                  onPressed: () => showQRCodeDialog(context, certificate),
-                  icon: const Icon(Icons.qr_code),
-                  label: const Text('Get QR Code'),
-                ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: theme.colorScheme.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                    ),
+                    onPressed:
+                        verificationHash == null || verificationHash.isEmpty
+                            ? null
+                            : () => context.push(
+                                '/verify?hash=${Uri.encodeQueryComponent(verificationHash)}'),
+                    icon: const Icon(Icons.qr_code_scanner),
+                    label: const Text('Verify on Chain'),
                   ),
-                  onPressed:
-                      verificationHash == null || verificationHash.isEmpty
-                          ? null
-                          : () => context.push(
-                              '/verify?hash=${Uri.encodeQueryComponent(verificationHash)}'),
-                  icon: const Icon(Icons.qr_code_scanner),
-                  label: const Text('Verify on Chain'),
-                ),
+                ],
               ],
             ),
           ],

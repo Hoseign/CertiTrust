@@ -33,9 +33,69 @@ class CertificateController extends Controller
     public function show(string $code)
     {
         $normalizedCode = trim($code);
+        $multipleDegreePrefix = 'CERTITRUST-MULTI:';
+        $isMultipleDegreeCode = str_starts_with(
+            strtoupper($normalizedCode),
+            $multipleDegreePrefix,
+        );
+        if ($isMultipleDegreeCode) {
+            $normalizedCode = substr($normalizedCode, strlen($multipleDegreePrefix));
+        }
+
         $certificate = Certificate::where('certificate_code', $normalizedCode)
             ->orWhereRaw('LOWER(cert_hash) = ?', [strtolower($normalizedCode)])
             ->first();
+
+        if ($certificate && $isMultipleDegreeCode) {
+            $degreesQuery = Certificate::where(
+                'university_code',
+                $certificate->university_code,
+            );
+            if (filled($certificate->student_id)) {
+                $degreesQuery->where('student_id', $certificate->student_id);
+            } elseif (filled($certificate->student_email)) {
+                $degreesQuery->whereRaw(
+                    'LOWER(TRIM(student_email)) = ?',
+                    [strtolower(trim((string) $certificate->student_email))],
+                );
+            } else {
+                return response()->json([
+                    'message' => 'This credential cannot be grouped with other degrees.',
+                ], 404);
+            }
+
+            $degrees = $degreesQuery
+                ->orderBy('degree_number')
+                ->orderBy('issue_date')
+                ->orderBy('id')
+                ->get();
+
+            if ($degrees->count() < 2) {
+                return response()->json([
+                    'message' => 'This credential does not have multiple degrees to verify.',
+                ], 404);
+            }
+
+            $allVerified = $degrees->every(
+                fn (Certificate $degree) => in_array(
+                    strtolower(trim((string) $degree->status)),
+                    ['verified', 'valid'],
+                    true,
+                ),
+            );
+
+            return response()->json([
+                'data' => [
+                    'multi_degree' => true,
+                    'degree_count' => $degrees->count(),
+                    'student_name' => $certificate->student_name ?: $certificate->recipient_name,
+                    'student_id' => $certificate->student_id,
+                    'university_code' => $certificate->university_code,
+                    'status' => $allVerified ? 'verified' : 'invalid',
+                    'certificates' => $degrees,
+                ],
+            ]);
+        }
 
         return $certificate
             ? response()->json(['data' => $certificate])
