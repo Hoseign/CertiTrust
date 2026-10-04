@@ -31,13 +31,13 @@ class ChatController extends Controller
         }
 
         $universityCode = $user->university_code ?: $freezeActor?->university_code;
-        if (!$isSuperAdmin && !$universityCode) {
+        if (!$user->isAccessFrozen() && !$isSuperAdmin && !$universityCode) {
             return response()->json(['message' => 'Your account is not assigned to a school.'], 403);
         }
 
         $query = ChatMessage::query()->with('replyTo:id,user_id,sender_name,message')
             ->orderBy('created_at');
-        if (!$isSuperAdmin) {
+        if (!$isSuperAdmin && !$user->isAccessFrozen()) {
             $query->where('university_code', $universityCode);
         }
 
@@ -343,10 +343,27 @@ class ChatController extends Controller
             $attachmentType = str_starts_with($file->getMimeType() ?? '', 'video/') ? 'video' : 'image';
         }
 
+        $universityCode = $user->university_code ?: $recipient->university_code;
+        if (!$universityCode && $user->isAccessFrozen()) {
+            $universityCode = ChatMessage::query()
+                ->where(function ($query) use ($user, $recipient) {
+                    $query->where(function ($thread) use ($user, $recipient) {
+                        $thread->where('user_id', $user->id)
+                            ->where('recipient_user_id', $recipient->id);
+                    })->orWhere(function ($thread) use ($user, $recipient) {
+                        $thread->where('user_id', $recipient->id)
+                            ->where('recipient_user_id', $user->id);
+                    });
+                })
+                ->value('university_code')
+                ?: $this->studentCertificateFor($user)?->university_code
+                ?: 'GLOBAL';
+        }
+
         $message = ChatMessage::create([
             'user_id' => $user->id,
             'recipient_user_id' => $recipient->id,
-            'university_code' => $user->university_code ?: $recipient->university_code,
+            'university_code' => $universityCode,
             'sender_email' => $user->email,
             'sender_name' => $user->name,
             'message' => $validated['message'] ?? '',

@@ -111,9 +111,10 @@ class AdminSubadminManagementTest extends TestCase
             'frozen' => true,
         ])->assertForbidden();
 
-        $this->patchJson('/api/admin/students/access', [
+        $this->actingAs($ucuAdmin, 'sanctum')
+            ->patchJson('/api/admin/students/access', [
             'frozen' => true,
-        ])->assertOk();
+            ])->assertOk();
         $this->assertTrue($ucuStudent->fresh()->isAccessFrozen());
         $this->assertFalse($ucuAdmin->fresh()->isAccessFrozen());
 
@@ -121,6 +122,78 @@ class AdminSubadminManagementTest extends TestCase
             'frozen' => false,
         ])->assertOk();
         $this->assertFalse($ucuStudent->fresh()->isAccessFrozen());
+    }
+
+    public function test_only_the_freezing_administrator_can_unfreeze_individual_or_university_access(): void
+    {
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+        $ucuAdmin = User::create([
+            'name' => 'UCU Admin',
+            'email' => 'ucu-admin-freeze-owner@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        $otherUcuAdmin = User::create([
+            'name' => 'Other UCU Admin',
+            'email' => 'other-ucu-admin-freeze-owner@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        $student = User::create([
+            'name' => 'UCU Student',
+            'email' => 'ucu-student-freeze-owner@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'UCU',
+        ]);
+
+        $this->actingAs($ucuAdmin, 'sanctum')
+            ->patchJson('/api/admin/students/' . $student->id . '/access', [
+                'frozen' => true,
+            ])->assertOk();
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->patchJson('/api/admin/universities/UCU/access', [
+                'scope' => 'students',
+                'frozen' => false,
+            ])->assertOk();
+        $this->assertTrue($student->fresh()->isAccessFrozen());
+
+        $this->actingAs($otherUcuAdmin, 'sanctum')
+            ->patchJson('/api/admin/students/' . $student->id . '/access', [
+                'frozen' => false,
+            ])->assertForbidden();
+        $this->assertTrue($student->fresh()->isAccessFrozen());
+
+        $this->actingAs($ucuAdmin, 'sanctum')
+            ->patchJson('/api/admin/students/' . $student->id . '/access', [
+                'frozen' => false,
+            ])->assertOk();
+        $this->assertFalse($student->fresh()->isAccessFrozen());
+
+        $this->actingAs($ucuAdmin, 'sanctum')
+            ->patchJson('/api/admin/students/access', [
+                'frozen' => true,
+            ])->assertOk();
+        $this->actingAs($superAdmin, 'sanctum')
+            ->patchJson('/api/admin/universities/UCU/access', [
+                'scope' => 'students',
+                'frozen' => false,
+            ])->assertForbidden();
+        $this->assertTrue($student->fresh()->isAccessFrozen());
+
+        $this->actingAs($ucuAdmin, 'sanctum')
+            ->patchJson('/api/admin/students/access', [
+                'frozen' => false,
+            ])->assertOk();
+        $this->assertFalse($student->fresh()->isAccessFrozen());
     }
 
     public function test_frozen_account_can_sign_in_but_only_use_its_support_chat(): void
@@ -258,6 +331,51 @@ class AdminSubadminManagementTest extends TestCase
             ->getJson('/api/chat/messages?with_user_id=' . $admin->id)
             ->assertOk()
             ->assertJsonCount(2, 'data');
+    }
+
+    public function test_frozen_account_without_university_code_can_reach_global_freezer(): void
+    {
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+        $student = User::create([
+            'name' => 'Legacy Frozen Student',
+            'email' => 'legacy-frozen-chat@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'access_frozen' => true,
+            'access_frozen_at' => now(),
+            'access_frozen_by' => $superAdmin->id,
+        ]);
+        ChatMessage::create([
+            'user_id' => $superAdmin->id,
+            'recipient_user_id' => $student->id,
+            'university_code' => 'UCU',
+            'sender_email' => $superAdmin->email,
+            'sender_name' => $superAdmin->name,
+            'message' => 'Please reply here to resolve your account restriction.',
+        ]);
+        $token = $student->createToken('legacy-frozen-support-chat')->plainTextToken;
+
+        $this->withToken($token)
+            ->getJson('/api/chat/contacts')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $superAdmin->id);
+
+        $this->withToken($token)
+            ->getJson('/api/chat/messages?with_user_id=' . $superAdmin->id)
+            ->assertOk()
+            ->assertJsonPath('data.0.message', 'Please reply here to resolve your account restriction.');
+
+        $this->withToken($token)
+            ->postJson('/api/chat/messages', [
+                'recipient_user_id' => $superAdmin->id,
+                'message' => 'I can reach support from my account.',
+            ])->assertCreated();
     }
 
     public function test_super_admin_can_bind_replace_and_remove_a_university_subadmin(): void

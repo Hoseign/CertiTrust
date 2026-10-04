@@ -186,13 +186,14 @@ class _LoginScreenState extends State<LoginScreen> {
     return 'We could not complete Google sign-in.\n\n${error.toString()}\n\nAPI: ${ApiService.baseUrl}';
   }
 
-  void _showStudentIdVerificationDialog(String userEmail) {
+  Future<void> _showStudentIdVerificationDialog(String userEmail) async {
     final TextEditingController idController = TextEditingController();
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
         title: const Text('Security Verification'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -215,8 +216,10 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              await ApiService.logout();
+              await _googleSignIn.signOut();
             },
             child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
           ),
@@ -235,8 +238,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 if (verificationResult == null ||
                     verificationResult['success'] != true) {
-                  if (!context.mounted) return;
-                  Navigator.pop(context);
+                  if (!dialogContext.mounted || !mounted) return;
+                  Navigator.pop(dialogContext);
                   _showErrorDialog(
                     'Student ID Warning',
                     verificationResult?['message'] ??
@@ -255,20 +258,21 @@ class _LoginScreenState extends State<LoginScreen> {
                         false) ||
                     (profile['profile_icon']?.toString().isNotEmpty ?? false);
 
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  if (hasProfile) {
-                    context.go('/dashboard', extra: matchingCert);
-                  } else {
-                    await _showStudentProfileSetup(matchingCert);
-                  }
+                if (!dialogContext.mounted || !mounted) return;
+                Navigator.pop(dialogContext);
+                if (hasProfile) {
+                  context.go('/dashboard', extra: matchingCert);
+                } else {
+                  await _showStudentProfileSetup(matchingCert);
                 }
               } catch (err) {
                 debugPrint('Error verifying Student ID: $err');
-                if (context.mounted) {
+                if (mounted) {
                   if (err is ApiRequestException &&
                       (err.statusCode == 404 || err.statusCode == 422)) {
-                    Navigator.of(context).pop();
+                    if (dialogContext.mounted) {
+                      Navigator.of(dialogContext).pop();
+                    }
                     _showWarningDialog(
                       'Student ID Warning',
                       err.message,
@@ -285,8 +289,11 @@ class _LoginScreenState extends State<LoginScreen> {
             child: const Text('Verify & Proceed'),
           ),
         ],
-      ),
-    );
+        ),
+      );
+    } finally {
+      idController.dispose();
+    }
   }
 
   Future<void> _showStudentProfileSetup(dynamic matchingCertificate) async {

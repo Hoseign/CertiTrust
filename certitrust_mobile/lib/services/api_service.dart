@@ -1003,8 +1003,14 @@ class ApiService {
     final response = await http.get(
         Uri.parse('$baseUrl/chat/messages?with_user_id=$userId'),
         headers: _getHeaders);
-    if (response.statusCode != 200)
-      throw Exception('Failed to load conversation [${response.statusCode}]');
+    if (response.statusCode != 200) {
+      final body = jsonDecode(response.body);
+      final message = body is Map ? body['message']?.toString() : null;
+      throw ApiRequestException(
+        response.statusCode,
+        message ?? 'Failed to load conversation [${response.statusCode}]',
+      );
+    }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     return List<Map<String, dynamic>>.from(body['data'] ?? const []);
   }
@@ -1016,8 +1022,14 @@ class ApiService {
         : '?search=${Uri.encodeQueryComponent(search.trim())}';
     final response = await http.get(Uri.parse('$baseUrl/chat/contacts$query'),
         headers: _getHeaders);
-    if (response.statusCode != 200)
-      throw Exception('Failed to load students [${response.statusCode}]');
+    if (response.statusCode != 200) {
+      final body = jsonDecode(response.body);
+      final message = body is Map ? body['message']?.toString() : null;
+      throw ApiRequestException(
+        response.statusCode,
+        message ?? 'Failed to load contacts [${response.statusCode}]',
+      );
+    }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     return List<Map<String, dynamic>>.from(body['data'] ?? const []);
   }

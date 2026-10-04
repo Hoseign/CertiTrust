@@ -275,6 +275,31 @@ class AuthController extends Controller
             }
         }
 
+        $actorId = (int) $request->user()->id;
+        if (!$frozen && $admin?->access_frozen) {
+            if ((int) $admin->access_frozen_by !== $actorId) {
+                return response()->json([
+                    'message' => 'Only the administrator who froze this subadmin account can restore its access.',
+                ], 403);
+            }
+        }
+        if (in_array($scope, ['students', 'both'], true)) {
+            $studentAccessControl = UniversityAccessControl::where(
+                'university_code',
+                $universityCode,
+            )->first();
+            if (
+                $studentAccessControl?->students_frozen
+                && (int) $studentAccessControl->updated_by !== $actorId
+            ) {
+                return response()->json([
+                    'message' => $frozen
+                        ? 'Student access for this university is already frozen by another administrator.'
+                        : 'Only the administrator who froze student access for this university can restore it.',
+                ], 403);
+            }
+        }
+
         DB::transaction(function () use ($request, $universityCode, $scope, $frozen, $admin): void {
             if ($admin) {
                 $admin->forceFill([
@@ -295,18 +320,29 @@ class AuthController extends Controller
                         'updated_by' => $request->user()->id,
                     ],
                 );
-                User::whereIn('role', ['student', 'user'])
-                    ->where('university_code', $universityCode)
-                    ->update([
-                        'access_frozen' => null,
-                        'access_frozen_at' => null,
-                        'access_frozen_by' => null,
-                    ]);
                 if ($frozen) {
+                    User::whereIn('role', ['student', 'user'])
+                        ->where('university_code', $universityCode)
+                        ->where('access_frozen', false)
+                        ->update([
+                            'access_frozen' => null,
+                            'access_frozen_at' => null,
+                            'access_frozen_by' => null,
+                        ]);
                     User::whereIn('role', ['student', 'user'])
                         ->where('university_code', $universityCode)
                         ->get()
                         ->each(fn (User $student) => $student->tokens()->delete());
+                } else {
+                    User::whereIn('role', ['student', 'user'])
+                        ->where('university_code', $universityCode)
+                        ->where('access_frozen', true)
+                        ->where('access_frozen_by', $request->user()->id)
+                        ->update([
+                            'access_frozen' => false,
+                            'access_frozen_at' => null,
+                            'access_frozen_by' => null,
+                        ]);
                 }
             }
         });
@@ -334,22 +370,37 @@ class AuthController extends Controller
             ], 403);
         }
 
+        $universityAccessControl = UniversityAccessControl::where(
+            'university_code',
+            $admin->university_code,
+        )->first();
         $students = User::whereIn('role', ['student', 'user'])
             ->where('university_code', $admin->university_code)
             ->orderBy('name')
             ->get(['id', 'name', 'email', 'university_code', 'access_frozen'])
-            ->map(fn (User $student) => [
-                'id' => $student->id,
-                'name' => $student->name,
-                'email' => $student->email,
-                'university_code' => $student->university_code,
-                'is_frozen' => $student->isAccessFrozen(),
-                'access_frozen' => $student->access_frozen,
-            ]);
+            ->map(function (User $student) use ($admin, $universityAccessControl) {
+                $freezeOwnerId = $student->access_frozen === true
+                    ? (int) $student->access_frozen_by
+                    : ($student->access_frozen === null
+                        && $universityAccessControl?->students_frozen
+                        ? (int) $universityAccessControl->updated_by
+                        : null);
 
+                return [
+                    'id' => $student->id,
+                    'name' => $student->name,
+                    'email' => $student->email,
+                    'university_code' => $student->university_code,
+                    'is_frozen' => $student->isAccessFrozen(),
+                    'can_manage_access' => !$student->isAccessFrozen()
+                        || $freezeOwnerId === (int) $admin->id,
+                ];
+            });
         return response()->json([
             'data' => $students,
             'university_students_frozen' => $this->universityStudentsAreFrozen($admin->university_code),
+            'can_manage_university_freeze' => !$universityAccessControl?->students_frozen
+                || (int) $universityAccessControl->updated_by === (int) $admin->id,
         ]);
     }
 
@@ -372,6 +423,14 @@ class AuthController extends Controller
 
         $validated = $request->validate(['frozen' => ['required', 'boolean']]);
         $frozen = (bool) $validated['frozen'];
+        if ($user->isAccessFrozen()) {
+            $freezeOwnerId = $user->accessFrozenById();
+            if ($freezeOwnerId !== (int) $admin->id) {
+                return response()->json([
+                    'message' => 'Only the administrator who froze this student account can restore its access.',
+                ], 403);
+            }
+        }
         $user->forceFill([
             'access_frozen' => $frozen,
             'access_frozen_at' => $frozen ? now() : null,
@@ -405,23 +464,48 @@ class AuthController extends Controller
 
         $validated = $request->validate(['frozen' => ['required', 'boolean']]);
         $frozen = (bool) $validated['frozen'];
+        $accessControl = UniversityAccessControl::where(
+            'university_code',
+            $admin->university_code,
+        )->first();
+        if (
+            $accessControl?->students_frozen
+            && (int) $accessControl->updated_by !== (int) $admin->id
+        ) {
+            return response()->json([
+                'message' => $frozen
+                    ? 'Student access is already frozen by another administrator.'
+                    : 'Only the administrator who froze student access can restore it.',
+            ], 403);
+        }
         DB::transaction(function () use ($admin, $frozen): void {
             UniversityAccessControl::updateOrCreate(
                 ['university_code' => $admin->university_code],
                 ['students_frozen' => $frozen, 'updated_by' => $admin->id],
             );
-            User::whereIn('role', ['student', 'user'])
-                ->where('university_code', $admin->university_code)
-                ->update([
-                    'access_frozen' => null,
-                    'access_frozen_at' => null,
-                    'access_frozen_by' => null,
-                ]);
             if ($frozen) {
+                User::whereIn('role', ['student', 'user'])
+                    ->where('university_code', $admin->university_code)
+                    ->where('access_frozen', false)
+                    ->update([
+                        'access_frozen' => null,
+                        'access_frozen_at' => null,
+                        'access_frozen_by' => null,
+                    ]);
                 User::whereIn('role', ['student', 'user'])
                     ->where('university_code', $admin->university_code)
                     ->get()
                     ->each(fn (User $student) => $student->tokens()->delete());
+            } else {
+                User::whereIn('role', ['student', 'user'])
+                    ->where('university_code', $admin->university_code)
+                    ->where('access_frozen', true)
+                    ->where('access_frozen_by', $admin->id)
+                    ->update([
+                        'access_frozen' => false,
+                        'access_frozen_at' => null,
+                        'access_frozen_by' => null,
+                    ]);
             }
         });
 

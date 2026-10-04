@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'dart:async';
 import '../../services/api_service.dart';
 import '../dashboard/widgets/diploma_preview.dart';
+import '../dashboard/widgets/qr_code_dialog.dart';
 
 class RecordsScreen extends StatefulWidget {
   const RecordsScreen({super.key});
@@ -17,6 +18,8 @@ class _RecordsScreenState extends State<RecordsScreen> {
   final _searchController = TextEditingController();
   late Future<List<Map<String, dynamic>>> _records;
   int? _selectedDegreeNumber;
+  bool _showMultipleDegreeOrganizer = false;
+  String? _selectedMultiDegreeStudent;
 
   @override
   void initState() {
@@ -114,6 +117,40 @@ class _RecordsScreenState extends State<RecordsScreen> {
 
   int _degreeNumber(Map<String, dynamic> record) =>
       int.tryParse(record['degree_number']?.toString() ?? '') ?? 1;
+
+  String? _studentGroupKey(Map<String, dynamic> record) {
+    final university =
+        (record['university_code'] ?? ApiService.authUniversity ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+    final studentId = record['student_id']?.toString().trim().toLowerCase();
+    if (studentId != null && studentId.isNotEmpty) {
+      return '$university:id:$studentId';
+    }
+    final email = (record['student_email'] ?? record['email'])
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    if (email != null && email.isNotEmpty) {
+      return '$university:email:$email';
+    }
+    return null;
+  }
+
+  Map<String, List<Map<String, dynamic>>> _multipleDegreeGroups(
+      List<Map<String, dynamic>> records) {
+    final grouped = <String, List<Map<String, dynamic>>>{};
+    for (final record in records) {
+      final key = _studentGroupKey(record);
+      if (key == null) continue;
+      grouped.putIfAbsent(key, () => []).add(record);
+    }
+    return Map.fromEntries(
+      grouped.entries.where((entry) =>
+          entry.value.map(_degreeNumber).toSet().length >= 2),
+    );
+  }
 
   String _ordinal(int number) {
     if (number % 100 >= 11 && number % 100 <= 13) return '${number}th';
@@ -264,16 +301,114 @@ class _RecordsScreenState extends State<RecordsScreen> {
             final allRecords = snapshot.data ?? const <Map<String, dynamic>>[];
             final searchedRecords =
                 allRecords.where((record) => _matches(record, query)).toList();
+            final Map<String, List<Map<String, dynamic>>> multipleDegreeGroups =
+                _isSchoolAdmin ? _multipleDegreeGroups(allRecords) : {};
+            if (_selectedMultiDegreeStudent != null &&
+                !multipleDegreeGroups
+                    .containsKey(_selectedMultiDegreeStudent)) {
+              _selectedMultiDegreeStudent = null;
+            }
             final degreeNumbers = allRecords.map(_degreeNumber).toSet().toList()
               ..sort();
             final visibleRecords =
-                _isSchoolAdmin && _selectedDegreeNumber != null
+                _isSchoolAdmin &&
+                        !_showMultipleDegreeOrganizer &&
+                        _selectedDegreeNumber != null
                     ? searchedRecords
                         .where((record) =>
                             _degreeNumber(record) == _selectedDegreeNumber)
                         .toList()
                     : searchedRecords;
             final content = <Widget>[];
+            if (_isSchoolAdmin && multipleDegreeGroups.isNotEmpty) {
+              content.add(_sectionHeader('Multiple degrees'));
+              content.add(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ChoiceChip(
+                      label: Text(
+                          'Students with multiple degrees (${multipleDegreeGroups.length})'),
+                      selected: _showMultipleDegreeOrganizer,
+                      onSelected: (selected) => setState(() {
+                        _showMultipleDegreeOrganizer = selected;
+                        if (!selected) _selectedMultiDegreeStudent = null;
+                      }),
+                    ),
+                    if (_showMultipleDegreeOrganizer)
+                      for (final entry in multipleDegreeGroups.entries)
+                        ChoiceChip(
+                          label: Text(
+                            '${entry.value.first['student_name'] ?? entry.value.first['recipient_name'] ?? 'Student'} '
+                            '(${entry.value.map(_degreeNumber).toSet().length} degrees)',
+                          ),
+                          selected: _selectedMultiDegreeStudent == entry.key,
+                          onSelected: (_) => setState(
+                              () => _selectedMultiDegreeStudent = entry.key),
+                        ),
+                  ],
+                ),
+              );
+              if (_showMultipleDegreeOrganizer &&
+                  _selectedMultiDegreeStudent != null) {
+                final selectedDegrees = multipleDegreeGroups[
+                        _selectedMultiDegreeStudent]!
+                    .toList()
+                  ..sort((a, b) =>
+                      _degreeNumber(a).compareTo(_degreeNumber(b)));
+                final firstDegree = selectedDegrees.first;
+                final qrHash =
+                    (firstDegree['cert_hash'] ?? firstDegree['certificate_code'])
+                        ?.toString();
+                final multiDegreeCode = qrHash == null || qrHash.isEmpty
+                    ? null
+                    : 'CERTITRUST-MULTI:$qrHash';
+                content.add(
+                  Card(
+                    color: Theme.of(context).colorScheme.secondaryContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: multiDegreeCode == null
+                                ? null
+                                : () => showQRCodeDialog(
+                                      context,
+                                      firstDegree,
+                                      code: multiDegreeCode,
+                                      title:
+                                          'All ${selectedDegrees.length} Degrees',
+                                    ),
+                            icon: const Icon(Icons.qr_code),
+                            label: const Text('Show combined QR'),
+                          ),
+                          FilledButton.tonalIcon(
+                            onPressed: multiDegreeCode == null
+                                ? null
+                                : () => context.push(
+                                      '/verify?hash=${Uri.encodeQueryComponent(multiDegreeCode)}',
+                                    ),
+                            icon: const Icon(Icons.verified_outlined),
+                            label: const Text('Verify all degrees'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+                content.addAll(selectedDegrees.map(
+                    (record) => _recordCard(context, record)));
+              } else if (_showMultipleDegreeOrganizer) {
+                content.add(const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text('Select a student to view their degrees and QR.'),
+                ));
+              }
+            }
             if (_isSchoolAdmin && degreeNumbers.isNotEmpty) {
               content.add(_sectionHeader('Organize by degree'));
               content.add(
@@ -283,17 +418,25 @@ class _RecordsScreenState extends State<RecordsScreen> {
                     children: [
                       ChoiceChip(
                         label: const Text('All degrees'),
-                        selected: _selectedDegreeNumber == null,
-                        onSelected: (_) =>
-                            setState(() => _selectedDegreeNumber = null),
+                        selected: !_showMultipleDegreeOrganizer &&
+                            _selectedDegreeNumber == null,
+                        onSelected: (_) => setState(() {
+                          _showMultipleDegreeOrganizer = false;
+                          _selectedMultiDegreeStudent = null;
+                          _selectedDegreeNumber = null;
+                        }),
                       ),
                       const SizedBox(width: 8),
                       for (final degreeNumber in degreeNumbers) ...[
                         ChoiceChip(
                           label: Text('${_ordinal(degreeNumber)} degree'),
-                          selected: _selectedDegreeNumber == degreeNumber,
-                          onSelected: (_) => setState(
-                              () => _selectedDegreeNumber = degreeNumber),
+                          selected: !_showMultipleDegreeOrganizer &&
+                              _selectedDegreeNumber == degreeNumber,
+                          onSelected: (_) => setState(() {
+                            _showMultipleDegreeOrganizer = false;
+                            _selectedMultiDegreeStudent = null;
+                            _selectedDegreeNumber = degreeNumber;
+                          }),
                         ),
                         const SizedBox(width: 8),
                       ],
@@ -302,7 +445,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                 ),
               );
             }
-            if (visibleRecords.isNotEmpty) {
+            if (!_showMultipleDegreeOrganizer && visibleRecords.isNotEmpty) {
               if (ApiService.authRole == 'student') {
                 final studentDegrees =
                     visibleRecords.map(_degreeNumber).toSet().toList()..sort();
@@ -351,13 +494,19 @@ class _RecordsScreenState extends State<RecordsScreen> {
                 ),
               ),
               Expanded(
-                child: visibleRecords.isEmpty
-                    ? const Center(
-                        child: Text('No matching certificate records.'))
-                    : ListView(
+                child: _showMultipleDegreeOrganizer
+                    ? ListView(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                         children: content,
-                      ),
+                      )
+                    : visibleRecords.isEmpty
+                        ? const Center(
+                            child: Text('No matching certificate records.'))
+                        : ListView(
+                            padding:
+                                const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                            children: content,
+                          ),
               ),
             ]);
           },
@@ -606,15 +755,19 @@ class _ChatScreenState extends State<ChatScreen> {
         final initialContactId = _pendingInitialContactId;
         _pendingInitialContactId = null;
         if (initialContactId != null || widget.restrictedMode) {
-          final contact = items
-              .where((item) => initialContactId == null ||
-                  item['id'].toString() == initialContactId)
-              .firstOrNull;
+          final contactById = initialContactId == null
+              ? null
+              : items
+                  .where((item) => item['id'].toString() == initialContactId)
+                  .firstOrNull;
+          // The server returns only the authorized freezer contact, so the
+          // current result is safe when locally cached contact data is stale.
+          final contact =
+              contactById ?? (widget.restrictedMode ? items.firstOrNull : null);
           if (contact != null) {
             _selectedContact = contact;
-            items =
-                await ApiService.getChatMessagesForStudent(
-                    contact['id'].toString());
+            items = await ApiService.getChatMessagesForStudent(
+                contact['id'].toString());
           } else if (widget.restrictedMode) {
             throw Exception(
                 'The administrator chat is unavailable. Contact CertiTrust support.');
@@ -659,7 +812,9 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Could not load this chat.'),
+              Text(widget.restrictedMode
+                  ? 'Could not open the administrator chat: $_loadError'
+                  : 'Could not load this chat.'),
               const SizedBox(height: 8),
               TextButton(
                 onPressed: () => _loadItems(showLoading: true),
@@ -1031,6 +1186,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               const SizedBox(height: 16),
+              if (widget.isAdmin && profile['student_id'] != null) ...[
+                Text('Student ID: ${profile['student_id']}'),
+                const SizedBox(height: 8),
+              ],
               Text('Email: ${profile['email']?.toString() ?? 'Not available'}'),
               const SizedBox(height: 8),
               Text('Role: ${profile['role_label']?.toString() ?? 'Contact'}'),
@@ -1265,8 +1424,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                           if (own)
                                             const PopupMenuItem(
                                               value: 'delete_everyone',
-                                              child: Text(
-                                                  'Delete for everyone'),
+                                              child:
+                                                  Text('Delete for everyone'),
                                             ),
                                         ],
                                       ),
@@ -1397,12 +1556,23 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _restrictedChatUnavailable() => const Center(
+  Widget _restrictedChatUnavailable() => Center(
         child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'The administrator chat is unavailable. Contact CertiTrust support to restore access.',
-            textAlign: TextAlign.center,
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'The administrator chat is unavailable. Contact CertiTrust support to restore access.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: () => _loadItems(showLoading: true),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
           ),
         ),
       );
@@ -1416,9 +1586,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) => PopScope(
         canPop: !widget.restrictedMode && _selectedContact == null,
         onPopInvokedWithResult: (didPop, result) {
-          if (!widget.restrictedMode &&
-              !didPop &&
-              _selectedContact != null) {
+          if (!widget.restrictedMode && !didPop && _selectedContact != null) {
             _closeConversation();
           }
         },
@@ -1451,17 +1619,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     ],
                   )
                 : const Text('Messages'),
-            leading: widget.restrictedMode
+            leading: !widget.restrictedMode && _selectedContact != null
                 ? IconButton(
-                    tooltip: 'Log out',
-                    icon: const Icon(Icons.logout),
-                    onPressed: _logoutRestrictedAccount,
-                  )
-                : _selectedContact != null
-                    ? IconButton(
-                        icon: const Icon(Icons.arrow_back),
-                        onPressed: _closeConversation)
-                    : null,
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: _closeConversation)
+                : null,
             actions: _selectedContact != null && !widget.restrictedMode
                 ? [
                     if (!widget.isAdmin &&
@@ -1493,13 +1655,25 @@ class _ChatScreenState extends State<ChatScreen> {
                       ],
                     ),
                   ]
-                : null,
+                : widget.restrictedMode
+                    ? [
+                        IconButton(
+                          tooltip: 'Log out',
+                          icon: const Icon(Icons.logout),
+                          onPressed: _logoutRestrictedAccount,
+                        ),
+                      ]
+                    : null,
           ),
           body: Column(children: [
             Expanded(
                 child: _selectedContact == null
                     ? widget.restrictedMode
-                        ? _restrictedChatUnavailable()
+                        ? _isLoading && !_hasLoaded
+                            ? const Center(child: CircularProgressIndicator())
+                            : _loadError == null
+                                ? _restrictedChatUnavailable()
+                                : _loadErrorView()
                         : _contactsBody()
                     : _messagesBody()),
             if (_selectedContact != null) ...[

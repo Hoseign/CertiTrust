@@ -20,8 +20,11 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
   }
 
   Future<void> _reload() async {
-    setState(() => _studentsFuture = ApiService.getUniversityStudents());
-    await _studentsFuture;
+    final refresh = ApiService.getUniversityStudents();
+    setState(() {
+      _studentsFuture = refresh;
+    });
+    await refresh;
   }
 
   Future<void> _setAllStudentsFrozen(bool frozen) async {
@@ -32,7 +35,7 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
         content: Text(
           frozen
               ? 'Students at ${ApiService.authUniversity ?? 'your university'} will not be able to use their accounts until access is restored. University administrators will remain unaffected.'
-              : 'Restore student access for ${ApiService.authUniversity ?? 'your university'}? This will clear individual student freezes too.',
+              : 'Restore student access for ${ApiService.authUniversity ?? 'your university'}? Individual freezes created by other administrators will remain in place.',
         ),
         actions: [
           TextButton(
@@ -155,6 +158,8 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
                 .map((item) => Map<String, dynamic>.from(item as Map))
                 .toList();
             final allFrozen = data['university_students_frozen'] == true;
+            final canManageAll =
+                data['can_manage_university_freeze'] != false;
             return ListView(
               padding: const EdgeInsets.all(20),
               children: [
@@ -170,14 +175,16 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
                 ),
                 const SizedBox(height: 16),
                 FilledButton.icon(
-                  onPressed: _isUpdating
+                  onPressed: _isUpdating || (allFrozen && !canManageAll)
                       ? null
                       : () => _setAllStudentsFrozen(!allFrozen),
                   icon: Icon(allFrozen
                       ? Icons.lock_open_outlined
                       : Icons.lock_outline),
                   label: Text(allFrozen
-                      ? 'Unfreeze all students'
+                      ? canManageAll
+                          ? 'Unfreeze all students'
+                          : 'Students frozen by another administrator'
                       : 'Freeze all students'),
                 ),
                 const SizedBox(height: 16),
@@ -203,17 +210,20 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
                       title: Text(student['name']?.toString() ?? 'Student'),
                       subtitle:
                           Text(student['email']?.toString() ?? 'No email'),
-                      trailing: TextButton(
-                        onPressed: _isUpdating
-                            ? null
-                            : () => _setStudentFrozen(
-                                  student,
-                                  student['is_frozen'] != true,
-                                ),
-                        child: Text(student['is_frozen'] == true
-                            ? 'Unfreeze'
-                            : 'Freeze'),
-                      ),
+                      trailing: student['is_frozen'] == true &&
+                              student['can_manage_access'] == false
+                          ? const Text('Frozen by another admin')
+                          : TextButton(
+                              onPressed: _isUpdating
+                                  ? null
+                                  : () => _setStudentFrozen(
+                                        student,
+                                        student['is_frozen'] != true,
+                                      ),
+                              child: Text(student['is_frozen'] == true
+                                  ? 'Unfreeze'
+                                  : 'Freeze'),
+                            ),
                     ),
                   ),
               ],
