@@ -7,7 +7,8 @@ class AdminDashboardView extends StatefulWidget {
   final Future<List<Map<String, dynamic>>> Function() fetchCertificates;
   final Future<List<Map<String, dynamic>>> Function()
       fetchRecentVerifications;
-  final VoidCallback onViewRecentCredentials;
+  final void Function(Future<List<Map<String, dynamic>>> credentials)
+      onViewRecentCredentials;
 
   const AdminDashboardView({
     super.key,
@@ -24,6 +25,7 @@ class _AdminDashboardViewState extends State<AdminDashboardView>
     with WidgetsBindingObserver {
   late Future<List<Map<String, dynamic>>> _recentCredentials;
   late Future<List<Map<String, dynamic>>> _recentVerifications;
+  List<Map<String, dynamic>> _cachedCredentials = [];
   Timer? _refreshTimer;
   bool _isRefreshing = false;
   bool _isAppActive = true;
@@ -34,6 +36,7 @@ class _AdminDashboardViewState extends State<AdminDashboardView>
     WidgetsBinding.instance.addObserver(this);
     _recentCredentials = widget.fetchCertificates();
     _recentVerifications = widget.fetchRecentVerifications();
+    _rememberCredentials(_recentCredentials);
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_isAppActive) _refresh();
     });
@@ -62,12 +65,39 @@ class _AdminDashboardViewState extends State<AdminDashboardView>
       _recentVerifications = verifications;
     });
     try {
-      await Future.wait([certificates, verifications]);
+      final results = await Future.wait([certificates, verifications]);
+      if (mounted) {
+        setState(() {
+          _cachedCredentials = List<Map<String, dynamic>>.from(results.first);
+        });
+      }
     } catch (error) {
       debugPrint('Unable to refresh dashboard activity: $error');
     } finally {
       if (mounted) setState(() => _isRefreshing = false);
     }
+  }
+
+  Future<void> _rememberCredentials(
+      Future<List<Map<String, dynamic>>> credentials) async {
+    try {
+      final latest = await credentials;
+      if (mounted) setState(() => _cachedCredentials = latest);
+    } catch (error) {
+      debugPrint('Unable to load recent credentials: $error');
+    }
+  }
+
+  String get _recentCredentialsSubtitle {
+    if (_cachedCredentials.isEmpty) {
+      return 'Newly issued credentials appear here';
+    }
+    final latest = _cachedCredentials.first;
+    final student = latest['student_name']?.toString() ?? 'Student';
+    final degree = (latest['degree'] ?? latest['course_or_event'])?.toString();
+    return degree == null || degree.isEmpty
+        ? 'Latest: $student'
+        : 'Latest: $student • $degree';
   }
 
   @override
@@ -102,10 +132,11 @@ class _AdminDashboardViewState extends State<AdminDashboardView>
                 onTap: () => context.push('/verify')),
             _buildActionCard(context,
                 title: 'Recent Credentials',
-                subtitle: 'View the latest issued credentials',
+                subtitle: _recentCredentialsSubtitle,
                 icon: Icons.history,
                 color: Colors.amber.shade800,
-                onTap: widget.onViewRecentCredentials),
+                onTap: () =>
+                    widget.onViewRecentCredentials(_recentCredentials)),
           ],
         ),
         const SizedBox(height: 32),
@@ -119,13 +150,7 @@ class _AdminDashboardViewState extends State<AdminDashboardView>
             IconButton(
               tooltip: 'Refresh dashboard activity',
               onPressed: _isRefreshing ? null : _refresh,
-              icon: _isRefreshing
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
+              icon: const Icon(Icons.refresh),
             ),
           ],
         ),
@@ -185,64 +210,6 @@ class _AdminDashboardViewState extends State<AdminDashboardView>
                       '\n$status • $timestamp',
                     ),
                     isThreeLine: true,
-                  );
-                },
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 20),
-        Text('Recent Credentials',
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        Card(
-          child: FutureBuilder<List<Map<String, dynamic>>>(
-            future: _recentCredentials,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting &&
-                  !snapshot.hasData) {
-                return const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              if (snapshot.hasError) {
-                return Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text('Error loading recent credentials: ${snapshot.error}'),
-                );
-              }
-              final credentials = snapshot.data ?? [];
-              if (credentials.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Center(child: Text('No credentials issued yet.')),
-                );
-              }
-              return ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: credentials.length,
-                separatorBuilder: (context, index) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final credential = credentials[index];
-                  return ListTile(
-                    leading: const Icon(
-                      Icons.history,
-                      color: Colors.amber,
-                    ),
-                    title: Text(
-                      credential['student_name']?.toString() ?? 'Unknown',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      '${credential['degree'] ?? credential['course_or_event'] ?? 'Credential'}'
-                      ' • ${credential['student_id'] ?? 'No student ID'}',
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: widget.onViewRecentCredentials,
                   );
                 },
               );

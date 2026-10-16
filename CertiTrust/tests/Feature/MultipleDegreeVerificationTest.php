@@ -187,10 +187,20 @@ class MultipleDegreeVerificationTest extends TestCase
         ]);
 
         foreach ([
-            ['code' => 'CERT-OLDER', 'date' => '2024-06-01', 'hash' => str_repeat('1', 64)],
-            ['code' => 'CERT-NEWER', 'date' => '2026-06-01', 'hash' => str_repeat('2', 64)],
+            [
+                'code' => 'CERT-OLDER',
+                'date' => '2024-06-01',
+                'uploaded_at' => '2026-03-01 00:00:00',
+                'hash' => str_repeat('1', 64),
+            ],
+            [
+                'code' => 'CERT-NEWER',
+                'date' => '2026-06-01',
+                'uploaded_at' => '2026-02-01 00:00:00',
+                'hash' => str_repeat('2', 64),
+            ],
         ] as $record) {
-            Certificate::create([
+            $certificate = Certificate::create([
                 'certificate_code' => $record['code'],
                 'recipient_name' => 'Alex Student',
                 'student_name' => 'Alex Student',
@@ -203,13 +213,16 @@ class MultipleDegreeVerificationTest extends TestCase
                 'status' => 'Verified',
                 'cert_hash' => $record['hash'],
             ]);
+            $certificate->forceFill([
+                'created_at' => $record['uploaded_at'],
+            ])->save();
         }
 
         $this->actingAs($student, 'sanctum')
             ->getJson('/api/certificates?limit=1')
             ->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.certificate_code', 'CERT-NEWER');
+            ->assertJsonPath('data.0.certificate_code', 'CERT-OLDER');
     }
 
     public function test_successful_verification_is_recorded_and_shown_to_the_school_admin(): void

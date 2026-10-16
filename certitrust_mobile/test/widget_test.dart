@@ -19,6 +19,7 @@ import 'package:certitrust_mobile/features/admin/admin_management_screen.dart';
 import 'package:certitrust_mobile/features/admin/student_access_screen.dart';
 import 'package:certitrust_mobile/features/dashboard/widgets/student_dashboard_view.dart';
 import 'package:certitrust_mobile/features/dashboard/widgets/admin_dashboard_view.dart';
+import 'package:certitrust_mobile/features/dashboard/widgets/all_certificates_modal.dart';
 import 'package:certitrust_mobile/features/navigation/role_pages.dart';
 import 'package:certitrust_mobile/services/api_service.dart';
 
@@ -38,6 +39,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     var credentialRequests = 0;
     var verificationRequests = 0;
+    Future<List<Map<String, dynamic>>>? openedCredentials;
 
     await tester.pumpWidget(
       MaterialApp(
@@ -48,7 +50,9 @@ void main() {
                 credentialRequests++;
                 return [
                   {
-                    'student_name': 'New Credential',
+                    'student_name': credentialRequests == 1
+                        ? 'New Credential'
+                        : 'Uploaded Later',
                     'student_id': 'UCU-2026-1',
                     'degree': 'BSIT',
                   }
@@ -65,7 +69,9 @@ void main() {
                   }
                 ];
               },
-              onViewRecentCredentials: () {},
+              onViewRecentCredentials: (credentials) {
+                openedCredentials = credentials;
+              },
             ),
           ),
         ),
@@ -74,17 +80,87 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Recent Verified'), findsOneWidget);
-    expect(find.text('Recent Credentials'), findsWidgets);
+    expect(find.text('Recent Credentials'), findsOneWidget);
     expect(find.text('Recently Verified'), findsOneWidget);
-    expect(find.text('New Credential'), findsOneWidget);
+    expect(find.text('Latest: New Credential • BSIT'), findsOneWidget);
     expect(credentialRequests, 1);
     expect(verificationRequests, 1);
+
+    await tester.tap(find.text('Recent Credentials'));
+    expect(await openedCredentials, hasLength(1));
+    expect(credentialRequests, 1);
 
     await tester.pump(const Duration(seconds: 5));
     await tester.pumpAndSettle();
 
     expect(credentialRequests, 2);
     expect(verificationRequests, 2);
+    expect(find.text('Latest: Uploaded Later • BSIT'), findsOneWidget);
+
+    await tester.tap(find.text('Recent Credentials'));
+    expect((await openedCredentials)?.first['student_name'], 'Uploaded Later');
+    expect(credentialRequests, 2);
+  });
+
+  testWidgets('recent credential expands with actions and QR remains beside name',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final credential = {
+      'id': 10,
+      'student_name': 'UcuUser T. Student',
+      'student_id': '20260001',
+      'student_email': 'student@example.edu',
+      'degree': 'BSIT',
+      'degree_number': 1,
+      'certificate_code': 'CERT-RECENT-10',
+      'cert_hash': 'recent-credential-hash',
+      'issue_date': '2026-06-01',
+      'status': 'Verified',
+      'university_code': 'UCU',
+      'diploma_url': 'https://example.edu/diploma.jpg',
+    };
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => FilledButton(
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => AllCertificatesModal(
+                  initialCertificates: Future.value([credential]),
+                  fetchCertificates: () async => [credential],
+                ),
+              ),
+              child: const Text('Open recent credentials'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open recent credentials'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Recent Issued Credentials'), findsOneWidget);
+    expect(find.text('UcuUser T. Student'), findsOneWidget);
+    expect(find.byTooltip('Get QR Code'), findsOneWidget);
+    await tester.tap(find.text('UcuUser T. Student'));
+    await tester.pumpAndSettle();
+
+    for (final action in [
+      'Verify this record',
+      'View This Diploma',
+      'Add another degree',
+      'Request deletion',
+    ]) {
+      expect(find.text(action), findsOneWidget);
+    }
+    expect(find.byTooltip('Get QR Code'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('multiple-degree selection offers one shared verification QR',

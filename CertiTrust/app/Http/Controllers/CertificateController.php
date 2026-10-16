@@ -51,7 +51,9 @@ class CertificateController extends Controller
 
         $limit = $request->integer('limit');
         if ($limit > 0) {
-            $query->limit(min($limit, 20));
+            $query->reorder()
+                ->latest('created_at')
+                ->limit(min($limit, 20));
         }
 
         return response()->json(['data' => $query->get()]);

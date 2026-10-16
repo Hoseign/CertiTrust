@@ -1,4 +1,4 @@
-library;
+ library;
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -91,15 +91,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return ApiService.getRecentVerifications();
   }
 
-  void _showRecentCertificatesModal() {
+  void _showRecentCertificatesModal(
+      Future<List<Map<String, dynamic>>> initialCertificates) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) =>
-          AllCertificatesModal(fetchCertificates: _fetchLiveCertificates),
+      builder: (context) => AllCertificatesModal(
+        initialCertificates: initialCertificates,
+        fetchCertificates: _fetchLiveCertificates,
+      ),
     );
   }
 
