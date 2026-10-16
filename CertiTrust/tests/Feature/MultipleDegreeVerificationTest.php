@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Certificate;
+use App\Models\University;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -87,14 +88,45 @@ class MultipleDegreeVerificationTest extends TestCase
             ->assertJsonPath('data.degree_count', 4)
             ->assertJsonPath('data.status', 'verified')
             ->assertJsonPath('data.certificates.0.degree_number', 1)
+            ->assertJsonPath('data.certificates.0.university_name', 'Urdaneta City University')
             ->assertJsonPath('data.certificates.1.degree_number', 1)
             ->assertJsonPath('data.certificates.1.university_code', 'PSU')
+            ->assertJsonPath('data.certificates.1.university_name', 'Pangasinan State University')
             ->assertJsonPath('data.certificates.2.degree_number', 2)
             ->assertJsonPath('data.certificates.3.degree_number', 3)
             ->assertJsonPath('data.certificates.0.diploma_url', 'https://example.edu/diplomas/bsit.jpg')
             ->assertJsonPath('data.certificates.1.diploma_url', 'https://example.edu/diplomas/other.jpg')
             ->assertJsonPath('data.certificates.2.diploma_url', 'https://example.edu/diplomas/bsa.jpg')
             ->assertJsonPath('data.certificates.3.diploma_url', 'https://example.edu/diplomas/mit.jpg');
+    }
+
+    public function test_public_verification_includes_registered_university_and_branch_name(): void
+    {
+        University::create([
+            'code' => 'UOCM',
+            'university_name' => 'University of Cebu',
+            'branch_campus' => 'Main Campus',
+            'display_name' => 'UOCM',
+        ]);
+        $certificate = Certificate::create([
+            'certificate_code' => 'CERT-UOC-MAIN',
+            'recipient_name' => 'Jordan Student',
+            'student_name' => 'Jordan Student',
+            'student_id' => 'UOC-2026-100',
+            'student_email' => 'jordan@example.edu',
+            'degree' => 'Bachelor of Science in Information Technology',
+            'course_or_event' => 'BSIT',
+            'university_code' => 'UOCM',
+            'issue_date' => '2026-06-01',
+            'status' => 'Verified',
+            'cert_hash' => str_repeat('9', 64),
+        ]);
+
+        $this->getJson('/api/certificates/' . $certificate->certificate_code)
+            ->assertOk()
+            ->assertJsonPath('data.university_name', 'University of Cebu')
+            ->assertJsonPath('data.branch_campus', 'Main Campus')
+            ->assertJsonPath('data.display_name', 'UOCM');
     }
 
     public function test_replacement_student_email_can_access_credentials_by_student_id(): void

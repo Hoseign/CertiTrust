@@ -75,6 +75,8 @@ Route::middleware(['auth:sanctum', EnsureAccountIsNotFrozen::class])->group(func
 
     Route::post('/admin/users', [AuthController::class, 'createAdmin']);
     Route::get('/admin/subadmins', [AuthController::class, 'listSubadmins']);
+    Route::get('/admin/universities', [AuthController::class, 'listUniversities']);
+    Route::get('/admin/universities/{universityCode}/students', [AuthController::class, 'listStudentsForUniversity']);
     Route::patch('/admin/universities/{universityCode}/access', [AuthController::class, 'updateUniversityAccess']);
     Route::get('/admin/students', [AuthController::class, 'listUniversityStudents']);
     Route::patch('/admin/students/{user}/access', [AuthController::class, 'updateStudentAccess']);

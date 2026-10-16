@@ -35,8 +35,10 @@ class ChatController extends Controller
             return response()->json(['message' => 'Your account is not assigned to a school.'], 403);
         }
 
-        $query = ChatMessage::query()->with('replyTo:id,user_id,sender_name,message')
-            ->orderBy('created_at');
+        $query = ChatMessage::query()
+            ->with('replyTo:id,user_id,sender_name,message')
+            ->orderBy('created_at')
+            ->orderBy('id');
         if (!$isSuperAdmin && !$user->isAccessFrozen()) {
             $query->where('university_code', $universityCode);
         }
@@ -262,6 +264,75 @@ class ChatController extends Controller
                     'is_report_contact' => true,
                 ]));
             }
+        }
+
+        $contactIds = $contacts->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn (int $id) => $id !== (int) $user->id)
+            ->unique()
+            ->values();
+        if ($contactIds->isNotEmpty()) {
+            $threadMessages = ChatMessage::query()
+                ->whereNull('deleted_for_everyone_at')
+                ->where(function ($query) use ($user, $contactIds) {
+                    $query->where(function ($sent) use ($user, $contactIds) {
+                        $sent->where('user_id', $user->id)
+                            ->whereIn('recipient_user_id', $contactIds);
+                    })->orWhere(function ($received) use ($user, $contactIds) {
+                        $received->whereIn('user_id', $contactIds)
+                            ->where('recipient_user_id', $user->id);
+                    });
+                })
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->get([
+                    'id',
+                    'user_id',
+                    'recipient_user_id',
+                    'message',
+                    'attachment_type',
+                    'created_at',
+                    'delivered_at',
+                    'deleted_by',
+                ])
+                ->filter(function (ChatMessage $message) use ($user) {
+                    $deletedBy = is_array($message->deleted_by)
+                        ? $message->deleted_by
+                        : [];
+
+                    return !in_array((int) $user->id, $deletedBy, true);
+                });
+            $messagesByContact = $threadMessages->groupBy(
+                fn (ChatMessage $message) => (int) $message->user_id === (int) $user->id
+                    ? (int) $message->recipient_user_id
+                    : (int) $message->user_id,
+            );
+            $contacts = $contacts->map(function (array $contact) use (
+                $messagesByContact,
+                $user,
+            ) {
+                $messages = $messagesByContact->get((int) $contact['id'], collect());
+                $latest = $messages->first();
+                $unreadCount = $messages->filter(
+                    fn (ChatMessage $message) => (int) $message->recipient_user_id === (int) $user->id
+                        && $message->delivered_at === null,
+                )->count();
+                $preview = trim((string) ($latest?->message ?? ''));
+                if ($preview === '' && $latest?->attachment_type) {
+                    $preview = $latest->attachment_type === 'video'
+                        ? 'Video attachment'
+                        : 'Image attachment';
+                }
+
+                return array_merge($contact, [
+                    'last_message_preview' => $preview,
+                    'last_message_at' => $latest?->created_at?->toISOString(),
+                    'last_message_from_me' => $latest
+                        ? (int) $latest->user_id === (int) $user->id
+                        : false,
+                    'unread_count' => $unreadCount,
+                ]);
+            })->sortByDesc('last_message_at')->values();
         }
 
         if ($search !== '') {

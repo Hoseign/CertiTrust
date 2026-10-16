@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\AdminActionLog;
 use App\Models\UniversityAccessControl;
+use App\Models\University;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -198,7 +199,7 @@ class AuthController extends Controller
 
         $validated = $request->validate([
             'email' => ['required', 'email'],
-            'university_code' => ['required', 'in:UCU,PSU'],
+            'university_code' => ['required', 'string', 'max:10', 'regex:/^[A-Z0-9]+$/', 'exists:universities,code'],
         ]);
         $email = strtolower(trim($validated['email']));
         if (User::whereRaw('LOWER(email) = ?', [$email])->exists()) {
@@ -251,7 +252,14 @@ class AuthController extends Controller
         $studentAccounts = User::whereIn('role', ['student', 'user'])
             ->whereIn('university_code', $universityCodes)
             ->orderBy('name')
-            ->get(['id', 'name', 'email', 'university_code', 'access_frozen']);
+            ->get([
+                'id',
+                'name',
+                'email',
+                'university_code',
+                'access_frozen',
+                'access_frozen_by',
+            ]);
         $certificatesByStudentEmail = [];
         foreach (
             DB::table('certificates')
@@ -289,22 +297,49 @@ class AuthController extends Controller
                     ?: $student->name,
                 'email' => $student->email,
                 'student_id' => $certificate?->student_id ?: 'Not recorded',
+                'freeze_owner_id' => $student->accessFrozenById(),
+                'freeze_owner_email' => User::find($student->accessFrozenById())?->email,
             ];
         }
 
         return response()->json([
             'data' => $admins->map(function (User $admin) use ($frozenStudentsByUniversity) {
+                $university = University::find($admin->university_code);
                 return array_merge($admin->toArray(), [
+                    'university_name' => $university?->university_name
+                        ?: $this->universityDisplayName($admin->university_code),
+                    'branch_campus' => $university?->branch_campus,
+                    'display_name' => $university?->display_name
+                        ?: $admin->university_code,
                     'frozen_students' => $frozenStudentsByUniversity[$admin->university_code] ?? [],
                 ]);
             }),
         ]);
     }
 
+    public function listUniversities(Request $request)
+    {
+        $this->ensureSuperAdmin($request);
+
+        return response()->json([
+            'data' => University::query()
+                ->orderBy('university_name')
+                ->orderBy('branch_campus')
+                ->get()
+                ->map(fn (University $university) => [
+                    'code' => $university->code,
+                    'university_name' => $university->university_name,
+                    'branch_campus' => $university->branch_campus,
+                    'display_name' => $university->display_name,
+                ])
+                ->values(),
+        ]);
+    }
+
     public function updateUniversityAccess(Request $request, string $universityCode)
     {
         $this->ensureSuperAdmin($request);
-        abort_unless(in_array($universityCode, ['UCU', 'PSU'], true), 404);
+        abort_unless(University::whereKey($universityCode)->exists(), 404);
 
         $validated = $request->validate([
             'scope' => ['required', 'in:admin,students,both'],
@@ -476,64 +511,198 @@ class AuthController extends Controller
             ], 403);
         }
 
+        return $this->universityStudentsResponse($admin->university_code, $admin);
+    }
+
+    public function listStudentsForUniversity(Request $request, string $universityCode)
+    {
+        $this->ensureSuperAdmin($request);
+        abort_unless(University::whereKey($universityCode)->exists(), 404);
+
+        return $this->universityStudentsResponse($universityCode, $request->user());
+    }
+
+    private function universityStudentsResponse(string $universityCode, User $actor)
+    {
         $universityAccessControl = UniversityAccessControl::where(
             'university_code',
-            $admin->university_code,
+            $universityCode,
         )->first();
-        $students = User::whereIn('role', ['student', 'user'])
-            ->where('university_code', $admin->university_code)
+        $certificatesByStudentEmail = [];
+        foreach (
+            DB::table('certificates')
+                ->where('university_code', $universityCode)
+                ->orderByDesc('issue_date')
+                ->orderByDesc('id')
+                ->get([
+                    'student_email',
+                    'email',
+                    'student_id',
+                    'degree',
+                    'course_or_event',
+                    'certificate_code',
+                    'issue_date',
+                ]) as $certificate
+        ) {
+            foreach ([$certificate->student_email, $certificate->email] as $email) {
+                $normalizedEmail = strtolower(trim((string) $email));
+                if ($normalizedEmail === '') {
+                    continue;
+                }
+                $certificatesByStudentEmail[$normalizedEmail] ??= [];
+                $certificatesByStudentEmail[$normalizedEmail][] = $certificate;
+            }
+        }
+        $university = University::find($universityCode);
+        $studentAccounts = User::whereIn('role', ['student', 'user'])
+            ->where('university_code', $universityCode)
             ->orderBy('name')
-            ->get(['id', 'name', 'email', 'university_code', 'access_frozen'])
-            ->map(function (User $student) use ($admin, $universityAccessControl) {
+            ->get([
+                'id',
+                'name',
+                'email',
+                'university_code',
+                'access_frozen',
+                'access_frozen_by',
+                'created_at',
+            ]);
+        $policyOwnerId = $universityAccessControl?->students_frozen
+            ? (int) $universityAccessControl->updated_by
+            : null;
+        $freezeOwnerIds = $studentAccounts
+            ->map(fn (User $student) => $student->access_frozen === true
+                ? $student->access_frozen_by
+                : ($student->access_frozen === null ? $policyOwnerId : null))
+            ->filter()
+            ->unique()
+            ->values();
+        $freezeOwners = User::whereIn('id', $freezeOwnerIds)
+            ->get(['id', 'name', 'email'])
+            ->keyBy('id');
+        $students = $studentAccounts->map(function (User $student) use (
+                $actor,
+                $university,
+                $policyOwnerId,
+                $universityAccessControl,
+                $certificatesByStudentEmail,
+                $freezeOwners,
+            ) {
+                $certificates = $certificatesByStudentEmail[
+                    strtolower(trim((string) $student->email))
+                ] ?? [];
+                $latestCertificate = $certificates[0] ?? null;
                 $freezeOwnerId = $student->access_frozen === true
                     ? (int) $student->access_frozen_by
                     : ($student->access_frozen === null
-                        && $universityAccessControl?->students_frozen
-                        ? (int) $universityAccessControl->updated_by
+                        && $policyOwnerId
+                        ? $policyOwnerId
                         : null);
+                $isFrozen = $student->access_frozen === true
+                    || ($student->access_frozen === null
+                        && (bool) $universityAccessControl?->students_frozen);
+                $freezeOwner = $freezeOwnerId ? $freezeOwners->get($freezeOwnerId) : null;
 
                 return [
                     'id' => $student->id,
                     'name' => $student->name,
                     'email' => $student->email,
                     'university_code' => $student->university_code,
-                    'is_frozen' => $student->isAccessFrozen(),
-                    'can_manage_access' => !$student->isAccessFrozen()
-                        || $freezeOwnerId === (int) $admin->id,
+                    'university_name' => $university?->university_name
+                        ?: $this->universityDisplayName($student->university_code),
+                    'branch_campus' => $university?->branch_campus,
+                    'display_name' => $university?->display_name
+                        ?: $student->university_code,
+                    'student_id' => $latestCertificate?->student_id,
+                    'degree' => $latestCertificate?->degree
+                        ?: $latestCertificate?->course_or_event,
+                    'degrees' => collect($certificates)
+                        ->map(fn ($certificate) => $certificate->degree
+                            ?: $certificate->course_or_event)
+                        ->filter()
+                        ->unique()
+                        ->values(),
+                    'certificate_code' => $latestCertificate?->certificate_code,
+                    'issue_date' => $latestCertificate?->issue_date,
+                    'batch_year' => $latestCertificate?->issue_date
+                        ? substr((string) $latestCertificate->issue_date, 0, 4)
+                        : $student->created_at?->format('Y'),
+                    'credential_search' => collect($certificates)
+                        ->flatMap(fn ($certificate) => [
+                            $certificate->student_id,
+                            $certificate->degree,
+                            $certificate->course_or_event,
+                            $certificate->certificate_code,
+                        ])
+                        ->filter()
+                        ->unique()
+                        ->implode(' '),
+                    'is_frozen' => $isFrozen,
+                    'freeze_owner_id' => $freezeOwnerId,
+                    'freeze_owner_email' => $freezeOwner?->email,
+                    'freeze_owner_name' => $freezeOwner?->name,
+                    'can_manage_access' => !$isFrozen
+                        || $freezeOwnerId === (int) $actor->id,
                 ];
             });
+        $actorIsSuperAdmin = $this->isSuperAdmin($actor);
+        $canManageUniversityFreeze = !$universityAccessControl?->students_frozen
+            || (int) $universityAccessControl->updated_by === (int) $actor->id;
+
         return response()->json([
             'data' => $students,
-            'university_students_frozen' => $this->universityStudentsAreFrozen($admin->university_code),
-            'can_manage_university_freeze' => !$universityAccessControl?->students_frozen
-                || (int) $universityAccessControl->updated_by === (int) $admin->id,
+            'university_code' => $universityCode,
+            'university_students_frozen' => (bool) $universityAccessControl?->students_frozen,
+            'university_freeze_owner_id' => $universityAccessControl?->updated_by,
+            'can_manage_university_freeze' => $canManageUniversityFreeze,
+            'is_super_admin_view' => $actorIsSuperAdmin,
         ]);
     }
 
     public function updateStudentAccess(Request $request, User $user)
     {
         $admin = $request->user();
-        if ($admin->role !== 'admin' || !$admin->university_code || $this->isSuperAdmin($admin)) {
+        $isSuperAdmin = $this->isSuperAdmin($admin);
+        if (!$isSuperAdmin && ($admin->role !== 'admin' || !$admin->university_code)) {
             return response()->json([
-                'message' => 'Only a university subadmin can manage student access.',
+                'message' => 'Only an administrator can manage student access.',
             ], 403);
         }
         if (
             !in_array($user->role, ['student', 'user'], true)
-            || $user->university_code !== $admin->university_code
+            || (!$isSuperAdmin && $user->university_code !== $admin->university_code)
         ) {
             return response()->json([
-                'message' => 'You may only manage student accounts from your university.',
+                'message' => $isSuperAdmin
+                    ? 'Only student accounts can be managed here.'
+                    : 'You may only manage student accounts from your university.',
             ], 403);
         }
 
         $validated = $request->validate(['frozen' => ['required', 'boolean']]);
         $frozen = (bool) $validated['frozen'];
+        $universityPolicy = $user->access_frozen === null
+            ? UniversityAccessControl::where('university_code', $user->university_code)->first()
+            : null;
+        if ($universityPolicy?->students_frozen) {
+            $freezeOwner = $universityPolicy->updated_by
+                ? User::find($universityPolicy->updated_by)
+                : null;
+            return response()->json([
+                'message' => $freezeOwner
+                    ? "Student access for the entire university was frozen by {$freezeOwner->email}. Restore university student access to change this student."
+                    : 'Student access for the entire university is frozen. Restore university student access to change this student.',
+                'freeze_owner_email' => $freezeOwner?->email,
+            ], 403);
+        }
         if ($user->isAccessFrozen()) {
             $freezeOwnerId = $user->accessFrozenById();
             if ($freezeOwnerId !== (int) $admin->id) {
+                $freezeOwner = $freezeOwnerId ? User::find($freezeOwnerId) : null;
                 return response()->json([
-                    'message' => 'Only the administrator who froze this student account can restore its access.',
+                    'message' => $freezeOwner
+                        ? "This student was frozen by {$freezeOwner->email}. Only that administrator can unfreeze this account."
+                        : 'This student was frozen by another administrator. Only that administrator can unfreeze this account.',
+                    'freeze_owner_email' => $freezeOwner?->email,
                 ], 403);
             }
         }
@@ -549,8 +718,8 @@ class AuthController extends Controller
         $this->logAdminAction(
             $frozen ? 'froze_student_account' : 'unfroze_student_account',
             $user->email,
-            $admin->university_code,
-            ['student_user_id' => $user->id],
+            $user->university_code,
+            ['student_user_id' => $user->id, 'actor_email' => $admin->email],
         );
 
         return response()->json([
@@ -677,10 +846,29 @@ class AuthController extends Controller
         $this->ensureSuperAdmin($request);
 
         $validated = $request->validate([
-            'university_code' => ['required', 'in:UCU,PSU'],
+            'university_code' => ['required', 'string', 'max:10', 'regex:/^[A-Z0-9]+$/'],
+            'university_name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'branch_campus' => ['nullable', 'string', 'max:255'],
+            'display_name' => ['sometimes', 'nullable', 'string', 'max:30'],
             'email' => ['required', 'email'],
             'name' => ['nullable', 'string', 'max:255'],
         ]);
+
+        $registeredUniversity = University::find($validated['university_code']);
+        $universityName = trim($validated['university_name'] ?? $registeredUniversity?->university_name ?? '');
+        $displayName = trim($validated['display_name'] ?? $registeredUniversity?->display_name ?? '');
+        if ($universityName === '' || $displayName === '') {
+            return response()->json([
+                'message' => 'A university name and display name are required for a new university scope.',
+            ], 422);
+        }
+        if (University::where('display_name', $displayName)
+            ->whereKeyNot($validated['university_code'])
+            ->exists()) {
+            return response()->json([
+                'message' => 'This university display name is already in use. Choose another short name.',
+            ], 422);
+        }
 
         $existingAdmin = User::where('university_code', $validated['university_code'])
             ->where('role', 'admin')
@@ -702,14 +890,32 @@ class AuthController extends Controller
             ], 422);
         }
 
+        University::updateOrCreate(
+            ['code' => $validated['university_code']],
+            [
+                'university_name' => $universityName,
+                'branch_campus' => array_key_exists('branch_campus', $validated)
+                    ? (filled($validated['branch_campus'])
+                        ? trim($validated['branch_campus'])
+                        : null)
+                    : $registeredUniversity?->branch_campus,
+                'display_name' => $displayName,
+            ],
+        );
+
         if ($existingAdmin) {
             $previousEmail = $existingAdmin->email;
+            $emailChanged = strtolower($previousEmail) !== $email;
             $existingAdmin->forceFill([
                 'email' => $email,
                 'name' => $validated['name'] ?? $existingAdmin->name ?? 'University Admin',
                 'role' => 'admin',
                 'university_code' => $validated['university_code'],
+                'google_id' => $emailChanged ? null : $existingAdmin->google_id,
             ])->save();
+            if ($emailChanged) {
+                $existingAdmin->tokens()->delete();
+            }
 
             $this->logAdminAction(
                 'updated_subadmin',
@@ -756,7 +962,10 @@ class AuthController extends Controller
         $validated = $request->validate([
             'email' => ['sometimes', 'required', 'email'],
             'name' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'university_code' => ['sometimes', 'required', 'in:UCU,PSU'],
+            'university_code' => ['sometimes', 'required', 'string', 'max:10', 'regex:/^[A-Z0-9]+$/', 'exists:universities,code'],
+            'university_name' => ['sometimes', 'required', 'string', 'max:255'],
+            'branch_campus' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'display_name' => ['sometimes', 'required', 'string', 'max:30'],
         ]);
 
         $nextEmail = isset($validated['email']) ? strtolower(trim($validated['email'])) : $user->email;
@@ -771,15 +980,53 @@ class AuthController extends Controller
             ], 422);
         }
 
+        $nextUniversityCode = $validated['university_code'] ?? $user->university_code;
+        $anotherAdmin = User::where('role', 'admin')
+            ->where('university_code', $nextUniversityCode)
+            ->whereKeyNot($user->id)
+            ->exists();
+        if ($anotherAdmin) {
+            return response()->json([
+                'message' => 'This university already has a registered subadmin.',
+            ], 422);
+        }
+        if (isset($validated['university_name'], $validated['display_name'])) {
+            $duplicateDisplayName = University::where('display_name', $validated['display_name'])
+                ->whereKeyNot($nextUniversityCode)
+                ->exists();
+            if ($duplicateDisplayName) {
+                return response()->json([
+                    'message' => 'This university display name is already in use. Choose another short name.',
+                ], 422);
+            }
+            University::updateOrCreate(
+                ['code' => $nextUniversityCode],
+                [
+                    'university_name' => trim($validated['university_name']),
+                    'branch_campus' => filled($validated['branch_campus'] ?? null)
+                        ? trim($validated['branch_campus'])
+                        : null,
+                    'display_name' => trim($validated['display_name']),
+                ],
+            );
+        }
+
         $previousEmail = $user->email;
+        $emailChanged = strtolower($previousEmail) !== $nextEmail;
         $user->fill([
             'email' => $nextEmail,
             'name' => $validated['name'] ?? $user->name,
             'university_code' => $validated['university_code'] ?? $user->university_code,
             'role' => 'admin',
         ]);
+        if ($emailChanged) {
+            $user->google_id = null;
+        }
 
         $user->save();
+        if ($emailChanged) {
+            $user->tokens()->delete();
+        }
 
         $this->logAdminAction(
             'updated_subadmin',
@@ -1003,11 +1250,12 @@ class AuthController extends Controller
 
     private function universityDisplayName(?string $code): string
     {
-        return match (strtoupper((string) $code)) {
-            'UCU' => 'Urdaneta City University',
-            'PSU' => 'Pangasinan State University',
-            default => $code ?: 'University',
-        };
+        return University::find(strtoupper((string) $code))?->university_name
+            ?: match (strtoupper((string) $code)) {
+                'UCU' => 'Urdaneta City University',
+                'PSU' => 'Pangasinan State University',
+                default => $code ?: 'University',
+            };
     }
 
     /**

@@ -281,6 +281,150 @@ class AdminSubadminManagementTest extends TestCase
         $this->assertFalse($student->fresh()->isAccessFrozen());
     }
 
+    public function test_superadmin_can_list_and_freeze_students_but_cannot_unfreeze_an_account_frozen_by_a_subadmin(): void
+    {
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+        $ucuAdmin = User::create([
+            'name' => 'UCU Admin',
+            'email' => 'ucu-admin-roster@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        $studentFrozenBySubadmin = User::create([
+            'name' => 'Protected Student',
+            'email' => 'protected-student@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'UCU',
+        ]);
+        $studentManagedBySuperadmin = User::create([
+            'name' => 'Manageable Student',
+            'email' => 'manageable-student@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'UCU',
+        ]);
+        DB::table('certificates')->insert([
+            'certificate_code' => 'CERT-SUPERADMIN-ROSTER',
+            'recipient_name' => 'Protected Student',
+            'student_name' => 'Protected Student',
+            'student_id' => 'UCU-2026-001',
+            'student_email' => $studentFrozenBySubadmin->email,
+            'course_or_event' => 'BSIT',
+            'degree' => 'BSIT',
+            'university_code' => 'UCU',
+            'issue_date' => '2026-06-01',
+            'status' => 'valid',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs($ucuAdmin, 'sanctum')
+            ->patchJson('/api/admin/students/' . $studentFrozenBySubadmin->id . '/access', [
+                'frozen' => true,
+            ])->assertOk();
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->getJson('/api/admin/universities/UCU/students')
+            ->assertOk()
+            ->assertJsonPath('data.0.email', 'manageable-student@example.edu')
+            ->assertJsonPath('data.1.student_id', 'UCU-2026-001')
+            ->assertJsonPath('data.1.degree', 'BSIT')
+            ->assertJsonPath('data.1.batch_year', '2026')
+            ->assertJsonPath('data.1.freeze_owner_email', $ucuAdmin->email)
+            ->assertJsonPath('data.1.can_manage_access', false);
+
+        $this->patchJson('/api/admin/students/' . $studentFrozenBySubadmin->id . '/access', [
+            'frozen' => false,
+        ])->assertForbidden()
+            ->assertJsonPath('freeze_owner_email', $ucuAdmin->email);
+        $this->assertTrue($studentFrozenBySubadmin->fresh()->isAccessFrozen());
+
+        $this->patchJson('/api/admin/students/' . $studentManagedBySuperadmin->id . '/access', [
+            'frozen' => true,
+        ])->assertOk();
+        $this->actingAs($ucuAdmin, 'sanctum')
+            ->patchJson('/api/admin/students/' . $studentManagedBySuperadmin->id . '/access', [
+                'frozen' => false,
+            ])->assertForbidden();
+        $this->actingAs($superAdmin, 'sanctum')
+            ->patchJson('/api/admin/students/' . $studentManagedBySuperadmin->id . '/access', [
+                'frozen' => false,
+            ])->assertOk();
+        $this->assertFalse($studentManagedBySuperadmin->fresh()->isAccessFrozen());
+    }
+
+    public function test_superadmin_can_register_a_university_and_bind_its_subadmin(): void
+    {
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->postJson('/api/admin/subadmins', [
+                'name' => 'University of Cebu Admin',
+                'email' => 'new-ucu-admin@example.edu',
+                'university_code' => 'UOCM',
+                'university_name' => 'University of Cebu',
+                'branch_campus' => 'Main Campus',
+                'display_name' => 'UOCM',
+            ])->assertCreated()
+            ->assertJsonPath('data.university_code', 'UOCM');
+
+        $this->getJson('/api/admin/universities')
+            ->assertOk()
+            ->assertJsonFragment([
+                'code' => 'UOCM',
+                'university_name' => 'University of Cebu',
+                'branch_campus' => 'Main Campus',
+                'display_name' => 'UOCM',
+            ]);
+
+        $this->patchJson('/api/admin/universities/UOCM/access', [
+            'scope' => 'students',
+            'frozen' => true,
+        ])->assertOk();
+    }
+
+    public function test_changing_subadmin_google_email_clears_binding_and_revokes_old_tokens(): void
+    {
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+        $subadmin = User::create([
+            'name' => 'UCU Admin',
+            'email' => 'old-ucu-admin@example.edu',
+            'password' => bcrypt('secret'),
+            'google_id' => 'old-google-id',
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        $subadmin->createToken('old-device');
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->putJson('/api/admin/subadmins/' . $subadmin->id, [
+                'email' => 'replacement-ucu-admin@example.edu',
+            ])->assertOk()
+            ->assertJsonPath('data.email', 'replacement-ucu-admin@example.edu');
+
+        $this->assertNull($subadmin->fresh()->google_id);
+        $this->assertDatabaseMissing('personal_access_tokens', [
+            'tokenable_id' => $subadmin->id,
+        ]);
+    }
+
     public function test_frozen_account_can_sign_in_but_only_use_its_support_chat(): void
     {
         $superAdmin = User::create([
@@ -1006,6 +1150,120 @@ class AdminSubadminManagementTest extends TestCase
         $this->getJson('/api/chat/messages?student_id=' . $student->id)
             ->assertOk()
             ->assertJsonPath('data', []);
+    }
+
+    public function test_chat_messages_and_unread_previews_are_shared_between_participants(): void
+    {
+        $admin = User::create([
+            'name' => 'UCU Chat Admin',
+            'email' => 'ucu-chat-sync-admin@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        $student = User::create([
+            'name' => 'UCU Chat Student',
+            'email' => 'ucu-chat-sync-student@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'UCU',
+        ]);
+        Certificate::create([
+            'certificate_code' => 'CERT-CHAT-SYNC',
+            'recipient_name' => $student->name,
+            'student_name' => $student->name,
+            'student_id' => 'UCU-CHAT-SYNC',
+            'student_email' => $student->email,
+            'email' => $student->email,
+            'degree' => 'BSIT',
+            'course_or_event' => 'BSIT',
+            'university_code' => 'UCU',
+            'issue_date' => '2026-06-01',
+            'status' => 'Verified',
+            'cert_hash' => str_repeat('a', 64),
+        ]);
+
+        $this->actingAs($admin, 'sanctum')
+            ->postJson('/api/chat/messages', [
+                'recipient_user_id' => $student->id,
+                'message' => 'Please check your updated credential.',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.message', 'Please check your updated credential.');
+
+        $this->actingAs($student, 'sanctum')
+            ->getJson('/api/chat/contacts')
+            ->assertOk()
+            ->assertJsonPath('data.0.last_message_preview', 'Please check your updated credential.')
+            ->assertJsonPath('data.0.last_message_from_me', false)
+            ->assertJsonPath('data.0.unread_count', 1);
+
+        $this->getJson('/api/chat/messages?with_user_id=' . $admin->id)
+            ->assertOk()
+            ->assertJsonFragment(['message' => 'Please check your updated credential.']);
+
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/chat/contacts')
+            ->assertOk()
+            ->assertJsonPath('data.0.last_message_preview', 'Please check your updated credential.')
+            ->assertJsonPath('data.0.last_message_from_me', true)
+            ->assertJsonPath('data.0.unread_count', 0);
+
+        $this->actingAs($student, 'sanctum')
+            ->postJson('/api/chat/messages', [
+                'recipient_user_id' => $admin->id,
+                'message' => 'Received, thank you.',
+            ])
+            ->assertCreated();
+
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/chat/messages?with_user_id=' . $student->id)
+            ->assertOk()
+            ->assertJsonFragment(['message' => 'Received, thank you.']);
+    }
+
+    public function test_student_access_list_includes_credential_search_and_batch_year(): void
+    {
+        $admin = User::create([
+            'name' => 'UCU Access Admin',
+            'email' => 'ucu-access-credential-admin@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        $student = User::create([
+            'name' => 'Credential Search Student',
+            'email' => 'credential-search-student@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'UCU',
+        ]);
+        Certificate::create([
+            'certificate_code' => 'CERT-STUDENT-ACCESS-2026',
+            'recipient_name' => $student->name,
+            'student_name' => $student->name,
+            'student_id' => 'UCU-2026-SEARCH',
+            'student_email' => $student->email,
+            'email' => $student->email,
+            'degree' => 'Bachelor of Science in Information Technology',
+            'course_or_event' => 'BSIT',
+            'university_code' => 'UCU',
+            'issue_date' => '2026-06-01',
+            'status' => 'Verified',
+            'cert_hash' => str_repeat('b', 64),
+        ]);
+
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/admin/students')
+            ->assertOk()
+            ->assertJsonPath('data.0.student_id', 'UCU-2026-SEARCH')
+            ->assertJsonPath('data.0.degree', 'Bachelor of Science in Information Technology')
+            ->assertJsonPath('data.0.certificate_code', 'CERT-STUDENT-ACCESS-2026')
+            ->assertJsonPath('data.0.batch_year', '2026')
+            ->assertJsonPath(
+                'data.0.credential_search',
+                'UCU-2026-SEARCH Bachelor of Science in Information Technology BSIT CERT-STUDENT-ACCESS-2026',
+            );
     }
 
     public function test_student_reports_and_super_admin_reply_and_approves_deletion_requests(): void

@@ -13,10 +13,10 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _nameController = TextEditingController();
-  final _universityController =
-      TextEditingController(text: 'Urdaneta City University');
+  final _universityController = TextEditingController();
+  final _branchController = TextEditingController();
+  final _universityCodeController = TextEditingController();
   String? _emailError;
-  String _universityCode = 'UCU';
   int? _editingId;
   bool _isSubmitting = false;
   bool _isLoading = true;
@@ -33,6 +33,8 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     _emailController.dispose();
     _nameController.dispose();
     _universityController.dispose();
+    _branchController.dispose();
+    _universityCodeController.dispose();
     super.dispose();
   }
 
@@ -59,9 +61,39 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     _emailController.clear();
     _emailError = null;
     _nameController.clear();
-    _universityController.text = 'Urdaneta City University';
-    _universityCode = 'UCU';
+    _universityController.clear();
+    _branchController.clear();
+    _universityCodeController.clear();
     _editingId = null;
+  }
+
+  String _initials(String value) {
+    final words = value
+        .replaceAll(RegExp(r'[^A-Za-z0-9 ]'), ' ')
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((word) =>
+            word.isNotEmpty &&
+            !const {'of', 'the', 'and', 'branch', 'campus'}
+                .contains(word.toLowerCase()))
+        .toList();
+    if (words.isEmpty) return '';
+    return words.map((word) => word[0].toUpperCase()).join();
+  }
+
+  String _generatedUniversityCode(String university, String branch) {
+    final universityInitials = _initials(university);
+    final branchInitials = _initials(branch);
+    final code = (universityInitials + branchInitials)
+        .replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    return code.length > 10 ? code.substring(0, 10) : code;
+  }
+
+  void _updateGeneratedCode() {
+    _universityCodeController.text = _generatedUniversityCode(
+      _universityController.text,
+      _branchController.text,
+    );
   }
 
   Future<void> _submitAdmin() async {
@@ -72,17 +104,24 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     });
 
     try {
+      final editing = _editingId != null;
       if (_editingId != null) {
         await ApiService.updateSubadminAccount(
           id: _editingId!,
           email: _emailController.text.trim(),
           name: _nameController.text.trim(),
-          universityCode: _universityCode,
+          universityCode: _universityCodeController.text.trim().toUpperCase(),
+          universityName: _universityController.text.trim(),
+          displayName: _universityCodeController.text.trim().toUpperCase(),
+          branchCampus: _branchController.text,
         );
       } else {
         await ApiService.bindSubadminAccount(
           email: _emailController.text.trim(),
-          universityCode: _universityCode,
+          universityCode: _universityCodeController.text.trim().toUpperCase(),
+          universityName: _universityController.text.trim(),
+          displayName: _universityCodeController.text.trim().toUpperCase(),
+          branchCampus: _branchController.text,
           name: _nameController.text.trim(),
         );
       }
@@ -90,11 +129,12 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
       if (!mounted) return;
       _resetForm();
       await _loadAdmins();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text(_editingId == null
-                ? 'Administrator account created.'
-                : 'Administrator account updated.')),
+            content: Text(editing
+                ? 'Administrator account updated.'
+                : 'Administrator account created.')),
       );
     } catch (error) {
       if (!mounted) return;
@@ -140,6 +180,7 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
       await ApiService.deleteSubadminAccount(int.parse(id.toString()));
       if (!mounted) return;
       await _loadAdmins();
+      if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Subadmin removed.')));
     } catch (error) {
@@ -149,15 +190,78 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     }
   }
 
-  Future<void> _unbindGoogle(Map<String, dynamic> admin) async {
+  Future<void> _changeGoogleAccount(Map<String, dynamic> admin) async {
     final id = admin['id'];
     if (id == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Change Google account?'),
+        content: Text(
+          'The current Google account (${admin['email']}) will be replaced and its active sessions will be signed out.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final emailController = TextEditingController();
+    final replacementEmail = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Enter replacement Google email'),
+        content: TextField(
+          controller: emailController,
+          keyboardType: TextInputType.emailAddress,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Google account email',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, emailController.text.trim()),
+            child: const Text('Change account'),
+          ),
+        ],
+      ),
+    );
+    emailController.dispose();
+    if (replacementEmail == null || replacementEmail.isEmpty || !mounted) {
+      return;
+    }
+    if (replacementEmail.toLowerCase() ==
+        admin['email']?.toString().toLowerCase()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Enter a different Google account email.')),
+      );
+      return;
+    }
     try {
-      await ApiService.unbindSubadminGoogle(int.parse(id.toString()));
+      await ApiService.updateSubadminAccount(
+        id: int.parse(id.toString()),
+        email: replacementEmail,
+      );
       if (!mounted) return;
       await _loadAdmins();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Google binding removed.')));
+          const SnackBar(content: Text('Google account updated.')));
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -219,7 +323,9 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: Text(frozen ? 'Freeze university access' : 'Restore university access'),
+          title: Text(frozen
+              ? 'Freeze university access'
+              : 'Restore university access'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -297,8 +403,8 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
         return;
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not update university access: $error')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Could not update university access: $error')));
       }
     }
   }
@@ -350,15 +456,14 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
       };
 
   void _startEdit(Map<String, dynamic> admin) {
-    final universityName = admin['university_code'] == 'UCU'
-        ? 'Urdaneta City University'
-        : 'Pangasinan State University';
     setState(() {
       _editingId = int.parse(admin['id'].toString());
       _emailController.text = admin['email']?.toString() ?? '';
       _nameController.text = admin['name']?.toString() ?? '';
-      _universityController.text = universityName;
-      _universityCode = admin['university_code']?.toString() ?? 'UCU';
+      _universityController.text = admin['university_name']?.toString() ?? '';
+      _branchController.text = admin['branch_campus']?.toString() ?? '';
+      _universityCodeController.text =
+          admin['university_code']?.toString() ?? '';
     });
     Scrollable.ensureVisible(
       context,
@@ -414,47 +519,54 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                 },
               ),
               const SizedBox(height: 14),
-              Autocomplete<String>(
-                initialValue:
-                    TextEditingValue(text: _universityController.text),
-                optionsBuilder: (textEditingValue) {
-                  const universities = [
-                    'Urdaneta City University',
-                    'Pangasinan State University'
-                  ];
-                  final query = textEditingValue.text.trim().toLowerCase();
-                  if (query.isEmpty) return universities;
-                  return universities.where(
-                      (university) => university.toLowerCase().contains(query));
+              TextFormField(
+                controller: _universityController,
+                decoration: const InputDecoration(
+                  labelText: 'University name',
+                  hintText: 'e.g. University of Cebu',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) => setState(_updateGeneratedCode),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Enter the full university name.'
+                    : null,
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _branchController,
+                decoration: const InputDecoration(
+                  labelText: 'Branch campus (optional)',
+                  hintText: 'e.g. Bayambang Campus',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) => setState(_updateGeneratedCode),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _universityCodeController,
+                textCapitalization: TextCapitalization.characters,
+                decoration: const InputDecoration(
+                  labelText: 'Display name / university short code',
+                  hintText: 'Generated from the university name',
+                  helperText: 'Editable; use 1–10 letters or numbers.',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (value) {
+                  final normalized = value.toUpperCase();
+                  if (normalized != value) {
+                    _universityCodeController.value =
+                        _universityCodeController.value.copyWith(
+                      text: normalized,
+                      selection:
+                          TextSelection.collapsed(offset: normalized.length),
+                    );
+                  }
                 },
-                onSelected: (university) {
-                  _universityController.text = university;
-                  setState(() => _universityCode =
-                      university == 'Urdaneta City University' ? 'UCU' : 'PSU');
-                },
-                fieldViewBuilder:
-                    (context, controller, focusNode, onFieldSubmitted) {
-                  controller.text = _universityController.text;
-                  controller.selection =
-                      TextSelection.collapsed(offset: controller.text.length);
-                  return TextFormField(
-                    controller: controller,
-                    focusNode: focusNode,
-                    decoration: const InputDecoration(
-                        labelText: 'University scope',
-                        hintText: 'Type a university name',
-                        border: OutlineInputBorder()),
-                    onChanged: (value) {
-                      _universityController.text = value;
-                      if (value != 'Urdaneta City University' &&
-                          value != 'Pangasinan State University') {
-                        setState(() => _universityCode = '');
-                      }
-                    },
-                    validator: (_) => _universityCode.isEmpty
-                        ? 'Select a matching university suggestion.'
-                        : null,
-                  );
+                validator: (value) {
+                  final code = value?.trim() ?? '';
+                  return RegExp(r'^[A-Z0-9]{1,10}$').hasMatch(code)
+                      ? null
+                      : 'Use 1–10 letters or numbers.';
                 },
               ),
               const SizedBox(height: 20),
@@ -506,131 +618,431 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                   .toList();
               return Card(
                 margin: const EdgeInsets.only(bottom: 12),
-                child: Column(
-                  children: [
-                    ListTile(
-                      title:
-                          Text(admin['name']?.toString() ?? 'University Admin'),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                child: ExpansionTile(
+                  leading: const Icon(Icons.account_balance_outlined),
+                  title: Text(admin['name']?.toString() ?? 'University Admin'),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(admin['email']?.toString() ?? 'No email'),
+                      const SizedBox(height: 4),
+                      Text(
+                        'University: ${admin['university_name'] ?? 'University'}'
+                        ' (${admin['display_name'] ?? admin['university_code'] ?? 'Unassigned'})'
+                        '${admin['branch_campus'] == null || admin['branch_campus'].toString().isEmpty ? '' : ' • ${admin['branch_campus']}'}',
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        admin['access_frozen'] == true
+                            ? 'Subadmin access: Not active (frozen)'
+                            : 'Subadmin access: Active',
+                        style: TextStyle(
+                          color: admin['access_frozen'] == true
+                              ? Colors.red
+                              : Colors.green,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
                         children: [
-                          Text(admin['email']?.toString() ?? 'No email'),
-                          const SizedBox(height: 4),
+                          Icon(
+                            frozenStudents.isEmpty
+                                ? Icons.lock_open_outlined
+                                : Icons.lock_outline,
+                            size: 18,
+                            color: frozenStudents.isEmpty
+                                ? Colors.green
+                                : Colors.red,
+                          ),
+                          const SizedBox(width: 6),
                           Text(
-                              'University: ${admin['university_code'] ?? 'Unassigned'}'),
-                          const SizedBox(height: 4),
-                          Text(
-                            admin['access_frozen'] == true
-                                ? 'Subadmin access: Frozen'
-                                : 'Subadmin access: Active',
+                            frozenStudents.isEmpty
+                                ? 'Frozen students: None'
+                                : 'Frozen students: ${frozenStudents.length}',
                             style: TextStyle(
-                              color: admin['access_frozen'] == true
-                                  ? Colors.red
-                                  : Colors.green,
+                              color: frozenStudents.isEmpty
+                                  ? Colors.green
+                                  : Colors.red,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                          const SizedBox(height: 6),
-                          Row(
-                            children: [
-                              Icon(
-                                frozenStudents.isEmpty
-                                    ? Icons.lock_open_outlined
-                                    : Icons.lock_outline,
-                                size: 18,
-                                color: frozenStudents.isEmpty
-                                    ? Colors.green
-                                    : Colors.red,
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  frozenStudents.isEmpty
-                                      ? 'Frozen students: None'
-                                      : 'Frozen students: ${frozenStudents.length}',
-                                  style: TextStyle(
-                                    color: frozenStudents.isEmpty
-                                        ? Colors.green
-                                        : Colors.red,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
                         ],
                       ),
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (value) async {
-                          if (value == 'edit') _startEdit(admin);
-                          if (value == 'unbind') await _unbindGoogle(admin);
-                          if (value == 'delete') await _deleteAdmin(admin);
-                          if (value == 'freeze') {
-                            await _manageUniversityAccess(admin, true);
-                          }
-                          if (value == 'unfreeze') {
-                            await _manageUniversityAccess(admin, false);
-                          }
-                        },
-                        itemBuilder: (context) => [
-                          const PopupMenuItem(
-                              value: 'edit', child: Text('Edit')),
-                          PopupMenuItem(
-                            value: 'freeze',
-                            child: Text(
-                                'Freeze access for ${admin['university_code']}'),
-                          ),
-                          PopupMenuItem(
-                            value: 'unfreeze',
-                            child: Text(
-                                'Restore access for ${admin['university_code']}'),
-                          ),
-                          const PopupMenuItem(
-                              value: 'unbind',
-                              child: Text('Remove Google binding')),
-                          const PopupMenuItem(
-                              value: 'delete', child: Text('Delete')),
-                        ],
+                    ],
+                  ),
+                  trailing: PopupMenuButton<String>(
+                    onSelected: (value) async {
+                      if (value == 'edit') _startEdit(admin);
+                      if (value == 'change-google') {
+                        await _changeGoogleAccount(admin);
+                      }
+                      if (value == 'delete') await _deleteAdmin(admin);
+                      if (value == 'freeze') {
+                        await _manageUniversityAccess(admin, true);
+                      }
+                      if (value == 'unfreeze') {
+                        await _manageUniversityAccess(admin, false);
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                      PopupMenuItem(
+                        value: 'freeze',
+                        child: Text(
+                            'Freeze access for ${admin['university_code']}'),
+                      ),
+                      PopupMenuItem(
+                        value: 'unfreeze',
+                        child: Text(
+                            'Restore access for ${admin['university_code']}'),
+                      ),
+                      const PopupMenuItem(
+                          value: 'change-google',
+                          child: Text('Change Google account')),
+                      const PopupMenuItem(
+                          value: 'delete', child: Text('Delete')),
+                    ],
+                  ),
+                  children: [
+                    _UniversityStudentManager(
+                      universityCode:
+                          admin['university_code']?.toString() ?? '',
+                      onChanged: _loadAdmins,
+                      onDelete: (student) => _deleteStudentAccount(
+                        student,
+                        admin['university_code']?.toString() ?? '',
                       ),
                     ),
-                    if (frozenStudents.isNotEmpty)
-                      ExpansionTile(
-                        leading: const Icon(Icons.warning_amber_outlined,
-                            color: Colors.red),
-                        title: Text(
-                          'View frozen students (${frozenStudents.length})',
-                          style: const TextStyle(
-                            color: Colors.red,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        children: [
-                          for (final student in frozenStudents)
-                            ListTile(
-                              dense: true,
-                              leading: const Icon(Icons.person_outline),
-                              title: Text(
-                                  student['name']?.toString() ?? 'Student'),
-                              subtitle: Text(
-                                '${student['email'] ?? 'No email'} • Student ID: ${student['student_id'] ?? 'Not recorded'}',
-                              ),
-                              trailing: IconButton(
-                                tooltip: 'Remove frozen student account',
-                                onPressed: () => _deleteStudentAccount(
-                                  student,
-                                  admin['university_code']?.toString() ?? '',
-                                ),
-                                icon: const Icon(Icons.delete_outline),
-                              ),
-                            ),
-                        ],
-                      ),
                   ],
                 ),
               );
             }),
         ],
       ),
+    );
+  }
+}
+
+class _UniversityStudentManager extends StatefulWidget {
+  const _UniversityStudentManager({
+    required this.universityCode,
+    required this.onChanged,
+    required this.onDelete,
+  });
+
+  final String universityCode;
+  final Future<void> Function() onChanged;
+  final Future<void> Function(Map<String, dynamic>) onDelete;
+
+  @override
+  State<_UniversityStudentManager> createState() =>
+      _UniversityStudentManagerState();
+}
+
+class _UniversityStudentManagerState extends State<_UniversityStudentManager> {
+  final _searchController = TextEditingController();
+  late Future<Map<String, dynamic>> _studentsFuture;
+  String? _selectedYear;
+  String? _selectedDegree;
+  bool _isUpdating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _studentsFuture = ApiService.getUniversityStudents(
+      universityCode: widget.universityCode,
+    );
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _reload() async {
+    final refresh = ApiService.getUniversityStudents(
+      universityCode: widget.universityCode,
+    );
+    setState(() => _studentsFuture = refresh);
+    await refresh;
+  }
+
+  Future<void> _toggleAccess(
+    Map<String, dynamic> student,
+    bool frozen,
+  ) async {
+    final id = int.tryParse(student['id']?.toString() ?? '');
+    if (id == null) return;
+    final label = student['name']?.toString() ?? 'this student';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+            frozen ? 'Freeze student account?' : 'Unfreeze student account?'),
+        content: Text(
+          '${frozen ? 'Block' : 'Restore'} account access for $label?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(frozen ? 'Freeze account' : 'Unfreeze account'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _isUpdating = true);
+    try {
+      await ApiService.updateStudentAccess(userId: id, frozen: frozen);
+      await _reload();
+      await widget.onChanged();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(frozen
+              ? '$label’s account is frozen.'
+              : '$label’s account access was restored.'),
+        ));
+      }
+    } catch (error) {
+      if (mounted) {
+        final message = error is ApiRequestException ? error.message : '$error';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: Colors.red.shade700,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUpdating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.universityCode.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: Text('This subadmin does not have a university scope assigned.'),
+      );
+    }
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _studentsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                Text('Could not load university students: ${snapshot.error}'),
+                TextButton(onPressed: _reload, child: const Text('Retry')),
+              ],
+            ),
+          );
+        }
+
+        final students = (snapshot.data?['data'] as List? ?? const [])
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+        final years = students
+            .map((student) =>
+                student['batch_year']?.toString() ?? 'Year unavailable')
+            .toSet()
+            .toList()
+          ..sort((a, b) =>
+              (int.tryParse(b) ?? -1).compareTo(int.tryParse(a) ?? -1));
+        final degrees = students
+            .expand<String>((student) {
+              final studentDegrees = student['degrees'];
+              if (studentDegrees is List) {
+                return studentDegrees.whereType<String>();
+              }
+              final degree = student['degree']?.toString();
+              return degree == null ? const <String>[] : [degree];
+            })
+            .where((degree) => degree.trim().isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+        final query = _searchController.text.trim().toLowerCase();
+        final visibleStudents = students.where((student) {
+          final year = student['batch_year']?.toString() ?? 'Year unavailable';
+          final matchesYear = _selectedYear == null || year == _selectedYear;
+          final studentDegrees = student['degrees'] is List
+              ? (student['degrees'] as List).map((degree) => degree.toString())
+              : [student['degree']?.toString() ?? ''];
+          final matchesDegree = _selectedDegree == null ||
+              studentDegrees.contains(_selectedDegree);
+          final searchable = [
+            student['name'],
+            student['email'],
+            student['student_id'],
+            student['degree'],
+            student['credential_search'],
+            student['certificate_code'],
+          ].whereType<Object>().join(' ').toLowerCase();
+          return matchesYear &&
+              matchesDegree &&
+              (query.isEmpty || searchable.contains(query));
+        }).toList();
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: _searchController,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  labelText: 'Search students or credentials',
+                  hintText: 'Name, Gmail, student ID, or degree',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  SizedBox(
+                    width: 190,
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _selectedYear,
+                      decoration: const InputDecoration(
+                        labelText: 'Batch year',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        const DropdownMenuItem<String>(
+                          value: null,
+                          child: Text('All batches'),
+                        ),
+                        ...years.map((year) => DropdownMenuItem<String>(
+                              value: year,
+                              child: Text(year),
+                            )),
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _selectedYear = value),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 220,
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _selectedDegree,
+                      decoration: const InputDecoration(
+                        labelText: 'Degree',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        const DropdownMenuItem<String>(
+                          value: null,
+                          child: Text('All degrees'),
+                        ),
+                        ...degrees.map((degree) => DropdownMenuItem<String>(
+                              value: degree,
+                              child: Text(
+                                degree,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            )),
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _selectedDegree = value),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${visibleStudents.length} student account${visibleStudents.length == 1 ? '' : 's'}',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              if (students.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Text('No student accounts have signed in yet.'),
+                ),
+              if (students.isNotEmpty && visibleStudents.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Text('No students match these filters.'),
+                ),
+              for (final student in visibleStudents)
+                Card(
+                  child: ListTile(
+                    leading: Icon(
+                      student['is_frozen'] == true
+                          ? Icons.lock_outline
+                          : Icons.school_outlined,
+                      color: student['is_frozen'] == true
+                          ? Colors.red
+                          : Colors.teal,
+                    ),
+                    title: Text(student['name']?.toString() ?? 'Student'),
+                    subtitle: Text([
+                      student['email']?.toString() ?? 'No email',
+                      if (student['student_id'] != null)
+                        'Student ID: ${student['student_id']}',
+                      student['degrees'] is List &&
+                              (student['degrees'] as List).isNotEmpty
+                          ? (student['degrees'] as List).join(', ')
+                          : student['degree']?.toString() ??
+                              'Degree not recorded',
+                      'Batch: ${student['batch_year'] ?? 'Year unavailable'}',
+                      if (student['is_frozen'] == true)
+                        'Frozen by: ${student['freeze_owner_email'] ?? 'another administrator'}',
+                    ].join('\n')),
+                    trailing: PopupMenuButton<String>(
+                      enabled: !_isUpdating,
+                      onSelected: (action) {
+                        if (action == 'toggle') {
+                          _toggleAccess(
+                            student,
+                            student['is_frozen'] != true,
+                          );
+                        } else if (action == 'delete') {
+                          widget.onDelete(student).then((_) => _reload());
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'toggle',
+                          child: Text(student['is_frozen'] == true
+                              ? 'Unfreeze'
+                              : 'Freeze'),
+                        ),
+                        if (student['is_frozen'] == true)
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Remove student account'),
+                          ),
+                      ],
+                      icon: const Icon(Icons.more_vert),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

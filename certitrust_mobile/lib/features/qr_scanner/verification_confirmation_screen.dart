@@ -30,13 +30,21 @@ class VerificationConfirmationScreen extends StatelessWidget {
                 'Verified Institution')
             .toString()
             .toUpperCase();
-    final schoolName = school == 'PSU'
+    final fallbackSchoolName = school == 'PSU'
         ? 'Pangasinan State University'
         : school == 'UCU'
             ? 'Urdaneta City University'
             : school == 'MULTI'
                 ? 'Multiple Universities'
                 : 'Verified academic institution';
+    final registeredSchoolName = certificate['university_name']?.toString();
+    final branchCampus = certificate['branch_campus']?.toString();
+    final schoolName = [
+      registeredSchoolName == null || registeredSchoolName.trim().isEmpty
+          ? fallbackSchoolName
+          : registeredSchoolName,
+      if (branchCampus != null && branchCampus.trim().isNotEmpty) branchCampus,
+    ].join(' • ');
     final schoolLogo = school == 'PSU'
         ? 'web/assets/images/PSU_LOGO.png'
         : school == 'UCU'
@@ -242,13 +250,17 @@ class VerificationConfirmationScreen extends StatelessWidget {
         int.tryParse(degree['degree_number']?.toString() ?? '');
     final universityCode =
         degree['university_code']?.toString().toUpperCase() ?? '';
-    final universityName = universityCode == 'PSU'
+    final fallbackUniversityName = universityCode == 'PSU'
         ? 'Pangasinan State University'
         : universityCode == 'UCU'
             ? 'Urdaneta City University'
             : universityCode.isEmpty
                 ? 'Verified academic institution'
                 : universityCode;
+    final universityName =
+        degree['university_name']?.toString() ?? fallbackUniversityName;
+    final branchCampus = degree['branch_campus']?.toString();
+    final displayName = degree['display_name']?.toString() ?? universityCode;
     final diplomaUrl = (degree['diploma_url'] ??
             degree['cert_image_url'] ??
             degree['image_url'])
@@ -275,9 +287,14 @@ class VerificationConfirmationScreen extends StatelessWidget {
             const SizedBox(height: 8),
             _row(
               'University',
-              universityCode.isEmpty
-                  ? universityName
-                  : '$universityName ($universityCode)',
+              [
+                if (universityCode.isEmpty)
+                  universityName
+                else
+                  '$universityName (${displayName.isEmpty ? universityCode : displayName})',
+                if (branchCampus != null && branchCampus.trim().isNotEmpty)
+                  branchCampus,
+              ].join(' • '),
             ),
             _row(
               'Degree and program',

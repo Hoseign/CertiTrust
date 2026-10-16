@@ -256,9 +256,8 @@ class ApiService {
       Map<String, dynamic> accountData) async {
     isAccessFrozen = accountData['access_frozen'] == true;
     final contact = accountData['freeze_contact'];
-    frozenByContact = contact is Map
-        ? Map<String, dynamic>.from(contact)
-        : null;
+    frozenByContact =
+        contact is Map ? Map<String, dynamic>.from(contact) : null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('auth_access_frozen', isAccessFrozen);
     if (frozenByContact == null) {
@@ -608,6 +607,22 @@ class ApiService {
     return items.map((item) => Map<String, dynamic>.from(item as Map)).toList();
   }
 
+  static Future<List<Map<String, dynamic>>> getUniversities() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/admin/universities'),
+      headers: _getHeaders,
+    );
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(response.statusCode,
+          body['message']?.toString() ?? 'Unable to load universities.');
+    }
+    _recordConnectionSuccess();
+    final items = body['data'];
+    if (items is! List) return const [];
+    return items.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+  }
+
   static Future<Map<String, dynamic>> _accessControlRequest(
     Uri uri, {
     required Map<String, dynamic> payload,
@@ -640,9 +655,14 @@ class ApiService {
         payload: {'scope': scope, 'frozen': frozen},
       );
 
-  static Future<Map<String, dynamic>> getUniversityStudents() async {
+  static Future<Map<String, dynamic>> getUniversityStudents({
+    String? universityCode,
+  }) async {
+    final path = universityCode == null
+        ? '/admin/students'
+        : '/admin/universities/${Uri.encodeComponent(universityCode)}/students';
     final response = await http.get(
-      Uri.parse('$baseUrl/admin/students'),
+      Uri.parse('$baseUrl$path'),
       headers: _getHeaders,
     );
     final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
@@ -694,6 +714,9 @@ class ApiService {
   static Future<Map<String, dynamic>> bindSubadminAccount({
     required String email,
     required String universityCode,
+    required String universityName,
+    required String displayName,
+    String? branchCampus,
     String? name,
   }) async {
     final response = await http.post(
@@ -702,6 +725,9 @@ class ApiService {
       body: jsonEncode({
         'email': email,
         'university_code': universityCode,
+        'university_name': universityName,
+        'display_name': displayName,
+        if (branchCampus != null) 'branch_campus': branchCampus.trim(),
         if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
       }),
     );
@@ -721,14 +747,30 @@ class ApiService {
     String? email,
     String? name,
     String? universityCode,
+    String? universityName,
+    String? displayName,
+    String? branchCampus,
   }) async {
     final payload = <String, dynamic>{};
-    if (email != null && email.trim().isNotEmpty)
+    if (email != null && email.trim().isNotEmpty) {
       payload['email'] = email.trim();
-    if (name != null)
+    }
+    if (name != null) {
       payload['name'] = name.trim().isEmpty ? null : name.trim();
-    if (universityCode != null && universityCode.trim().isNotEmpty)
+    }
+    if (universityCode != null && universityCode.trim().isNotEmpty) {
       payload['university_code'] = universityCode.trim();
+    }
+    if (universityName != null && universityName.trim().isNotEmpty) {
+      payload['university_name'] = universityName.trim();
+    }
+    if (displayName != null && displayName.trim().isNotEmpty) {
+      payload['display_name'] = displayName.trim();
+    }
+    if (branchCampus != null) {
+      payload['branch_campus'] =
+          branchCampus.trim().isEmpty ? null : branchCampus.trim();
+    }
 
     final response = await http.put(
       Uri.parse('$baseUrl/admin/subadmins/$id'),

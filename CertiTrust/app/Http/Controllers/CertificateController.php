@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use App\Models\User;
 use App\Models\Certificate;
+use App\Models\University;
 use App\Services\SupabaseDiplomaStorage;
 
 class CertificateController extends Controller
@@ -102,6 +103,10 @@ class CertificateController extends Controller
                     true,
                 ),
             );
+            $degrees = $degrees->map(fn (Certificate $degree) => array_merge(
+                $degree->toArray(),
+                $this->universityDetails($degree->university_code),
+            ));
 
             return response()->json([
                 'data' => [
@@ -117,8 +122,26 @@ class CertificateController extends Controller
         }
 
         return $certificate
-            ? response()->json(['data' => $certificate])
+            ? response()->json([
+                'data' => array_merge(
+                    $certificate->toArray(),
+                    $this->universityDetails($certificate->university_code),
+                ),
+            ])
             : response()->json(['message' => 'Certificate not found.'], 404);
+    }
+
+    private function universityDetails(?string $universityCode): array
+    {
+        $university = $universityCode ? University::find($universityCode) : null;
+
+        return [
+            'university_name' => $university?->university_name
+                ?: $universityCode
+                ?: 'Verified academic institution',
+            'branch_campus' => $university?->branch_campus,
+            'display_name' => $university?->display_name ?: $universityCode,
+        ];
     }
 
     public function uploadDiploma(Request $request, SupabaseDiplomaStorage $storage)
@@ -155,7 +178,7 @@ class CertificateController extends Controller
             'cert_hash' => ['required', 'string', 'unique:certificates,cert_hash'],
             'diploma_url' => ['nullable', 'url'],
             'diploma_file_name' => ['nullable', 'string', 'max:255'],
-            'university_code' => ['nullable', 'in:UCU,PSU'],
+            'university_code' => ['nullable', 'string', 'exists:universities,code'],
         ]);
 
         $universityCode = $request->user()?->university_code;
@@ -224,7 +247,7 @@ class CertificateController extends Controller
             'certificates.*.cert_hash' => ['required', 'string'],
             'certificates.*.diploma_url' => ['nullable', 'url'],
             'certificates.*.diploma_file_name' => ['nullable', 'string', 'max:255'],
-            'certificates.*.university_code' => ['nullable', 'in:UCU,PSU'],
+            'certificates.*.university_code' => ['nullable', 'string', 'exists:universities,code'],
         ]);
 
         $universityCode = $request->user()?->university_code;

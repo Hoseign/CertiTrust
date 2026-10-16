@@ -171,8 +171,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
   }
 
   String _batchYear(Map<String, dynamic> record) {
-    final issueDate =
-        DateTime.tryParse(record['issue_date']?.toString() ?? '');
+    final issueDate = DateTime.tryParse(record['issue_date']?.toString() ?? '');
     return (issueDate ?? _publishedAt(record))?.year.toString() ??
         'Year unavailable';
   }
@@ -316,15 +315,14 @@ class _RecordsScreenState extends State<RecordsScreen> {
             }
             final degreeNumbers = allRecords.map(_degreeNumber).toSet().toList()
               ..sort();
-            final degreeFilteredRecords =
-                _isSchoolAdmin &&
-                        !_showMultipleDegreeOrganizer &&
-                        _selectedDegreeNumber != null
-                    ? searchedRecords
-                        .where((record) =>
-                            _degreeNumber(record) == _selectedDegreeNumber)
-                        .toList()
-                    : searchedRecords;
+            final degreeFilteredRecords = _isSchoolAdmin &&
+                    !_showMultipleDegreeOrganizer &&
+                    _selectedDegreeNumber != null
+                ? searchedRecords
+                    .where((record) =>
+                        _degreeNumber(record) == _selectedDegreeNumber)
+                    .toList()
+                : searchedRecords;
             final visibleRecords = ApiService.authRole != 'student' &&
                     !_showMultipleDegreeOrganizer &&
                     _selectedBatchYear != null
@@ -333,7 +331,8 @@ class _RecordsScreenState extends State<RecordsScreen> {
                     .toList()
                 : degreeFilteredRecords;
             final content = <Widget>[];
-            if (_canOrganizeMultipleDegrees && multipleDegreeGroups.isNotEmpty) {
+            if (_canOrganizeMultipleDegrees &&
+                multipleDegreeGroups.isNotEmpty) {
               content.add(_sectionHeader('Multiple degrees'));
               content.add(
                 Wrap(
@@ -365,22 +364,21 @@ class _RecordsScreenState extends State<RecordsScreen> {
               );
               if (_showMultipleDegreeOrganizer &&
                   _selectedMultiDegreeStudent != null) {
-                final selectedDegrees = multipleDegreeGroups[
-                        _selectedMultiDegreeStudent]!
-                    .toList()
-                  ..sort((a, b) {
-                    final universityComparison =
-                        (a['university_code']?.toString() ?? '').compareTo(
-                      b['university_code']?.toString() ?? '',
-                    );
-                    return universityComparison != 0
-                        ? universityComparison
-                        : _degreeNumber(a).compareTo(_degreeNumber(b));
-                  });
+                final selectedDegrees =
+                    multipleDegreeGroups[_selectedMultiDegreeStudent]!.toList()
+                      ..sort((a, b) {
+                        final universityComparison =
+                            (a['university_code']?.toString() ?? '').compareTo(
+                          b['university_code']?.toString() ?? '',
+                        );
+                        return universityComparison != 0
+                            ? universityComparison
+                            : _degreeNumber(a).compareTo(_degreeNumber(b));
+                      });
                 final firstDegree = selectedDegrees.first;
-                final qrHash =
-                    (firstDegree['cert_hash'] ?? firstDegree['certificate_code'])
-                        ?.toString();
+                final qrHash = (firstDegree['cert_hash'] ??
+                        firstDegree['certificate_code'])
+                    ?.toString();
                 final multiDegreeCode = qrHash == null || qrHash.isEmpty
                     ? null
                     : 'CERTITRUST-MULTI:$qrHash';
@@ -420,8 +418,8 @@ class _RecordsScreenState extends State<RecordsScreen> {
                     ),
                   ),
                 );
-                content.addAll(selectedDegrees.map(
-                    (record) => _recordCard(context, record)));
+                content.addAll(selectedDegrees
+                    .map((record) => _recordCard(context, record)));
               } else if (_showMultipleDegreeOrganizer) {
                 content.add(const Padding(
                   padding: EdgeInsets.symmetric(vertical: 12),
@@ -513,8 +511,8 @@ class _RecordsScreenState extends State<RecordsScreen> {
               } else {
                 if (_selectedBatchYear != null) {
                   content.add(_sectionHeader('Batch $_selectedBatchYear'));
-                  content.addAll(
-                      visibleRecords.map((record) => _recordCard(context, record)));
+                  content.addAll(visibleRecords
+                      .map((record) => _recordCard(context, record)));
                 } else {
                   final years = visibleRecords.map(_batchYear).toSet().toList()
                     ..sort((a, b) {
@@ -555,8 +553,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                         ? const Center(
                             child: Text('No matching certificate records.'))
                         : ListView(
-                            padding:
-                                const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                             children: content,
                           ),
               ),
@@ -761,7 +758,7 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _pendingInitialContactId = widget.initialContactId;
     _loadItems();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _loadItems();
     });
   }
@@ -1292,6 +1289,11 @@ class _ChatScreenState extends State<ChatScreen> {
                   final contact = contacts[index];
                   final active = contact['is_active'] == true;
                   final displayName = contact['name']?.toString() ?? 'Contact';
+                  final lastMessage =
+                      contact['last_message_preview']?.toString() ?? '';
+                  final unreadCount =
+                      int.tryParse(contact['unread_count']?.toString() ?? '') ??
+                          0;
                   final imageUrl = contact['profile_image_url']?.toString();
                   final imageAsset = contact['profile_logo']?.toString();
                   final ImageProvider? avatarImage =
@@ -1332,16 +1334,49 @@ class _ChatScreenState extends State<ChatScreen> {
                           Text(contact['role_label']?.toString() ?? ''),
                           if (contact['student_id'] != null)
                             Text('Student ID: ${contact['student_id']}'),
+                          if (lastMessage.isNotEmpty)
+                            Text(
+                              '${contact['last_message_from_me'] == true ? 'You: ' : ''}$lastMessage',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: unreadCount > 0
+                                    ? Theme.of(context).colorScheme.onSurface
+                                    : Colors.grey,
+                                fontWeight: unreadCount > 0
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                              ),
+                            ),
                           Text(
                               contact['last_seen_label']?.toString() ??
                                   'Last active: unknown',
                               style: const TextStyle(
                                   fontSize: 12, color: Colors.grey))
                         ]),
-                    trailing: IconButton(
-                      tooltip: 'View profile and credential details',
-                      icon: const Icon(Icons.more_horiz),
-                      onPressed: () => _showUserProfile(contact),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (unreadCount > 0)
+                          CircleAvatar(
+                            radius: 12,
+                            backgroundColor:
+                                Theme.of(context).colorScheme.primary,
+                            child: Text(
+                              unreadCount > 99 ? '99+' : '$unreadCount',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        IconButton(
+                          tooltip: 'View profile and credential details',
+                          icon: const Icon(Icons.more_horiz),
+                          onPressed: () => _showUserProfile(contact),
+                        ),
+                      ],
                     ),
                     onTap: () => _openContact(contact),
                   );
@@ -1393,241 +1428,257 @@ class _ChatScreenState extends State<ChatScreen> {
                   padding: const EdgeInsets.all(16),
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
-              final message = messages[index];
-              final attachmentUrl = message['attachment_url']?.toString();
-              final localAttachmentBytes =
-                  message['_local_attachment_bytes'] as Uint8List?;
-              final senderEmail =
-                  message['sender_email']?.toString().trim().toLowerCase();
-              final currentEmail = ApiService.authEmail?.trim().toLowerCase();
-              final own = message['_is_own'] == true ||
-                  (currentEmail != null && senderEmail == currentEmail);
-              final quoted = message['reply_to'] is Map
-                  ? Map<String, dynamic>.from(message['reply_to'] as Map)
-                  : null;
-              final messageId = message['id']?.toString() ?? 'message-$index';
-              final dragOffset = _messageDragOffsets[messageId] ?? 0.0;
-              return GestureDetector(
-                onHorizontalDragStart: (_) => setState(() {
-                  _messageDragOffsets[messageId] = 0;
-                }),
-                onHorizontalDragUpdate: (details) {
-                  setState(() {
-                    _messageDragOffsets[messageId] =
-                        ((_messageDragOffsets[messageId] ?? 0) +
-                                details.delta.dx)
-                            .clamp(0.0, 88.0)
-                            .toDouble();
-                  });
-                },
-                onHorizontalDragEnd: (_) {
-                  final shouldReply =
-                      (_messageDragOffsets[messageId] ?? 0) > 55;
-                  setState(() {
-                    _messageDragOffsets.remove(messageId);
-                    if (shouldReply) _replyTo = message;
-                  });
-                  if (shouldReply) {
-                    _controller.selection = TextSelection.collapsed(
-                        offset: _controller.text.length);
-                  }
-                },
-                key: ValueKey(messageId),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Align(
-                    alignment:
-                        own ? Alignment.centerRight : Alignment.centerLeft,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 120),
-                      transform: Matrix4.translationValues(dragOffset, 0, 0),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxWidth: MediaQuery.sizeOf(context).width * 0.78,
-                        ),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: own
-                                ? Theme.of(context).colorScheme.primary
-                                : Colors.grey.shade200,
-                            borderRadius: BorderRadius.only(
-                              topLeft: const Radius.circular(18),
-                              topRight: const Radius.circular(18),
-                              bottomLeft: Radius.circular(own ? 18 : 4),
-                              bottomRight: Radius.circular(own ? 4 : 18),
-                            ),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        own
-                                            ? 'You'
-                                            : message['sender_name']
-                                                    ?.toString() ??
-                                                'User',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: own
-                                              ? Colors.white
-                                              : Colors.black87,
-                                        ),
-                                      ),
-                                    ),
-                                    if (message['is_report'] == true)
-                                      const Icon(Icons.flag_outlined, size: 16),
-                                    if (!widget.restrictedMode)
-                                      PopupMenuButton<String>(
-                                        padding: EdgeInsets.zero,
-                                        icon: const Icon(Icons.more_vert,
-                                            size: 18),
-                                        onSelected: (value) async {
-                                          if (value == 'delete_me') {
-                                            await _deleteMessage(message);
-                                          } else if (value ==
-                                              'delete_everyone') {
-                                            await _deleteMessage(message,
-                                                forEveryone: true);
-                                          }
-                                        },
-                                        itemBuilder: (context) => [
-                                          const PopupMenuItem(
-                                            value: 'delete_me',
-                                            child: Text('Delete for me'),
+                    final message = messages[index];
+                    final attachmentUrl = message['attachment_url']?.toString();
+                    final localAttachmentBytes =
+                        message['_local_attachment_bytes'] as Uint8List?;
+                    final senderEmail = message['sender_email']
+                        ?.toString()
+                        .trim()
+                        .toLowerCase();
+                    final currentEmail =
+                        ApiService.authEmail?.trim().toLowerCase();
+                    final own = message['_is_own'] == true ||
+                        (currentEmail != null && senderEmail == currentEmail);
+                    final quoted = message['reply_to'] is Map
+                        ? Map<String, dynamic>.from(message['reply_to'] as Map)
+                        : null;
+                    final messageId =
+                        message['id']?.toString() ?? 'message-$index';
+                    final dragOffset = _messageDragOffsets[messageId] ?? 0.0;
+                    return GestureDetector(
+                      onHorizontalDragStart: (_) => setState(() {
+                        _messageDragOffsets[messageId] = 0;
+                      }),
+                      onHorizontalDragUpdate: (details) {
+                        setState(() {
+                          _messageDragOffsets[messageId] =
+                              ((_messageDragOffsets[messageId] ?? 0) +
+                                      details.delta.dx)
+                                  .clamp(0.0, 88.0)
+                                  .toDouble();
+                        });
+                      },
+                      onHorizontalDragEnd: (_) {
+                        final shouldReply =
+                            (_messageDragOffsets[messageId] ?? 0) > 55;
+                        setState(() {
+                          _messageDragOffsets.remove(messageId);
+                          if (shouldReply) _replyTo = message;
+                        });
+                        if (shouldReply) {
+                          _controller.selection = TextSelection.collapsed(
+                              offset: _controller.text.length);
+                        }
+                      },
+                      key: ValueKey(messageId),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Align(
+                          alignment: own
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 120),
+                            transform:
+                                Matrix4.translationValues(dragOffset, 0, 0),
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth:
+                                    MediaQuery.sizeOf(context).width * 0.78,
+                              ),
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: own
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Colors.grey.shade200,
+                                  borderRadius: BorderRadius.only(
+                                    topLeft: const Radius.circular(18),
+                                    topRight: const Radius.circular(18),
+                                    bottomLeft: Radius.circular(own ? 18 : 4),
+                                    bottomRight: Radius.circular(own ? 4 : 18),
+                                  ),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              own
+                                                  ? 'You'
+                                                  : message['sender_name']
+                                                          ?.toString() ??
+                                                      'User',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: own
+                                                    ? Colors.white
+                                                    : Colors.black87,
+                                              ),
+                                            ),
                                           ),
-                                          if (own)
-                                            const PopupMenuItem(
-                                              value: 'delete_everyone',
-                                              child:
-                                                  Text('Delete for everyone'),
+                                          if (message['is_report'] == true)
+                                            const Icon(Icons.flag_outlined,
+                                                size: 16),
+                                          if (!widget.restrictedMode)
+                                            PopupMenuButton<String>(
+                                              padding: EdgeInsets.zero,
+                                              icon: const Icon(Icons.more_vert,
+                                                  size: 18),
+                                              onSelected: (value) async {
+                                                if (value == 'delete_me') {
+                                                  await _deleteMessage(message);
+                                                } else if (value ==
+                                                    'delete_everyone') {
+                                                  await _deleteMessage(message,
+                                                      forEveryone: true);
+                                                }
+                                              },
+                                              itemBuilder: (context) => [
+                                                const PopupMenuItem(
+                                                  value: 'delete_me',
+                                                  child: Text('Delete for me'),
+                                                ),
+                                                if (own)
+                                                  const PopupMenuItem(
+                                                    value: 'delete_everyone',
+                                                    child: Text(
+                                                        'Delete for everyone'),
+                                                  ),
+                                              ],
                                             ),
                                         ],
                                       ),
-                                  ],
-                                ),
-                                if (quoted != null)
-                                  Container(
-                                    width: double.infinity,
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: own
-                                          ? Colors.white.withAlpha(28)
-                                          : Colors.black.withAlpha(15),
-                                      border: Border(
-                                        left: BorderSide(
-                                          color: own
-                                              ? Colors.white70
-                                              : Colors.blue,
-                                          width: 3,
-                                        ),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      '${quoted['sender_name'] ?? 'Message'}: ${quoted['message'] ?? ''}',
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: own
-                                            ? Colors.white70
-                                            : Colors.black54,
-                                      ),
-                                    ),
-                                  ),
-                                if ((message['message']?.toString() ?? '')
-                                    .isNotEmpty)
-                                  Text(
-                                    message['message'].toString(),
-                                    style: TextStyle(
-                                      color:
-                                          own ? Colors.white : Colors.black87,
-                                    ),
-                                  ),
-                                if (localAttachmentBytes != null &&
-                                    message['attachment_type'] == 'image')
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: SizedBox(
-                                      width: 260,
-                                      height: 320,
-                                      child: Image.memory(
-                                        localAttachmentBytes,
-                                        fit: BoxFit.contain,
-                                      ),
-                                    ),
-                                  )
-                                else if (attachmentUrl != null &&
-                                    message['attachment_type'] == 'image')
-                                  GestureDetector(
-                                    onTap: () => showDialog<void>(
-                                      context: context,
-                                      builder: (dialogContext) => Dialog(
-                                        insetPadding: const EdgeInsets.all(16),
-                                        child: InteractiveViewer(
-                                          child: SizedBox(
-                                            width:
-                                                MediaQuery.sizeOf(dialogContext)
-                                                        .width *
-                                                    0.9,
-                                            height:
-                                                MediaQuery.sizeOf(dialogContext)
-                                                        .height *
-                                                    0.8,
-                                            child: Image.network(
-                                              attachmentUrl,
-                                              fit: BoxFit.contain,
+                                      if (quoted != null)
+                                        Container(
+                                          width: double.infinity,
+                                          margin:
+                                              const EdgeInsets.only(bottom: 8),
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: own
+                                                ? Colors.white.withAlpha(28)
+                                                : Colors.black.withAlpha(15),
+                                            border: Border(
+                                              left: BorderSide(
+                                                color: own
+                                                    ? Colors.white70
+                                                    : Colors.blue,
+                                                width: 3,
+                                              ),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            '${quoted['sender_name'] ?? 'Message'}: ${quoted['message'] ?? ''}',
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: own
+                                                  ? Colors.white70
+                                                  : Colors.black54,
                                             ),
                                           ),
                                         ),
-                                      ),
-                                    ),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: SizedBox(
-                                        width: 260,
-                                        height: 320,
-                                        child: Image.network(
-                                          attachmentUrl,
-                                          fit: BoxFit.contain,
-                                          filterQuality: FilterQuality.medium,
-                                          loadingBuilder: (context, child,
-                                              loadingProgress) {
-                                            if (loadingProgress == null) {
-                                              return child;
-                                            }
-                                            return const Center(
-                                              child:
-                                                  CircularProgressIndicator(),
-                                            );
-                                          },
-                                          errorBuilder:
-                                              (context, error, stack) =>
-                                                  const Center(
-                                            child: Text(
-                                                'Image could not be loaded'),
+                                      if ((message['message']?.toString() ?? '')
+                                          .isNotEmpty)
+                                        Text(
+                                          message['message'].toString(),
+                                          style: TextStyle(
+                                            color: own
+                                                ? Colors.white
+                                                : Colors.black87,
                                           ),
                                         ),
-                                      ),
-                                    ),
+                                      if (localAttachmentBytes != null &&
+                                          message['attachment_type'] == 'image')
+                                        ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          child: SizedBox(
+                                            width: 260,
+                                            height: 320,
+                                            child: Image.memory(
+                                              localAttachmentBytes,
+                                              fit: BoxFit.contain,
+                                            ),
+                                          ),
+                                        )
+                                      else if (attachmentUrl != null &&
+                                          message['attachment_type'] == 'image')
+                                        GestureDetector(
+                                          onTap: () => showDialog<void>(
+                                            context: context,
+                                            builder: (dialogContext) => Dialog(
+                                              insetPadding:
+                                                  const EdgeInsets.all(16),
+                                              child: InteractiveViewer(
+                                                child: SizedBox(
+                                                  width: MediaQuery.sizeOf(
+                                                              dialogContext)
+                                                          .width *
+                                                      0.9,
+                                                  height: MediaQuery.sizeOf(
+                                                              dialogContext)
+                                                          .height *
+                                                      0.8,
+                                                  child: Image.network(
+                                                    attachmentUrl,
+                                                    fit: BoxFit.contain,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          child: ClipRRect(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            child: SizedBox(
+                                              width: 260,
+                                              height: 320,
+                                              child: Image.network(
+                                                attachmentUrl,
+                                                fit: BoxFit.contain,
+                                                filterQuality:
+                                                    FilterQuality.medium,
+                                                loadingBuilder: (context, child,
+                                                    loadingProgress) {
+                                                  if (loadingProgress == null) {
+                                                    return child;
+                                                  }
+                                                  return const Center(
+                                                    child:
+                                                        CircularProgressIndicator(),
+                                                  );
+                                                },
+                                                errorBuilder:
+                                                    (context, error, stack) =>
+                                                        const Center(
+                                                  child: Text(
+                                                      'Image could not be loaded'),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      if (attachmentUrl != null &&
+                                          message['attachment_type'] == 'video')
+                                        Text(
+                                            'Video attachment: $attachmentUrl'),
+                                      if (own) _buildDeliveryStatus(message),
+                                    ],
                                   ),
-                                if (attachmentUrl != null &&
-                                    message['attachment_type'] == 'video')
-                                  Text('Video attachment: $attachmentUrl'),
-                                if (own) _buildDeliveryStatus(message),
-                              ],
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
-              );
+                    );
                   },
                 ),
         ),

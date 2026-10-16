@@ -45,6 +45,15 @@ class _CredentialDraft {
 class _IssueScreenState extends State<IssueScreen> {
   final _formKey = GlobalKey<FormState>();
   final List<_CredentialDraft> _drafts = [];
+  static const _degreeSuggestions = [
+    'Bachelor of Science in Information Technology (BSIT)',
+    'Bachelor of Science in Computer Science (BSCS)',
+    'Master of Science in Information Technology (MSIT)',
+    'Master of Arts in Education (MAEd)',
+    'Master of Business Administration (MBA)',
+    'Doctor of Philosophy (PhD)',
+    'Doctor of Education (EdD)',
+  ];
   bool _isLoadingAdminCheck = true;
   bool _isAdmin = false;
   bool _isProcessing = false;
@@ -469,8 +478,7 @@ class _IssueScreenState extends State<IssueScreen> {
                 _field(draft.studentEmail,
                     decoration('Google/institutional email', Icons.email),
                     email: true),
-                _field(
-                    draft.degree, decoration('Degree / program', Icons.school)),
+                _degreeField(draft),
                 _schoolField(draft),
               ],
             ),
@@ -511,6 +519,42 @@ class _IssueScreenState extends State<IssueScreen> {
           if (email && !(value!.contains('@'))) return 'Enter a valid email';
           return null;
         },
+        onChanged: (_) => setState(() {}),
+      ),
+    );
+  }
+
+  Widget _degreeField(_CredentialDraft draft) {
+    return SizedBox(
+      width: 430,
+      child: TextFormField(
+        controller: draft.degree,
+        decoration: InputDecoration(
+          labelText: 'Degree / program',
+          prefixIcon: const Icon(Icons.school),
+          suffixIcon: PopupMenuButton<String>(
+            tooltip: 'Suggested degrees, including masteral programs',
+            icon: const Icon(Icons.arrow_drop_down_circle_outlined),
+            onSelected: (degree) {
+              draft.degree.text = degree;
+              setState(() {});
+            },
+            itemBuilder: (context) => _degreeSuggestions
+                .map((degree) => PopupMenuItem<String>(
+                      value: degree,
+                      child: SizedBox(
+                        width: 300,
+                        child: Text(
+                          degree,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ))
+                .toList(),
+          ),
+          border: const OutlineInputBorder(),
+        ),
+        validator: (value) => _required(value, 'degree or program'),
         onChanged: (_) => setState(() {}),
       ),
     );
