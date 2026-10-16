@@ -165,6 +165,51 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     }
   }
 
+  Future<void> _deleteStudentAccount(
+    Map student,
+    String universityCode,
+  ) async {
+    final id = int.tryParse(student['id']?.toString() ?? '');
+    if (id == null) return;
+    final email = student['email']?.toString() ?? 'this student';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove frozen student account?'),
+        content: Text(
+          'Remove sign-in and frozen-access data for $email at $universityCode? Issued credentials will remain available for verification.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove account'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ApiService.deleteStudentAccount(userId: id);
+      await _loadAdmins();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('$email’s account was removed. Credentials were kept.'),
+        ));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not remove student account: $error')),
+        );
+      }
+    }
+  }
+
   Future<void> _manageUniversityAccess(
       Map<String, dynamic> admin, bool frozen) async {
     final universityCode = admin['university_code']?.toString();
@@ -567,7 +612,16 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                               title: Text(
                                   student['name']?.toString() ?? 'Student'),
                               subtitle: Text(
-                                  'Student ID: ${student['student_id'] ?? 'Not recorded'}'),
+                                '${student['email'] ?? 'No email'} • Student ID: ${student['student_id'] ?? 'Not recorded'}',
+                              ),
+                              trailing: IconButton(
+                                tooltip: 'Remove frozen student account',
+                                onPressed: () => _deleteStudentAccount(
+                                  student,
+                                  admin['university_code']?.toString() ?? '',
+                                ),
+                                icon: const Icon(Icons.delete_outline),
+                              ),
                             ),
                         ],
                       ),

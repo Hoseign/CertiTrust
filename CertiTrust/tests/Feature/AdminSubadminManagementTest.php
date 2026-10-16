@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\ChatMessage;
+use App\Models\Certificate;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpRequest;
@@ -14,6 +15,66 @@ use Tests\TestCase;
 class AdminSubadminManagementTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_superadmin_can_remove_a_frozen_student_account_and_keep_credentials(): void
+    {
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+        User::create([
+            'name' => 'UCU Admin',
+            'email' => 'ucu-admin-delete-student@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        $student = User::create([
+            'name' => 'Frozen UCU Student',
+            'email' => 'old-ucu-student@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'UCU',
+            'access_frozen' => true,
+            'access_frozen_by' => $superAdmin->id,
+        ]);
+        Certificate::create([
+            'certificate_code' => 'CERT-KEEP-AFTER-STUDENT-DELETE',
+            'student_name' => 'Frozen UCU Student',
+            'recipient_name' => 'Frozen UCU Student',
+            'student_id' => 'UCU-DELETE-1001',
+            'student_email' => 'old-ucu-student@example.edu',
+            'degree' => 'BSIT',
+            'course_or_event' => 'BSIT',
+            'university_code' => 'UCU',
+            'issue_date' => '2026-06-01',
+            'status' => 'Verified',
+            'cert_hash' => str_repeat('e', 64),
+        ]);
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->getJson('/api/admin/subadmins')
+            ->assertOk()
+            ->assertJsonPath('data.0.frozen_students.0.id', $student->id)
+            ->assertJsonPath('data.0.frozen_students.0.email', $student->email);
+
+        $this->deleteJson('/api/admin/students/' . $student->id)
+            ->assertOk()
+            ->assertJsonPath(
+                'message',
+                'Student account removed. Issued credentials were kept.',
+            );
+
+        $this->assertDatabaseMissing('users', ['id' => $student->id]);
+        $this->assertDatabaseHas('certificates', [
+            'cert_hash' => str_repeat('e', 64),
+        ]);
+        $this->getJson('/api/admin/subadmins')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.0.frozen_students');
+    }
 
     public function test_superadmin_can_freeze_university_access_scopes(): void
     {
@@ -720,8 +781,8 @@ class AdminSubadminManagementTest extends TestCase
                 'student_email' => 'new-psu-student@example.edu',
                 'diploma_file_name' => 'fresh-diploma.jpg',
             ]],
-        ])->assertStatus(422)
-            ->assertJsonPath('message', 'Student ID "20260008" already belongs to Alex Student (Student ID 20260008) at UCU. Student IDs must be unique across universities.');
+        ])->assertOk()
+            ->assertJsonPath('additional_degree_candidates', []);
 
         $this->postJson('/api/certificates/batch', [
             'certificates' => [[
@@ -733,8 +794,15 @@ class AdminSubadminManagementTest extends TestCase
                 'issue_date' => '2026-09-30',
                 'cert_hash' => str_repeat('p', 64),
             ]],
-        ])->assertStatus(422)
-            ->assertJsonPath('message', 'Student ID "20260008" already belongs to Alex Student (Student ID 20260008) at UCU. Student IDs must be unique across universities.');
+        ])->assertCreated()
+            ->assertJsonPath('count', 1);
+
+        $this->getJson('/api/certificates/CERTITRUST-MULTI:' . str_repeat('n', 64))
+            ->assertOk()
+            ->assertJsonPath('data.multi_degree', true)
+            ->assertJsonPath('data.degree_count', 2)
+            ->assertJsonPath('data.certificates.0.university_code', 'UCU')
+            ->assertJsonPath('data.certificates.1.university_code', 'PSU');
 
         $this->postJson('/api/certificates/validate-batch', [
             'certificates' => [[

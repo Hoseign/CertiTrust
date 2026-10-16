@@ -56,13 +56,11 @@ class _IssueScreenState extends State<IssueScreen> {
     if (record != null) {
       final draft = _CredentialDraft()
         ..studentId.text = record['student_id']?.toString() ?? ''
-        ..studentName.text = (record['student_name'] ??
-                record['recipient_name'] ??
-                '')
-            .toString()
-        ..studentEmail.text =
-            (record['student_email'] ?? record['email'] ?? '')
+        ..studentName.text =
+            (record['student_name'] ?? record['recipient_name'] ?? '')
                 .toString()
+        ..studentEmail.text =
+            (record['student_email'] ?? record['email'] ?? '').toString()
         ..school = record['university_code']?.toString() ??
             ApiService.authUniversity ??
             'UCU';
@@ -126,22 +124,12 @@ class _IssueScreenState extends State<IssueScreen> {
   }
 
   Future<bool> _validateUniqueConstraints() async {
-    final seenNames = <String, Set<String>>{};
     final seenStudentIds = <String, String>{};
     final seenFileNames = <String, String>{};
     final existingRecords = await ApiService.getCertificatesForCurrentUser();
-    final existingNames = <String, Set<String>>{};
     final existingFileOwners = <String, String>{};
     for (final record in existingRecords) {
       final owner = _studentOwnerLabel(record);
-      final name = (record['student_name'] ?? record['recipient_name'] ?? '')
-          .toString()
-          .trim()
-          .toLowerCase();
-      if (name.isNotEmpty) {
-        existingNames.putIfAbsent(name, () => <String>{}).add(owner);
-      }
-
       final url =
           (record['diploma_file_name'] ?? record['diploma_url'])?.toString() ??
               '';
@@ -153,7 +141,6 @@ class _IssueScreenState extends State<IssueScreen> {
 
     for (int i = 0; i < _drafts.length; i++) {
       final draft = _drafts[i];
-      final nameTrimmed = draft.studentName.text.trim().toLowerCase();
       final studentIdTrimmed = draft.studentId.text.trim();
       final normalizedStudentId = studentIdTrimmed.toLowerCase();
       final fileName = draft.diploma?.name;
@@ -167,14 +154,6 @@ class _IssueScreenState extends State<IssueScreen> {
         _showWarning('Student ID "$studentIdTrimmed" already belongs to '
             '$previousIdOwner. Enter a unique Student ID.');
         return false;
-      }
-      final nameOwners = <String>{
-        ...existingNames[nameTrimmed] ?? const <String>{},
-        ...seenNames[nameTrimmed] ?? const <String>{},
-      };
-      if (nameOwners.isNotEmpty) {
-        _showWarning(
-            'The name "${draft.studentName.text.trim()}" already belongs to ${nameOwners.join(', ')}. Same-name students are allowed; issuance will continue.');
       }
       seenStudentIds[normalizedStudentId] = draftOwner;
 
@@ -190,8 +169,6 @@ class _IssueScreenState extends State<IssueScreen> {
         }
         seenFileNames[normalizedFileName] = draftOwner;
       }
-
-      seenNames.putIfAbsent(nameTrimmed, () => <String>{}).add(draftOwner);
     }
     return true;
   }
@@ -216,7 +193,11 @@ class _IssueScreenState extends State<IssueScreen> {
   void _showWarning(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.orange),
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.orange,
+        duration: const Duration(seconds: 8),
+      ),
     );
   }
 
@@ -243,7 +224,8 @@ class _IssueScreenState extends State<IssueScreen> {
           context: context,
           barrierDismissible: false,
           builder: (dialogContext) => AlertDialog(
-            title: Text('Is this the student’s ${_ordinal(nextDegree)} degree?'),
+            title:
+                Text('Is this the student’s ${_ordinal(nextDegree)} degree?'),
             content: Text(
               '${candidate['student_name']} (ID ${candidate['student_id']}) already has:\n'
               '$previousText\n\n'
@@ -311,8 +293,9 @@ class _IssueScreenState extends State<IssueScreen> {
           skippedDrafts.add(draft);
         }
       }
-      activeDrafts =
-          activeDrafts.where((draft) => !skippedDrafts.contains(draft)).toList();
+      activeDrafts = activeDrafts
+          .where((draft) => !skippedDrafts.contains(draft))
+          .toList();
       if (activeDrafts.isEmpty) {
         _showWarning('No credentials were issued.');
         return;
@@ -364,7 +347,8 @@ class _IssueScreenState extends State<IssueScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
               content: Text('Issuance failed: $error'),
-              backgroundColor: Colors.red),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 8)),
         );
       }
     } finally {

@@ -120,6 +120,53 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
     }
   }
 
+  Future<void> _deleteStudentAccount(Map<String, dynamic> student) async {
+    final studentId = int.tryParse(student['id']?.toString() ?? '');
+    if (studentId == null) return;
+    final label = student['name']?.toString() ??
+        student['email']?.toString() ??
+        'this student';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove student account?'),
+        content: Text(
+          'Remove sign-in and frozen-access data for $label? Issued credentials will remain available for verification.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove account'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isUpdating = true);
+    try {
+      await ApiService.deleteStudentAccount(userId: studentId);
+      await _reload();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('$label’s account was removed. Credentials were kept.'),
+        ));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not remove student account: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUpdating = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
@@ -210,10 +257,14 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
                       title: Text(student['name']?.toString() ?? 'Student'),
                       subtitle:
                           Text(student['email']?.toString() ?? 'No email'),
-                      trailing: student['is_frozen'] == true &&
-                              student['can_manage_access'] == false
-                          ? const Text('Frozen by another admin')
-                          : TextButton(
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (student['is_frozen'] == true &&
+                              student['can_manage_access'] == false)
+                            const Text('Frozen by another admin')
+                          else
+                            TextButton(
                               onPressed: _isUpdating
                                   ? null
                                   : () => _setStudentFrozen(
@@ -224,6 +275,15 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
                                   ? 'Unfreeze'
                                   : 'Freeze'),
                             ),
+                          IconButton(
+                            tooltip: 'Remove student account',
+                            onPressed: _isUpdating
+                                ? null
+                                : () => _deleteStudentAccount(student),
+                            icon: const Icon(Icons.delete_outline),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
               ],

@@ -78,6 +78,7 @@ Route::middleware(['auth:sanctum', EnsureAccountIsNotFrozen::class])->group(func
     Route::patch('/admin/universities/{universityCode}/access', [AuthController::class, 'updateUniversityAccess']);
     Route::get('/admin/students', [AuthController::class, 'listUniversityStudents']);
     Route::patch('/admin/students/{user}/access', [AuthController::class, 'updateStudentAccess']);
+    Route::delete('/admin/students/{user}', [AuthController::class, 'deleteStudentAccount']);
     Route::patch('/admin/students/access', [AuthController::class, 'updateAllStudentAccess']);
     Route::post('/admin/subadmins', [AuthController::class, 'bindSubadmin']);
     Route::put('/admin/subadmins/{user}', [AuthController::class, 'updateSubadmin']);

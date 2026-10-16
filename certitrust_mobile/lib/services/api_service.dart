@@ -665,6 +665,24 @@ class ApiService {
         payload: {'frozen': frozen},
       );
 
+  static Future<Map<String, dynamic>> deleteStudentAccount({
+    required int userId,
+  }) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/admin/students/$userId'),
+      headers: _getHeaders,
+    );
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Unable to remove student account.',
+      );
+    }
+    _recordConnectionSuccess();
+    return body;
+  }
+
   static Future<Map<String, dynamic>> updateAllStudentAccess({
     required bool frozen,
   }) =>

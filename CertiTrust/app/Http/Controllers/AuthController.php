@@ -283,9 +283,11 @@ class AuthController extends Controller
             $key = $student->university_code . ':' . strtolower(trim((string) $student->email));
             $certificate = $certificatesByStudentEmail[$key] ?? null;
             $frozenStudentsByUniversity[$student->university_code][] = [
+                'id' => $student->id,
                 'name' => $certificate?->student_name
                     ?: $certificate?->recipient_name
                     ?: $student->name,
+                'email' => $student->email,
                 'student_id' => $certificate?->student_id ?: 'Not recorded',
             ];
         }
@@ -554,6 +556,50 @@ class AuthController extends Controller
         return response()->json([
             'message' => $frozen ? 'Student account frozen.' : 'Student account access restored.',
             'is_frozen' => $user->isAccessFrozen(),
+        ]);
+    }
+
+    public function deleteStudentAccount(Request $request, User $user)
+    {
+        $admin = $request->user();
+        $isSuperAdmin = $this->isSuperAdmin($admin);
+        if (!$isSuperAdmin && ($admin->role !== 'admin' || !$admin->university_code)) {
+            return response()->json([
+                'message' => 'Only a university subadmin or the Super Admin can remove student accounts.',
+            ], 403);
+        }
+        if (!in_array($user->role, ['student', 'user'], true)) {
+            return response()->json([
+                'message' => 'Only student accounts can be removed here.',
+            ], 422);
+        }
+        if (!$isSuperAdmin && $user->university_code !== $admin->university_code) {
+            return response()->json([
+                'message' => 'You may only remove student accounts from your university.',
+            ], 403);
+        }
+
+        $targetEmail = $user->email;
+        $universityCode = $user->university_code;
+        $studentUserId = $user->id;
+        DB::transaction(function () use ($user): void {
+            $user->tokens()->delete();
+            $user->delete();
+        });
+
+        $this->logAdminAction(
+            'deleted_student_account',
+            $targetEmail,
+            $universityCode,
+            ['student_user_id' => $studentUserId],
+        );
+
+        return response()->json([
+            'message' => 'Student account removed. Issued credentials were kept.',
+            'data' => [
+                'deleted_user_id' => $studentUserId,
+                'university_code' => $universityCode,
+            ],
         ]);
     }
 

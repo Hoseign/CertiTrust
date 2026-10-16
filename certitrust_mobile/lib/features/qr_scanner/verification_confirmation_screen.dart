@@ -23,16 +23,20 @@ class VerificationConfirmationScreen extends StatelessWidget {
         : <Map<String, dynamic>>[];
     final isMultipleDegree =
         certificate['multi_degree'] == true && degreeCertificates.length > 1;
-    final school = (certificate['university_code'] ??
-            ApiService.authUniversity ??
-            'Verified Institution')
-        .toString()
-        .toUpperCase();
+    final school = isMultipleDegree
+        ? 'MULTI'
+        : (certificate['university_code'] ??
+                ApiService.authUniversity ??
+                'Verified Institution')
+            .toString()
+            .toUpperCase();
     final schoolName = school == 'PSU'
         ? 'Pangasinan State University'
         : school == 'UCU'
             ? 'Urdaneta City University'
-            : 'Verified academic institution';
+            : school == 'MULTI'
+                ? 'Multiple Universities'
+                : 'Verified academic institution';
     final schoolLogo = school == 'PSU'
         ? 'web/assets/images/PSU_LOGO.png'
         : school == 'UCU'
@@ -84,18 +88,23 @@ class VerificationConfirmationScreen extends StatelessWidget {
                   const Divider(height: 32),
                   Image.asset(schoolLogo, height: 92, fit: BoxFit.contain),
                   const SizedBox(height: 12),
-                  Text(school,
-                      style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.red)),
+                  Text(
+                    school == 'MULTI' ? schoolName : school,
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: school == 'MULTI'
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.red,
+                    ),
+                  ),
                   Text(schoolName,
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 12),
                   Text(
                       isVerified
                           ? isMultipleDegree
-                              ? 'These ${degreeCertificates.length} credentials belong to ${certificate['student_name'] ?? 'the student'} and were verified by CertiTrust.'
+                              ? 'These ${degreeCertificates.length} credentials belong to ${certificate['student_name'] ?? 'the student'} and were verified across ${degreeCertificates.map((degree) => degree['university_code']).whereType<String>().toSet().length} universities.'
                               : 'This credential proves that ${certificate['student_name'] ?? certificate['recipient_name'] ?? 'the student'} graduated from $schoolName and was verified by CertiTrust.'
                           : 'This credential record was found, but its status is not valid.',
                       textAlign: TextAlign.center,
@@ -231,6 +240,15 @@ class VerificationConfirmationScreen extends StatelessWidget {
   Widget _degreeCard(BuildContext context, Map<String, dynamic> degree) {
     final degreeNumber =
         int.tryParse(degree['degree_number']?.toString() ?? '');
+    final universityCode =
+        degree['university_code']?.toString().toUpperCase() ?? '';
+    final universityName = universityCode == 'PSU'
+        ? 'Pangasinan State University'
+        : universityCode == 'UCU'
+            ? 'Urdaneta City University'
+            : universityCode.isEmpty
+                ? 'Verified academic institution'
+                : universityCode;
     final diplomaUrl = (degree['diploma_url'] ??
             degree['cert_image_url'] ??
             degree['image_url'])
@@ -255,6 +273,12 @@ class VerificationConfirmationScreen extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
+            _row(
+              'University',
+              universityCode.isEmpty
+                  ? universityName
+                  : '$universityName ($universityCode)',
+            ),
             _row(
               'Degree and program',
               degree['degree'] ?? degree['course_or_event'] ?? 'N/A',

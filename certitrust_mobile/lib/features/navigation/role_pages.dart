@@ -18,6 +18,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
   final _searchController = TextEditingController();
   late Future<List<Map<String, dynamic>>> _records;
   int? _selectedDegreeNumber;
+  String? _selectedBatchYear;
   bool _showMultipleDegreeOrganizer = false;
   String? _selectedMultiDegreeStudent;
 
@@ -115,25 +116,22 @@ class _RecordsScreenState extends State<RecordsScreen> {
   bool get _isSchoolAdmin =>
       ApiService.authRole == 'admin' && !ApiService.isSuperAdmin;
 
+  bool get _canOrganizeMultipleDegrees => ApiService.authRole == 'admin';
+
   int _degreeNumber(Map<String, dynamic> record) =>
       int.tryParse(record['degree_number']?.toString() ?? '') ?? 1;
 
   String? _studentGroupKey(Map<String, dynamic> record) {
-    final university =
-        (record['university_code'] ?? ApiService.authUniversity ?? '')
-            .toString()
-            .trim()
-            .toLowerCase();
     final studentId = record['student_id']?.toString().trim().toLowerCase();
     if (studentId != null && studentId.isNotEmpty) {
-      return '$university:id:$studentId';
+      return 'id:$studentId';
     }
     final email = (record['student_email'] ?? record['email'])
         ?.toString()
         .trim()
         .toLowerCase();
     if (email != null && email.isNotEmpty) {
-      return '$university:email:$email';
+      return 'email:$email';
     }
     return null;
   }
@@ -147,8 +145,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
       grouped.putIfAbsent(key, () => []).add(record);
     }
     return Map.fromEntries(
-      grouped.entries.where((entry) =>
-          entry.value.map(_degreeNumber).toSet().length >= 2),
+      grouped.entries.where((entry) => entry.value.length >= 2),
     );
   }
 
@@ -171,6 +168,13 @@ class _RecordsScreenState extends State<RecordsScreen> {
         DateTime.tryParse(record['created_at']?.toString() ?? '');
     return publishedAt ??
         DateTime.tryParse(record['issue_date']?.toString() ?? '');
+  }
+
+  String _batchYear(Map<String, dynamic> record) {
+    final issueDate =
+        DateTime.tryParse(record['issue_date']?.toString() ?? '');
+    return (issueDate ?? _publishedAt(record))?.year.toString() ??
+        'Year unavailable';
   }
 
   String _publishedLabel(Map<String, dynamic> record) {
@@ -302,7 +306,9 @@ class _RecordsScreenState extends State<RecordsScreen> {
             final searchedRecords =
                 allRecords.where((record) => _matches(record, query)).toList();
             final Map<String, List<Map<String, dynamic>>> multipleDegreeGroups =
-                _isSchoolAdmin ? _multipleDegreeGroups(allRecords) : {};
+                _canOrganizeMultipleDegrees
+                    ? _multipleDegreeGroups(allRecords)
+                    : {};
             if (_selectedMultiDegreeStudent != null &&
                 !multipleDegreeGroups
                     .containsKey(_selectedMultiDegreeStudent)) {
@@ -310,7 +316,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
             }
             final degreeNumbers = allRecords.map(_degreeNumber).toSet().toList()
               ..sort();
-            final visibleRecords =
+            final degreeFilteredRecords =
                 _isSchoolAdmin &&
                         !_showMultipleDegreeOrganizer &&
                         _selectedDegreeNumber != null
@@ -319,8 +325,15 @@ class _RecordsScreenState extends State<RecordsScreen> {
                             _degreeNumber(record) == _selectedDegreeNumber)
                         .toList()
                     : searchedRecords;
+            final visibleRecords = ApiService.authRole != 'student' &&
+                    !_showMultipleDegreeOrganizer &&
+                    _selectedBatchYear != null
+                ? degreeFilteredRecords
+                    .where((record) => _batchYear(record) == _selectedBatchYear)
+                    .toList()
+                : degreeFilteredRecords;
             final content = <Widget>[];
-            if (_isSchoolAdmin && multipleDegreeGroups.isNotEmpty) {
+            if (_canOrganizeMultipleDegrees && multipleDegreeGroups.isNotEmpty) {
               content.add(_sectionHeader('Multiple degrees'));
               content.add(
                 Wrap(
@@ -341,7 +354,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                         ChoiceChip(
                           label: Text(
                             '${entry.value.first['student_name'] ?? entry.value.first['recipient_name'] ?? 'Student'} '
-                            '(${entry.value.map(_degreeNumber).toSet().length} degrees)',
+                            '(${entry.value.length} credentials)',
                           ),
                           selected: _selectedMultiDegreeStudent == entry.key,
                           onSelected: (_) => setState(
@@ -355,8 +368,15 @@ class _RecordsScreenState extends State<RecordsScreen> {
                 final selectedDegrees = multipleDegreeGroups[
                         _selectedMultiDegreeStudent]!
                     .toList()
-                  ..sort((a, b) =>
-                      _degreeNumber(a).compareTo(_degreeNumber(b)));
+                  ..sort((a, b) {
+                    final universityComparison =
+                        (a['university_code']?.toString() ?? '').compareTo(
+                      b['university_code']?.toString() ?? '',
+                    );
+                    return universityComparison != 0
+                        ? universityComparison
+                        : _degreeNumber(a).compareTo(_degreeNumber(b));
+                  });
                 final firstDegree = selectedDegrees.first;
                 final qrHash =
                     (firstDegree['cert_hash'] ?? firstDegree['certificate_code'])
@@ -445,6 +465,40 @@ class _RecordsScreenState extends State<RecordsScreen> {
                 ),
               );
             }
+            if (ApiService.authRole != 'student' &&
+                !_showMultipleDegreeOrganizer) {
+              final batchYears = allRecords.map(_batchYear).toSet().toList()
+                ..sort((a, b) {
+                  final yearA = int.tryParse(a) ?? -1;
+                  final yearB = int.tryParse(b) ?? -1;
+                  return yearB.compareTo(yearA);
+                });
+              content.add(_sectionHeader('Record batch year'));
+              content.add(
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('All years'),
+                        selected: _selectedBatchYear == null,
+                        onSelected: (_) =>
+                            setState(() => _selectedBatchYear = null),
+                      ),
+                      for (final year in batchYears)
+                        ChoiceChip(
+                          label: Text(year),
+                          selected: _selectedBatchYear == year,
+                          onSelected: (_) =>
+                              setState(() => _selectedBatchYear = year),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }
             if (!_showMultipleDegreeOrganizer && visibleRecords.isNotEmpty) {
               if (ApiService.authRole == 'student') {
                 final studentDegrees =
@@ -457,25 +511,23 @@ class _RecordsScreenState extends State<RecordsScreen> {
                       .map((record) => _recordCard(context, record)));
                 }
               } else {
-                final years = visibleRecords
-                    .map((record) =>
-                        _publishedAt(record)?.year.toString() ??
-                        'Year unavailable')
-                    .toSet()
-                    .toList()
-                  ..sort((a, b) {
-                    final yearA = int.tryParse(a) ?? -1;
-                    final yearB = int.tryParse(b) ?? -1;
-                    return yearB.compareTo(yearA);
-                  });
-                for (final year in years) {
-                  content.add(_sectionHeader(year));
-                  content.addAll(visibleRecords
-                      .where((record) =>
-                          (_publishedAt(record)?.year.toString() ??
-                              'Year unavailable') ==
-                          year)
-                      .map((record) => _recordCard(context, record)));
+                if (_selectedBatchYear != null) {
+                  content.add(_sectionHeader('Batch $_selectedBatchYear'));
+                  content.addAll(
+                      visibleRecords.map((record) => _recordCard(context, record)));
+                } else {
+                  final years = visibleRecords.map(_batchYear).toSet().toList()
+                    ..sort((a, b) {
+                      final yearA = int.tryParse(a) ?? -1;
+                      final yearB = int.tryParse(b) ?? -1;
+                      return yearB.compareTo(yearA);
+                    });
+                  for (final year in years) {
+                    content.add(_sectionHeader(year));
+                    content.addAll(visibleRecords
+                        .where((record) => _batchYear(record) == year)
+                        .map((record) => _recordCard(context, record)));
+                  }
                 }
               }
             }
