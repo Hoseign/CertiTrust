@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/widgets/certitrust_loading_indicator.dart';
 import '../../services/api_service.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -45,26 +46,13 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    final color = Theme.of(context).colorScheme.primary;
     return Scaffold(
       body: Center(
         child: FadeTransition(
           opacity: _fade,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Image.asset('web/assets/images/certitrustlogo.png',
-                  height: 120, fit: BoxFit.contain),
-              const SizedBox(height: 18),
-              Text('CertiTrust',
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineMedium
-                      ?.copyWith(fontWeight: FontWeight.bold, color: color)),
-              const SizedBox(height: 22),
-              SizedBox(
-                  width: 150, child: LinearProgressIndicator(color: color)),
-            ],
+          child: const CertiTrustLoadingIndicator(
+            size: 132,
+            message: 'Preparing your credentials...',
           ),
         ),
       ),

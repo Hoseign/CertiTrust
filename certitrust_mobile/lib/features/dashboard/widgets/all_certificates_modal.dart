@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/widgets/certitrust_loading_indicator.dart';
 import '../../../services/api_service.dart';
 import 'diploma_preview.dart';
 import 'qr_code_dialog.dart';
@@ -148,7 +149,7 @@ class _AllCertificatesModalState extends State<AllCertificatesModal> {
                         ? const SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CertiTrustLoadingIndicator(size: 18),
                           )
                         : const Icon(Icons.refresh),
                     onPressed: _isRefreshing ? null : _refresh,
@@ -167,7 +168,7 @@ class _AllCertificatesModalState extends State<AllCertificatesModal> {
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting &&
                         !snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator());
+                      return const Center(child: CertiTrustLoadingIndicator());
                     }
                     if (snapshot.hasError) {
                       return Center(child: Text('Error: ${snapshot.error}'));
@@ -248,9 +249,9 @@ class _RecentCredentialTileState extends State<_RecentCredentialTile> {
         (credential['diploma_url'] ?? credential['cert_image_url'])?.toString();
     final diplomaName =
         'Diploma_${(credential['student_id'] ?? credential['student_name'] ?? 'Student').toString().replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')}.jpg';
-    final degree = (credential['degree'] ?? credential['course_or_event'])
-            ?.toString() ??
-        'N/A';
+    final degree =
+        (credential['degree'] ?? credential['course_or_event'])?.toString() ??
+            'N/A';
     final degreeNumber =
         int.tryParse(credential['degree_number']?.toString() ?? '') ?? 1;
 
@@ -280,19 +281,21 @@ class _RecentCredentialTileState extends State<_RecentCredentialTile> {
             ),
             Icon(
               _isExpanded ? Icons.expand_less : Icons.expand_more,
-              semanticLabel: _isExpanded ? 'Collapse details' : 'Expand details',
+              semanticLabel:
+                  _isExpanded ? 'Collapse details' : 'Expand details',
             ),
           ],
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         children: [
-          _detail('Student name',
-              credential['student_name']?.toString() ?? 'N/A'),
+          _detail(
+              'Student name', credential['student_name']?.toString() ?? 'N/A'),
           _detail('Student ID', credential['student_id']?.toString() ?? 'N/A'),
           _detail('Course / program', degree),
           _detail('Degree number', _ordinal(degreeNumber)),
           _detail(
-              'University', credential['university_name']?.toString() ??
+              'University',
+              credential['university_name']?.toString() ??
                   credential['university_code']?.toString() ??
                   'N/A'),
           _detail(
@@ -311,8 +314,7 @@ class _RecentCredentialTileState extends State<_RecentCredentialTile> {
             runSpacing: 4,
             children: [
               TextButton.icon(
-                onPressed: verificationCode == null ||
-                        verificationCode.isEmpty
+                onPressed: verificationCode == null || verificationCode.isEmpty
                     ? null
                     : () => context.go(
                         '/verify?hash=${Uri.encodeQueryComponent(verificationCode)}'),

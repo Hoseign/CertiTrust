@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/widgets/certitrust_loading_indicator.dart';
 import 'qr_code_dialog.dart';
 import 'diploma_preview.dart';
 
@@ -55,7 +56,7 @@ class _StudentDashboardViewState extends State<StudentDashboardView> {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(40),
-          child: CircularProgressIndicator(),
+          child: CertiTrustLoadingIndicator(),
         ),
       );
     }
@@ -94,8 +95,8 @@ class _StudentDashboardViewState extends State<StudentDashboardView> {
       );
     }
 
-    final degrees = widget.studentCertificates.map(_degreeNumber).toSet().toList()
-      ..sort();
+    final degrees =
+        widget.studentCertificates.map(_degreeNumber).toSet().toList()..sort();
     final multipleAvailable = degrees.length > 1;
     if (_selectedDegreeNumber == null ||
         !degrees.contains(_selectedDegreeNumber)) {
@@ -133,8 +134,7 @@ class _StudentDashboardViewState extends State<StudentDashboardView> {
                 for (final degreeNumber in degrees)
                   ChoiceChip(
                     label: Text('Your ${_ordinal(degreeNumber)} Degree'),
-                    selected:
-                        !_showMultipleDegrees &&
+                    selected: !_showMultipleDegrees &&
                         _selectedDegreeNumber == degreeNumber,
                     onSelected: (_) => setState(() {
                       _showMultipleDegrees = false;
@@ -268,7 +268,8 @@ class _StudentDashboardViewState extends State<StudentDashboardView> {
                   'N/A',
             ),
             const SizedBox(height: 10),
-            _detailRow('Student ID', certificate['student_id']?.toString() ?? 'N/A'),
+            _detailRow(
+                'Student ID', certificate['student_id']?.toString() ?? 'N/A'),
             const SizedBox(height: 10),
             _detailRow(
               'Degree / Program',
@@ -345,11 +346,11 @@ class _StudentDashboardViewState extends State<StudentDashboardView> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 12),
                     ),
-                    onPressed:
-                        verificationHash == null || verificationHash.isEmpty
-                            ? null
-                            : () => context.push(
-                                '/verify?hash=${Uri.encodeQueryComponent(verificationHash)}'),
+                    onPressed: verificationHash == null ||
+                            verificationHash.isEmpty
+                        ? null
+                        : () => context.push(
+                            '/verify?hash=${Uri.encodeQueryComponent(verificationHash)}'),
                     icon: const Icon(Icons.qr_code_scanner),
                     label: const Text('Verify on Chain'),
                   ),

@@ -20,10 +20,33 @@ import 'package:certitrust_mobile/features/admin/student_access_screen.dart';
 import 'package:certitrust_mobile/features/dashboard/widgets/student_dashboard_view.dart';
 import 'package:certitrust_mobile/features/dashboard/widgets/admin_dashboard_view.dart';
 import 'package:certitrust_mobile/features/dashboard/widgets/all_certificates_modal.dart';
+import 'package:certitrust_mobile/features/issuance/issue_screen.dart';
 import 'package:certitrust_mobile/features/navigation/role_pages.dart';
+import 'package:certitrust_mobile/core/widgets/certitrust_loading_indicator.dart';
 import 'package:certitrust_mobile/services/api_service.dart';
 
 void main() {
+  testWidgets('branded loading indicator renders the filling CertiTrust logo',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: CertiTrustLoadingIndicator(
+            size: 48,
+            message: 'Loading credentials',
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.byType(CertiTrustLoadingIndicator), findsOneWidget);
+    expect(find.byType(Image), findsNWidgets(2));
+    expect(find.text('Loading credentials'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('CertiTrust app renders', (WidgetTester tester) async {
     await tester.pumpWidget(const CertiTrustApp());
     await tester.pump(const Duration(seconds: 2));
@@ -102,7 +125,8 @@ void main() {
     expect(credentialRequests, 2);
   });
 
-  testWidgets('recent credential expands with actions and QR remains beside name',
+  testWidgets(
+      'recent credential expands with actions and QR remains beside name',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(360, 900);
     tester.view.devicePixelRatio = 1;
@@ -786,5 +810,48 @@ void main() {
 
     ApiService.authRole = null;
     ApiService.authEmail = null;
+  });
+
+  testWidgets('tapping outside degree suggestions dismisses the menu',
+      (WidgetTester tester) async {
+    ApiService.authRole = 'admin';
+    ApiService.authEmail = 'subadmin@example.edu';
+    ApiService.authUniversity = 'UCU';
+
+    final router = GoRouter(
+      initialLocation: '/upload',
+      routes: [
+        GoRoute(
+          path: '/upload',
+          builder: (context, state) => const IssueScreen(),
+        ),
+      ],
+    );
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add student'));
+    await tester.pumpAndSettle();
+
+    final degreeField = find.byType(TextFormField).at(3);
+    await tester.tap(degreeField);
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Bachelor of Science in Information Technology (BSIT)'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Credential batch'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Bachelor of Science in Information Technology (BSIT)'),
+      findsNothing,
+    );
+    expect(find.text('Credential batch'), findsOneWidget);
+    router.dispose();
+
+    ApiService.authRole = null;
+    ApiService.authEmail = null;
+    ApiService.authUniversity = null;
   });
 }

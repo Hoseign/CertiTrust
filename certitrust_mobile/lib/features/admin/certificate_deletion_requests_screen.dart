@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/widgets/certitrust_loading_indicator.dart';
 import '../../services/api_service.dart';
 
 class CertificateDeletionRequestsScreen extends StatefulWidget {
@@ -128,7 +129,7 @@ class _CertificateDeletionRequestsScreenState
                 child: _isReviewing
                     ? const SizedBox.square(
                         dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        child: CertiTrustLoadingIndicator(size: 18),
                       )
                     : const Text('Approve deletion'),
               ),
@@ -195,7 +196,7 @@ class _CertificateDeletionRequestsScreenState
           future: _requests,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
+              return const Center(child: CertiTrustLoadingIndicator());
             }
             if (snapshot.hasError) {
               return Center(

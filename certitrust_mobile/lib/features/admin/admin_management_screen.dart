@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/widgets/certitrust_loading_indicator.dart';
 import '../../services/api_service.dart';
 
 class AdminManagementScreen extends StatefulWidget {
@@ -573,7 +574,7 @@ class _AdminManagementScreenState extends State<AdminManagementScreen>
                         ? const SizedBox(
                             width: 18,
                             height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2))
+                            child: CertiTrustLoadingIndicator(size: 18))
                         : Icon(
                             _editingId == null ? Icons.person_add : Icons.save),
                     label: Text(_editingId == null
@@ -604,7 +605,7 @@ class _AdminManagementScreenState extends State<AdminManagementScreen>
             const Center(
                 child: Padding(
                     padding: EdgeInsets.all(16),
-                    child: CircularProgressIndicator()))
+                    child: CertiTrustLoadingIndicator()))
           else if (_admins.isEmpty)
             const Card(
                 child: Padding(

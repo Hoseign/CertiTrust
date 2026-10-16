@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:async';
 import '../../services/api_service.dart';
+import '../../core/widgets/certitrust_loading_indicator.dart';
 import '../dashboard/widgets/diploma_preview.dart';
 import '../dashboard/widgets/qr_code_dialog.dart';
 
@@ -389,11 +390,7 @@ class _RecordsScreenState extends State<RecordsScreen>
               tooltip: 'Refresh records',
               onPressed: _isRefreshing ? null : _refreshRecords,
               icon: _isRefreshing
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
+                  ? const CertiTrustLoadingIndicator(size: 20)
                   : const Icon(Icons.refresh),
             ),
             if (_isSchoolAdmin)
@@ -409,7 +406,7 @@ class _RecordsScreenState extends State<RecordsScreen>
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting &&
                 !snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
+              return const Center(child: CertiTrustLoadingIndicator());
             }
             if (snapshot.hasError) {
               return Center(
@@ -435,8 +432,7 @@ class _RecordsScreenState extends State<RecordsScreen>
                 _canOrganizeMultipleDegrees
                     ? _multipleDegreeGroups(allRecords)
                     : {};
-            final multipleDegreeStudentKeys =
-                multipleDegreeGroups.keys.toSet();
+            final multipleDegreeStudentKeys = multipleDegreeGroups.keys.toSet();
             if (_selectedMultiDegreeStudent != null &&
                 !multipleDegreeGroups
                     .containsKey(_selectedMultiDegreeStudent)) {
@@ -445,10 +441,9 @@ class _RecordsScreenState extends State<RecordsScreen>
             final degreeNumbers = allRecords.map(_degreeNumber).toSet().toList()
               ..sort();
             final programs = allRecords
-                .map((record) =>
-                    (record['degree'] ?? record['course_or_event'])
-                        ?.toString()
-                        .trim())
+                .map((record) => (record['degree'] ?? record['course_or_event'])
+                    ?.toString()
+                    .trim())
                 .whereType<String>()
                 .where((program) => program.isNotEmpty)
                 .toSet()
@@ -459,8 +454,7 @@ class _RecordsScreenState extends State<RecordsScreen>
                 ? searchedRecords
                     .where((record) => _matchesRecordFilter(
                           record,
-                          multipleDegreeStudentKeys:
-                              multipleDegreeStudentKeys,
+                          multipleDegreeStudentKeys: multipleDegreeStudentKeys,
                         ))
                     .toList()
                 : searchedRecords;
@@ -474,7 +468,8 @@ class _RecordsScreenState extends State<RecordsScreen>
             final content = <Widget>[];
             if (_canOrganizeMultipleDegrees &&
                 multipleDegreeGroups.isNotEmpty) {
-              content.add(_sectionHeader('Multiple-degree QR and student groups'));
+              content
+                  .add(_sectionHeader('Multiple-degree QR and student groups'));
               content.add(
                 Wrap(
                   spacing: 8,
@@ -608,8 +603,7 @@ class _RecordsScreenState extends State<RecordsScreen>
                     for (final program in programs)
                       ChoiceChip(
                         label: Text(program),
-                        selected:
-                            _selectedRecordFilter == 'program:$program',
+                        selected: _selectedRecordFilter == 'program:$program',
                         onSelected: (_) =>
                             _selectRecordFilter('program:$program'),
                       ),
@@ -868,7 +862,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           if (_isSaving)
             const Padding(
               padding: EdgeInsets.all(16),
-              child: Center(child: CircularProgressIndicator()),
+              child: Center(child: CertiTrustLoadingIndicator()),
             ),
         ],
       ),
@@ -1436,7 +1430,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _contactsBody() {
     if (_isLoading && !_hasLoaded) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: CertiTrustLoadingIndicator());
     }
     if (_loadError != null && !_hasLoaded) return _loadErrorView();
     final contacts = _items;
@@ -1562,7 +1556,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _messagesBody() {
     if (_isLoading && !_hasLoaded) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: CertiTrustLoadingIndicator());
     }
     if (_loadError != null && !_hasLoaded) return _loadErrorView();
     final messages = _items;
@@ -1826,7 +1820,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                                   }
                                                   return const Center(
                                                     child:
-                                                        CircularProgressIndicator(),
+                                                        CertiTrustLoadingIndicator(
+                                                      size: 56,
+                                                    ),
                                                   );
                                                 },
                                                 errorBuilder:
@@ -1974,7 +1970,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: _selectedContact == null
                     ? widget.restrictedMode
                         ? _isLoading && !_hasLoaded
-                            ? const Center(child: CircularProgressIndicator())
+                            ? const Center(child: CertiTrustLoadingIndicator())
                             : _loadError == null
                                 ? _restrictedChatUnavailable()
                                 : _loadErrorView()

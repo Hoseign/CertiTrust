@@ -3,10 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/widgets/certitrust_loading_indicator.dart';
+
 class AdminDashboardView extends StatefulWidget {
   final Future<List<Map<String, dynamic>>> Function() fetchCertificates;
-  final Future<List<Map<String, dynamic>>> Function()
-      fetchRecentVerifications;
+  final Future<List<Map<String, dynamic>>> Function() fetchRecentVerifications;
   final void Function(Future<List<Map<String, dynamic>>> credentials)
       onViewRecentCredentials;
 
@@ -163,7 +164,7 @@ class _AdminDashboardViewState extends State<AdminDashboardView>
                   !snapshot.hasData) {
                 return const Padding(
                     padding: EdgeInsets.all(32),
-                    child: Center(child: CircularProgressIndicator()));
+                    child: Center(child: CertiTrustLoadingIndicator()));
               }
               if (snapshot.hasError) {
                 return Padding(
@@ -176,8 +177,7 @@ class _AdminDashboardViewState extends State<AdminDashboardView>
                 return const Padding(
                     padding: EdgeInsets.all(32),
                     child: Center(
-                        child: Text(
-                            'No credentials have been verified yet.',
+                        child: Text('No credentials have been verified yet.',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: Colors.grey))));
               }

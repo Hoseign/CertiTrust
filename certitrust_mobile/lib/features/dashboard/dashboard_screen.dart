@@ -1,8 +1,9 @@
- library;
+library;
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/widgets/certitrust_loading_indicator.dart';
 import '../../services/api_service.dart';
 
 // TODO: Import your Laravel API service provider
@@ -113,7 +114,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_isLoadingRole) {
       return const Scaffold(
         backgroundColor: Colors.white,
-        body: Center(child: CircularProgressIndicator()),
+        body: Center(child: CertiTrustLoadingIndicator()),
       );
     }
 

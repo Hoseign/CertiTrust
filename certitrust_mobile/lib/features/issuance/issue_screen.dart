@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import '../../core/widgets/certitrust_loading_indicator.dart';
 import '../../core/utils/hash_util.dart';
 import '../navigation/role_pages.dart';
 import '../../services/api_service.dart';
@@ -427,7 +428,9 @@ class _IssueScreenState extends State<IssueScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoadingAdminCheck) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(child: CertiTrustLoadingIndicator()),
+      );
     }
     if (!_isAdmin) {
       return Scaffold(
@@ -484,7 +487,7 @@ class _IssueScreenState extends State<IssueScreen> {
                   icon: _isProcessing
                       ? const SizedBox.square(
                           dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2))
+                          child: CertiTrustLoadingIndicator(size: 18))
                       : const Icon(Icons.cloud_upload),
                   label: Text(_isProcessing
                       ? 'Issuing credentials...'
@@ -610,9 +613,11 @@ class _IssueScreenState extends State<IssueScreen> {
             labelText: 'Degree / program',
             prefixIcon: Icon(Icons.school),
             suffixIcon: Icon(Icons.search),
-            helperText: 'Search by full name or acronym; custom programs are allowed.',
+            helperText:
+                'Search by full name or acronym; custom programs are allowed.',
             border: OutlineInputBorder(),
           ),
+          onTapOutside: (_) => focusNode.unfocus(),
           validator: (value) => _required(value, 'degree or program'),
           onChanged: (value) {
             draft.degree.text = value;

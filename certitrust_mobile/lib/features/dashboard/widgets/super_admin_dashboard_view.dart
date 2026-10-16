@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/widgets/certitrust_loading_indicator.dart';
+
 class SuperAdminDashboardView extends StatefulWidget {
   final Future<Map<String, dynamic>> Function() fetchOverview;
 
@@ -166,7 +168,7 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                   !snapshot.hasData)
                 const Padding(
                     padding: EdgeInsets.all(28),
-                    child: Center(child: CircularProgressIndicator()))
+                    child: Center(child: CertiTrustLoadingIndicator()))
               else if (snapshot.hasError)
                 Padding(
                     padding: const EdgeInsets.all(16),

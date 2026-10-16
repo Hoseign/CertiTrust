@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/widgets/certitrust_loading_indicator.dart';
 
 // Fixed absolute package imports to resolve path errors (pointing directly to /services/)
 import 'package:certitrust_mobile/features/dashboard/widgets/qr_code_dialog.dart';
@@ -257,7 +258,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
                   const Center(
                     child: Padding(
                       padding: EdgeInsets.all(32.0),
-                      child: CircularProgressIndicator(),
+                      child: CertiTrustLoadingIndicator(),
                     ),
                   )
                 else if (_hasSearched && _certResult != null)

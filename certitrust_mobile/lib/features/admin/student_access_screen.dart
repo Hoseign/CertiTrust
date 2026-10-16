@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/widgets/certitrust_loading_indicator.dart';
 import '../../services/api_service.dart';
 
 class StudentAccessScreen extends StatefulWidget {
@@ -265,8 +266,8 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
     }
     if (filter.startsWith('@type:')) {
       final type = filter.substring('@type:'.length);
-      return credentials.any((credential) =>
-          credential['degree_type']?.toString() == type);
+      return credentials
+          .any((credential) => credential['degree_type']?.toString() == type);
     }
     if (filter.startsWith('program:')) {
       final program = filter.substring('program:'.length);
@@ -401,7 +402,7 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
           future: _studentsFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
+              return const Center(child: CertiTrustLoadingIndicator());
             }
             if (snapshot.hasError) {
               return Center(
@@ -448,10 +449,11 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
             final highestDegreeNumber = students
                 .expand((student) => _credentialsFor(student))
                 .map((credential) =>
-                    int.tryParse(credential['degree_number']?.toString() ?? '') ??
+                    int.tryParse(
+                        credential['degree_number']?.toString() ?? '') ??
                     1)
-                .fold<int>(1, (highest, number) =>
-                    number > highest ? number : highest);
+                .fold<int>(1,
+                    (highest, number) => number > highest ? number : highest);
             final query = _searchController.text.trim().toLowerCase();
             final visibleStudents = students.where((student) {
               final year =
@@ -554,7 +556,8 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
                 ],
                 const SizedBox(height: 12),
                 InkWell(
-                  onTap: () => _selectDegreeFilter(degrees, highestDegreeNumber),
+                  onTap: () =>
+                      _selectDegreeFilter(degrees, highestDegreeNumber),
                   child: InputDecorator(
                     decoration: const InputDecoration(
                       labelText: 'Filter by degree or program',
