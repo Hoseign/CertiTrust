@@ -48,11 +48,67 @@ class _IssueScreenState extends State<IssueScreen> {
   static const _degreeSuggestions = [
     'Bachelor of Science in Information Technology (BSIT)',
     'Bachelor of Science in Computer Science (BSCS)',
+    'Bachelor of Science in Information Systems (BSIS)',
+    'Bachelor of Science in Computer Engineering (BSCpE)',
+    'Bachelor of Science in Electronics Engineering (BSECE)',
+    'Bachelor of Science in Electrical Engineering (BSEE)',
+    'Bachelor of Science in Civil Engineering (BSCE)',
+    'Bachelor of Science in Mechanical Engineering (BSME)',
+    'Bachelor of Science in Industrial Engineering (BSIE)',
+    'Bachelor of Science in Environmental Science (BSES)',
+    'Bachelor of Science in Biology (BS Biology)',
+    'Bachelor of Science in Mathematics (BS Math)',
+    'Bachelor of Science in Psychology (BS Psychology)',
+    'Bachelor of Science in Nursing (BSN)',
+    'Bachelor of Science in Pharmacy (BS Pharmacy)',
+    'Bachelor of Science in Medical Technology (BSMT)',
+    'Bachelor of Science in Physical Therapy (BSPT)',
+    'Bachelor of Science in Accountancy (BSA)',
+    'Bachelor of Science in Management Accounting (BSMA)',
+    'Bachelor of Science in Business Administration (BSBA)',
+    'Bachelor of Science in Hospitality Management (BSHM)',
+    'Bachelor of Science in Tourism Management (BSTM)',
+    'Bachelor of Elementary Education (BEEd)',
+    'Bachelor of Secondary Education (BSEd)',
+    'Bachelor of Early Childhood Education (BECEd)',
+    'Bachelor of Physical Education (BPEd)',
+    'Bachelor of Arts in Communication (BA Communication)',
+    'Bachelor of Arts in Political Science (BA Political Science)',
+    'Bachelor of Arts in English Language (BA English)',
+    'Bachelor of Arts in Sociology (BA Sociology)',
+    'Bachelor of Public Administration (BPA)',
+    'Bachelor of Science in Agriculture (BSA)',
+    'Bachelor of Science in Fisheries (BS Fisheries)',
+    'Bachelor of Science in Criminology (BS Criminology)',
+    'Bachelor of Science in Social Work (BSSW)',
+    'Bachelor of Science in Architecture (BS Architecture)',
+    'Bachelor of Science in Statistics (BS Statistics)',
     'Master of Science in Information Technology (MSIT)',
-    'Master of Arts in Education (MAEd)',
+    'Master of Science in Computer Science (MSCS)',
+    'Master of Science in Information Systems (MSIS)',
+    'Master of Science in Engineering (MSE)',
+    'Master of Science in Nursing (MSN)',
+    'Master of Public Health (MPH)',
+    'Master of Public Administration (MPA)',
     'Master of Business Administration (MBA)',
+    'Master of Arts in Communication (MA Communication)',
+    'Master of Arts in Psychology (MA Psychology)',
+    'Master of Arts in Education (MAEd)',
+    'Master of Arts in English (MA English)',
+    'Master of Arts in Teaching (MAT)',
+    'Master of Education (MEd)',
+    'Master of Engineering (MEng)',
+    'Master of Science in Agriculture (MS Agriculture)',
+    'Master of Science in Biology (MS Biology)',
+    'Master of Science in Mathematics (MS Mathematics)',
+    'Master of Science in Social Work (MSSW)',
     'Doctor of Philosophy (PhD)',
     'Doctor of Education (EdD)',
+    'Doctor of Business Administration (DBA)',
+    'Doctor of Public Administration (DPA)',
+    'Doctor of Engineering (DEng)',
+    'Doctor of Medicine (MD)',
+    'Juris Doctor (JD)',
   ];
   bool _isLoadingAdminCheck = true;
   bool _isAdmin = false;
@@ -527,38 +583,71 @@ class _IssueScreenState extends State<IssueScreen> {
   Widget _degreeField(_CredentialDraft draft) {
     return SizedBox(
       width: 430,
-      child: TextFormField(
-        controller: draft.degree,
-        decoration: InputDecoration(
-          labelText: 'Degree / program',
-          prefixIcon: const Icon(Icons.school),
-          suffixIcon: PopupMenuButton<String>(
-            tooltip: 'Suggested degrees, including masteral programs',
-            icon: const Icon(Icons.arrow_drop_down_circle_outlined),
-            onSelected: (degree) {
-              draft.degree.text = degree;
-              setState(() {});
-            },
-            itemBuilder: (context) => _degreeSuggestions
-                .map((degree) => PopupMenuItem<String>(
-                      value: degree,
-                      child: SizedBox(
-                        width: 300,
-                        child: Text(
-                          degree,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ))
-                .toList(),
+      child: Autocomplete<String>(
+        key: ObjectKey(draft),
+        initialValue: TextEditingValue(text: draft.degree.text),
+        optionsBuilder: (value) {
+          final query = _normalizeDegreeSearch(value.text);
+          if (query.isEmpty) return _degreeSuggestions;
+          return _degreeSuggestions.where(
+            (degree) => _normalizeDegreeSearch(degree).contains(query),
+          );
+        },
+        onSelected: (degree) {
+          draft.degree.text = degree;
+          setState(() {});
+        },
+        fieldViewBuilder: (
+          context,
+          controller,
+          focusNode,
+          onFieldSubmitted,
+        ) =>
+            TextFormField(
+          controller: controller,
+          focusNode: focusNode,
+          decoration: const InputDecoration(
+            labelText: 'Degree / program',
+            prefixIcon: Icon(Icons.school),
+            suffixIcon: Icon(Icons.search),
+            helperText: 'Search by full name or acronym; custom programs are allowed.',
+            border: OutlineInputBorder(),
           ),
-          border: const OutlineInputBorder(),
+          validator: (value) => _required(value, 'degree or program'),
+          onChanged: (value) {
+            draft.degree.text = value;
+            setState(() {});
+          },
+          onFieldSubmitted: (_) => onFieldSubmitted(),
         ),
-        validator: (value) => _required(value, 'degree or program'),
-        onChanged: (_) => setState(() {}),
+        optionsViewBuilder: (context, onSelected, options) => Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 4,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxHeight: 240,
+                maxWidth: 430,
+              ),
+              child: ListView(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                children: options
+                    .map((degree) => ListTile(
+                          title: Text(degree),
+                          onTap: () => onSelected(degree),
+                        ))
+                    .toList(),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
+
+  String _normalizeDegreeSearch(String value) =>
+      value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
 
   Widget _schoolField(_CredentialDraft draft) {
     return SizedBox(

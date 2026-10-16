@@ -70,6 +70,11 @@ class AppRouter {
         builder: (context, state) => const AdminManagementScreen(),
       ),
       GoRoute(
+        path: '/admin-management/access',
+        builder: (context, state) =>
+            const AdminManagementScreen(accessOnly: true),
+      ),
+      GoRoute(
         path: '/admin-management/university/:code',
         builder: (context, state) {
           final admin = state.extra is Map

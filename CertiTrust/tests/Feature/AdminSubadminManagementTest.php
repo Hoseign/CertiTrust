@@ -124,10 +124,17 @@ class AdminSubadminManagementTest extends TestCase
                 'status' => 'Verified',
             ]));
         }
+        DB::table('certificates')
+            ->whereIn('certificate_code', [
+                'CERT-DEGREE-LIST-BACHELOR',
+                'CERT-DEGREE-LIST-MASTERAL',
+            ])
+            ->update(['email' => 'multi-degree-student@example.edu']);
 
         $this->actingAs($admin, 'sanctum')
             ->getJson('/api/admin/students')
             ->assertOk()
+            ->assertJsonCount(2, 'data.0.credentials')
             ->assertJsonPath('data.0.credentials.0.degree_number', 1)
             ->assertJsonPath('data.0.credentials.0.degree_type', 'Undergraduate')
             ->assertJsonPath('data.0.credentials.1.degree_number', 2)

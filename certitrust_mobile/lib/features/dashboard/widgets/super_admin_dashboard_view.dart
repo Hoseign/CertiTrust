@@ -144,6 +144,15 @@ class SuperAdminDashboardView extends StatelessWidget {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
+                    onPressed: () => context.push('/admin-management/access'),
+                    icon: const Icon(Icons.lock_reset),
+                    label: const Text('Freeze or unfreeze access'),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
                     onPressed: () => context.push('/deletion-requests'),
                     icon: const Icon(Icons.pending_actions),
                     label: const Text('Credential deletion requests'),
@@ -289,32 +298,67 @@ class SuperAdminDashboardView extends StatelessWidget {
     final batches = card.credentialBatches!;
     final countKey =
         card.verifiedBreakdown == true ? 'verified_count' : 'total_count';
+    final overallLabel = card.verifiedBreakdown == true
+        ? 'Entire verified credentials'
+        : 'Entire credentials';
     final visibleBatches =
         batches.where((batch) => (batch[countKey] as num? ?? 0) > 0).toList();
     String? selectedYear;
+    const overall = '@overall';
 
     showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
-          final selected = selectedYear == null
+          final selected = selectedYear == null || selectedYear == overall
               ? null
               : visibleBatches.firstWhere(
                   (batch) => batch['batch_year'].toString() == selectedYear,
                 );
-          final universities = selected == null
-              ? const <Map<String, dynamic>>[]
-              : List<Map<String, dynamic>>.from(
-                  selected['universities'] ?? const [],
-                )
+          final selectedOverall = selectedYear == overall;
+          final universities = selectedOverall
+              ? card.credentialBatches!
+                  .expand((batch) => List<Map<String, dynamic>>.from(
+                      batch['universities'] ?? const []))
+                  .fold<Map<String, Map<String, dynamic>>>(
+                    {},
+                    (totals, university) {
+                      final code = university['code']?.toString() ?? '';
+                      final total = totals.putIfAbsent(
+                          code,
+                          () => {
+                                'code': code,
+                                'name': university['name'],
+                                'display_name': university['display_name'],
+                                'total_count': 0,
+                                'verified_count': 0,
+                              });
+                      total['total_count'] = (total['total_count'] as int) +
+                          ((university['total_count'] as num?)?.toInt() ?? 0);
+                      total['verified_count'] = (total['verified_count']
+                              as int) +
+                          ((university['verified_count'] as num?)?.toInt() ??
+                              0);
+                      return totals;
+                    },
+                  )
+                  .values
                   .where(
                       (university) => (university[countKey] as num? ?? 0) > 0)
-                  .toList();
+                  .toList()
+              : selected == null
+                  ? const <Map<String, dynamic>>[]
+                  : List<Map<String, dynamic>>.from(
+                      selected['universities'] ?? const [],
+                    )
+                      .where((university) =>
+                          (university[countKey] as num? ?? 0) > 0)
+                      .toList();
 
           return AlertDialog(
             title: Row(
               children: [
-                if (selected != null)
+                if (selected != null || selectedOverall)
                   IconButton(
                     tooltip: 'Back to batches',
                     onPressed: () => setDialogState(() => selectedYear = null),
@@ -322,24 +366,44 @@ class SuperAdminDashboardView extends StatelessWidget {
                   ),
                 Expanded(
                   child: Text(
-                    selected == null
+                    selected == null && !selectedOverall
                         ? card.label
-                        : '${card.label} • $selectedYear',
+                        : selectedOverall
+                            ? overallLabel
+                            : '${card.label} • $selectedYear',
                   ),
                 ),
               ],
             ),
             content: SizedBox(
               width: double.maxFinite,
-              child: selected == null
+              child: selected == null && !selectedOverall
                   ? visibleBatches.isEmpty
                       ? const Text('No credential batches are available yet.')
                       : ListView.separated(
                           shrinkWrap: true,
-                          itemCount: visibleBatches.length,
+                          itemCount: visibleBatches.length + 1,
                           separatorBuilder: (_, __) => const Divider(height: 1),
                           itemBuilder: (context, index) {
-                            final batch = visibleBatches[index];
+                            if (index == 0) {
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(overallLabel),
+                                subtitle:
+                                    const Text('View totals by university'),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(card.value),
+                                    const SizedBox(width: 8),
+                                    const Icon(Icons.chevron_right),
+                                  ],
+                                ),
+                                onTap: () => setDialogState(
+                                    () => selectedYear = overall),
+                              );
+                            }
+                            final batch = visibleBatches[index - 1];
                             final year = batch['batch_year'].toString();
                             return ListTile(
                               contentPadding: EdgeInsets.zero,

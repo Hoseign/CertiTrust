@@ -548,8 +548,11 @@ class AuthController extends Controller
                     'issue_date',
                 ]) as $certificate
         ) {
-            foreach ([$certificate->student_email, $certificate->email] as $email) {
-                $normalizedEmail = strtolower(trim((string) $email));
+            $emails = array_unique([
+                strtolower(trim((string) $certificate->student_email)),
+                strtolower(trim((string) $certificate->email)),
+            ]);
+            foreach ($emails as $normalizedEmail) {
                 if ($normalizedEmail === '') {
                     continue;
                 }

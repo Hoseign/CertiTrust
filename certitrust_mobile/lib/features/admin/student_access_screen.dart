@@ -27,7 +27,6 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
 
   static const _masteralFilter = '@type:Masteral';
   static const _doctoralFilter = '@type:Doctoral';
-  static const _undergraduateFilter = '@type:Undergraduate';
   static const _multipleDegreesFilter = '@multiple-degrees';
 
   @override
@@ -221,6 +220,17 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
     if (filter == null) return true;
     final credentials = _credentialsFor(student);
     if (filter == _multipleDegreesFilter) return credentials.length > 1;
+    if (filter.startsWith('@number:')) {
+      final degreeNumber = int.tryParse(filter.substring('@number:'.length));
+      return degreeNumber != null &&
+          credentials.any(
+            (credential) =>
+                int.tryParse(
+                  credential['degree_number']?.toString() ?? '',
+                ) ==
+                degreeNumber,
+          );
+    }
     if (filter.startsWith('@type:')) {
       final type = filter.substring('@type:'.length);
       return credentials.any((credential) =>
@@ -233,6 +243,91 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
       );
     }
     return true;
+  }
+
+  String _degreeFilterLabel(String? filter) {
+    if (filter == null) return 'All degrees';
+    if (filter == _masteralFilter) return 'Masteral';
+    if (filter == _doctoralFilter) return 'Doctoral';
+    if (filter == _multipleDegreesFilter) return 'Multiple degrees';
+    if (filter.startsWith('@number:')) {
+      final number = int.tryParse(filter.substring('@number:'.length)) ?? 1;
+      return '${_ordinal(number)} degree';
+    }
+    if (filter.startsWith('program:')) return filter.substring(8);
+    return 'All degrees';
+  }
+
+  Future<void> _selectDegreeFilter(
+    List<String> degrees,
+    int highestDegreeNumber,
+  ) async {
+    final options = <(String, String)>[
+      ('@all', 'All degrees'),
+      (_masteralFilter, 'Masteral'),
+      (_doctoralFilter, 'Doctoral'),
+      (_multipleDegreesFilter, 'Multiple degrees'),
+      for (var number = 1; number <= highestDegreeNumber; number++)
+        ('@number:$number', '${_ordinal(number)} degree'),
+      for (final degree in degrees) ('program:$degree', degree),
+    ];
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        var query = '';
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final visibleOptions = options
+                .where((option) =>
+                    option.$2.toLowerCase().contains(query.toLowerCase()))
+                .toList();
+            return SafeArea(
+              child: SizedBox(
+                height: MediaQuery.sizeOf(context).height * 0.7,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.search),
+                          labelText: 'Search degree or program',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (value) =>
+                            setSheetState(() => query = value.trim()),
+                      ),
+                    ),
+                    Expanded(
+                      child: visibleOptions.isEmpty
+                          ? const Center(child: Text('No matching options.'))
+                          : ListView.builder(
+                              itemCount: visibleOptions.length,
+                              itemBuilder: (context, index) {
+                                final option = visibleOptions[index];
+                                return ListTile(
+                                  title: Text(option.$2),
+                                  selected: _selectedDegree == option.$1 ||
+                                      (_selectedDegree == null &&
+                                          option.$1 == '@all'),
+                                  onTap: () =>
+                                      Navigator.pop(sheetContext, option.$1),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (selected == null || !mounted) return;
+    setState(() => _selectedDegree = selected == '@all' ? null : selected);
   }
 
   String _ordinal(int number) {
@@ -249,8 +344,6 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
     final credentials = _credentialsFor(student);
     return [
       student['email']?.toString() ?? 'No email',
-      if (student['student_id'] != null)
-        'Student ID: ${student['student_id']}',
       for (var index = 0; index < credentials.length; index++)
         '${_ordinal(int.tryParse(credentials[index]['degree_number']?.toString() ?? '') ?? index + 1)} degree: ${credentials[index]['degree'] ?? 'Degree not recorded'} (${credentials[index]['degree_type'] ?? 'Other'})',
       if (credentials.length > 1) 'Multiple degrees: ${credentials.length}',
@@ -320,6 +413,13 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
                 .toSet()
                 .toList()
               ..sort();
+            final highestDegreeNumber = students
+                .expand((student) => _credentialsFor(student))
+                .map((credential) =>
+                    int.tryParse(credential['degree_number']?.toString() ?? '') ??
+                    1)
+                .fold<int>(1, (highest, number) =>
+                    number > highest ? number : highest);
             final query = _searchController.text.trim().toLowerCase();
             final visibleStudents = students.where((student) {
               final year =
@@ -421,45 +521,16 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
                   ),
                 ],
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: _selectedDegree,
-                  decoration: const InputDecoration(
-                    labelText: 'Filter by degree type or program',
-                    border: OutlineInputBorder(),
+                InkWell(
+                  onTap: () => _selectDegreeFilter(degrees, highestDegreeNumber),
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Filter by degree or program',
+                      border: OutlineInputBorder(),
+                      suffixIcon: Icon(Icons.arrow_drop_down),
+                    ),
+                    child: Text(_degreeFilterLabel(_selectedDegree)),
                   ),
-                  items: [
-                    const DropdownMenuItem<String>(
-                      value: null,
-                      child: Text('All degrees'),
-                    ),
-                    const DropdownMenuItem<String>(
-                      value: _masteralFilter,
-                      child: Text('Masteral'),
-                    ),
-                    const DropdownMenuItem<String>(
-                      value: _doctoralFilter,
-                      child: Text('Doctoral'),
-                    ),
-                    const DropdownMenuItem<String>(
-                      value: _undergraduateFilter,
-                      child: Text('Undergraduate'),
-                    ),
-                    const DropdownMenuItem<String>(
-                      value: _multipleDegreesFilter,
-                      child: Text('Multiple degrees'),
-                    ),
-                    if (degrees.isNotEmpty)
-                      const DropdownMenuItem<String>(
-                        value: '@programs',
-                        enabled: false,
-                        child: Text('Programs'),
-                      ),
-                    ...degrees.map((degree) => DropdownMenuItem<String>(
-                          value: 'program:$degree',
-                          child: Text(degree),
-                        )),
-                  ],
-                  onChanged: (value) => setState(() => _selectedDegree = value),
                 ),
                 const SizedBox(height: 16),
                 if (students.isEmpty)
@@ -479,7 +550,7 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
                   ),
                 for (final student in visibleStudents)
                   Card(
-                    child: ListTile(
+                    child: ExpansionTile(
                       leading: Icon(
                         student['is_frozen'] == true
                             ? Icons.lock_outline
@@ -489,41 +560,58 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
                             : Colors.teal,
                       ),
                       title: Text(student['name']?.toString() ?? 'Student'),
-                      subtitle: Text(_studentSubtitle(student)),
-                      trailing: widget.superAdminView &&
-                              student['is_frozen'] == true &&
-                              student['can_manage_access'] == false
-                          ? const Tooltip(
-                              message:
-                                  'Only the administrator who froze this student can unfreeze them.',
-                              child: Icon(Icons.lock_outline),
-                            )
-                          : PopupMenuButton<String>(
-                              enabled: !_isUpdating,
-                              onSelected: (action) {
-                                if (action == 'toggle') {
-                                  _setStudentFrozen(
-                                    student,
-                                    student['is_frozen'] != true,
-                                  );
-                                } else if (action == 'delete') {
-                                  _deleteStudentAccount(student);
-                                }
-                              },
-                              itemBuilder: (context) => [
-                                PopupMenuItem(
-                                  value: 'toggle',
-                                  child: Text(student['is_frozen'] == true
-                                      ? 'Unfreeze'
-                                      : 'Freeze'),
-                                ),
-                                if (!widget.superAdminView)
-                                  const PopupMenuItem(
-                                    value: 'delete',
-                                    child: Text('Remove student account'),
+                      subtitle: Text(
+                        'Student ID: ${student['student_id'] ?? 'Not recorded'}',
+                      ),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(_studentSubtitle(student)),
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: widget.superAdminView &&
+                                  student['is_frozen'] == true &&
+                                  student['can_manage_access'] == false
+                              ? const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: Tooltip(
+                                    message:
+                                        'Only the administrator who froze this student can unfreeze them.',
+                                    child: Icon(Icons.lock_outline),
                                   ),
-                              ],
-                            ),
+                                )
+                              : PopupMenuButton<String>(
+                                  enabled: !_isUpdating,
+                                  onSelected: (action) {
+                                    if (action == 'toggle') {
+                                      _setStudentFrozen(
+                                        student,
+                                        student['is_frozen'] != true,
+                                      );
+                                    } else if (action == 'delete') {
+                                      _deleteStudentAccount(student);
+                                    }
+                                  },
+                                  itemBuilder: (context) => [
+                                    PopupMenuItem(
+                                      value: 'toggle',
+                                      child: Text(student['is_frozen'] == true
+                                          ? 'Unfreeze'
+                                          : 'Freeze'),
+                                    ),
+                                    if (!widget.superAdminView)
+                                      const PopupMenuItem(
+                                        value: 'delete',
+                                        child: Text('Remove student account'),
+                                      ),
+                                  ],
+                                ),
+                        ),
+                      ],
                     ),
                   ),
               ],

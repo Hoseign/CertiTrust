@@ -3,7 +3,12 @@ import 'package:go_router/go_router.dart';
 import '../../services/api_service.dart';
 
 class AdminManagementScreen extends StatefulWidget {
-  const AdminManagementScreen({super.key});
+  const AdminManagementScreen({
+    super.key,
+    this.accessOnly = false,
+  });
+
+  final bool accessOnly;
 
   @override
   State<AdminManagementScreen> createState() => _AdminManagementScreenState();
@@ -436,17 +441,23 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
           tooltip: 'Back to Super Admin Dashboard',
           onPressed: () => context.go('/dashboard'),
         ),
-        title: const Text('Administrator Management'),
+        title: Text(widget.accessOnly
+            ? 'Freeze and Restore Access'
+            : 'Administrator Management'),
       ),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Text('Subadmin Accounts',
+          Text(widget.accessOnly ? 'University Access Controls' : 'Subadmin Accounts',
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          const Text(
-              'Bind, update, or remove university administrators across the system.',
-              style: TextStyle(color: Colors.grey)),
+          Text(
+            widget.accessOnly
+                ? 'Choose a registered university to manage its student access, or use the menu to freeze or restore university access.'
+                : 'Bind, update, or remove university administrators across the system.',
+            style: const TextStyle(color: Colors.grey),
+          ),
+          if (!widget.accessOnly) ...[
           const SizedBox(height: 24),
           Form(
             key: _formKey,
@@ -552,8 +563,9 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                 ),
             ]),
           ),
+          ],
           const SizedBox(height: 28),
-          const Text('Registered Subadmins',
+          Text(widget.accessOnly ? 'Registered Universities' : 'Registered Subadmins',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           if (_isLoading)
@@ -653,8 +665,9 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                           }
                         },
                         itemBuilder: (context) => [
-                          const PopupMenuItem(
-                              value: 'edit', child: Text('Edit')),
+                          if (!widget.accessOnly)
+                            const PopupMenuItem(
+                                value: 'edit', child: Text('Edit')),
                           PopupMenuItem(
                             value: 'freeze',
                             child: Text(
@@ -665,11 +678,13 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                             child: Text(
                                 'Restore access for ${admin['university_code']}'),
                           ),
-                          const PopupMenuItem(
-                              value: 'change-google',
-                              child: Text('Change Google account')),
-                          const PopupMenuItem(
-                              value: 'delete', child: Text('Delete')),
+                          if (!widget.accessOnly)
+                            const PopupMenuItem(
+                                value: 'change-google',
+                                child: Text('Change Google account')),
+                          if (!widget.accessOnly)
+                            const PopupMenuItem(
+                                value: 'delete', child: Text('Delete')),
                         ],
                       ),
                       if (universityCode.isNotEmpty)
