@@ -101,7 +101,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       if (!mounted) return;
-      _showStudentIdVerificationDialog(email);
+      await _showStudentIdVerificationDialog(email);
     } catch (e, stackTrace) {
       if (kIsWeb && e.toString().contains('popup_closed')) {
         if (mounted) setState(() => _isLoading = false);
@@ -188,11 +188,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _showStudentIdVerificationDialog(String userEmail) async {
     final TextEditingController idController = TextEditingController();
-    Map<String, dynamic>? verificationResult;
-    var cancelled = false;
+    Map<String, dynamic>? verifiedResult;
 
     try {
-      await showDialog<void>(
+      final dialogRoute = DialogRoute<Map<String, dynamic>>(
         context: context,
         barrierDismissible: false,
         builder: (dialogContext) {
@@ -240,7 +239,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   onPressed: isVerifying
                       ? null
                       : () {
-                          cancelled = true;
                           Navigator.pop(dialogContext);
                         },
                   child: const Text('Cancel',
@@ -255,20 +253,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
                           setDialogState(() => isVerifying = true);
                           try {
-                            verificationResult =
+                            verifiedResult =
                                 await ApiService.verifyStudentIdMapping(
                               email: userEmail,
                               studentId: studentIdInput,
                             );
                             if (!dialogContext.mounted) return;
-                            if (verificationResult == null ||
-                                verificationResult!['success'] != true) {
+                            if (verifiedResult == null ||
+                                verifiedResult!['success'] != true) {
                               setDialogState(() {
                                 isVerifying = false;
-                                verificationMessage = verificationResult?[
-                                            'message']
-                                        ?.toString() ??
-                                    'The Student ID does not match database records.';
+                                verificationMessage =
+                                    'The Student ID is incorrect. Please check it and try again.';
                               });
                               return;
                             }
@@ -277,14 +273,17 @@ class _LoginScreenState extends State<LoginScreen> {
                             if (!dialogContext.mounted) return;
                             setDialogState(() {
                               isVerifying = false;
-                              verificationMessage = error is ApiRequestException
-                                  ? error.message
-                                  : 'Unable to verify this Student ID. Please try again.';
+                              verificationMessage = error
+                                          is ApiRequestException &&
+                                      (error.statusCode == 404 ||
+                                          error.statusCode == 422)
+                                  ? 'The Student ID is incorrect. Please check it and try again.'
+                                  : 'Unable to verify right now. Please try again.';
                             });
                             return;
                           }
 
-                          Navigator.pop(dialogContext);
+                          Navigator.pop(dialogContext, verifiedResult);
                         },
                   child: isVerifying
                       ? const CertiTrustLoadingIndicator(size: 18)
@@ -295,22 +294,26 @@ class _LoginScreenState extends State<LoginScreen> {
           );
         },
       );
+      final verificationResult = await Navigator.of(
+        context,
+        rootNavigator: true,
+      ).push(dialogRoute);
+      await dialogRoute.completed;
 
       if (!mounted) return;
-      if (cancelled) {
+      if (verificationResult == null) {
         await ApiService.logout();
         await _googleSignIn.signOut();
         return;
       }
 
-      if (verificationResult == null ||
-          verificationResult!['success'] != true) {
+      if (verificationResult['success'] != true) {
         return;
       }
 
-      final matchingCert = verificationResult!['certificate'];
+      final matchingCert = verificationResult['certificate'];
       final profile =
-          verificationResult!['profile'] as Map<String, dynamic>? ?? {};
+          verificationResult['profile'] as Map<String, dynamic>? ?? {};
       final hasProfile =
           (profile['profile_image_url']?.toString().isNotEmpty ?? false) ||
               (profile['profile_icon']?.toString().isNotEmpty ?? false);
@@ -329,8 +332,9 @@ class _LoginScreenState extends State<LoginScreen> {
     PlatformFile? selectedPhoto;
     String? selectedIcon;
     bool saving = false;
+    var saved = false;
 
-    await showDialog<void>(
+    final dialogRoute = DialogRoute<void>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
@@ -401,10 +405,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               imageName: selectedPhoto?.name,
                             );
                             if (!mounted || !dialogContext.mounted) return;
+                            saved = true;
                             Navigator.pop(dialogContext);
-                            this
-                                .context
-                                .go('/dashboard', extra: matchingCertificate);
                           } catch (error) {
                             if (dialogContext.mounted) {
                               setDialogState(() => saving = false);
@@ -426,6 +428,11 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       ),
     );
+    await Navigator.of(context, rootNavigator: true).push(dialogRoute);
+    await dialogRoute.completed;
+    if (saved && mounted) {
+      context.go('/dashboard', extra: matchingCertificate);
+    }
   }
 
   void _showWarningDialog(String title, String message) {

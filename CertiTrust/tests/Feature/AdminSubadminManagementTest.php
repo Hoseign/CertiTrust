@@ -942,7 +942,7 @@ class AdminSubadminManagementTest extends TestCase
             ])
             ->assertNotFound()
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'The Student ID does not match database records for this email.');
+            ->assertJsonPath('message', 'The Student ID is incorrect. Please check it and try again.');
     }
 
     public function test_batch_issuance_rejects_duplicate_student_ids_but_allows_duplicate_names(): void

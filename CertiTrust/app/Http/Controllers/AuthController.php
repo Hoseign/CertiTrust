@@ -1469,7 +1469,7 @@ class AuthController extends Controller
             if (!$certificate) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'The Student ID does not match database records for this email.',
+                    'message' => 'The Student ID is incorrect. Please check it and try again.',
                 ], 404);
             }
 
