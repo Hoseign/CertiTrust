@@ -23,6 +23,9 @@ class SuperAdminDashboardView extends StatelessWidget {
             List<Map<String, dynamic>>.from(data['universities'] ?? const []);
         final history =
             List<Map<String, dynamic>>.from(data['history'] ?? const []);
+        final credentialBatches = List<Map<String, dynamic>>.from(
+          data['credential_batches'] ?? const [],
+        );
 
         final cards = [
           _OverviewCard(
@@ -44,6 +47,8 @@ class SuperAdminDashboardView extends StatelessWidget {
             color: const Color(0xFFB07A16),
             description: 'Credentials uploaded by subadmins.',
             details: activity,
+            credentialBatches: credentialBatches,
+            verifiedBreakdown: false,
             emptyMessage: 'No global credential activity yet.',
             detailTitle: (item) => (item['student_name'] ??
                     item['recipient_name'] ??
@@ -63,6 +68,8 @@ class SuperAdminDashboardView extends StatelessWidget {
                     (item['status'] ?? '').toString().toLowerCase() ==
                     'verified')
                 .toList(),
+            credentialBatches: credentialBatches,
+            verifiedBreakdown: true,
             emptyMessage: 'No verified credentials yet.',
             detailTitle: (item) => (item['student_name'] ??
                     item['recipient_name'] ??
@@ -131,15 +138,6 @@ class SuperAdminDashboardView extends StatelessWidget {
                     onPressed: () => context.push('/admin-management'),
                     icon: const Icon(Icons.person_add_alt_1),
                     label: const Text('Create subadmin account'),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () => context.push('/admin-management'),
-                    icon: const Icon(Icons.lock_person_outlined),
-                    label: const Text('Freeze or restore university access'),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -227,40 +225,43 @@ class SuperAdminDashboardView extends StatelessWidget {
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => showDialog<void>(
-          context: context,
-          builder: (dialogContext) {
-            final items = card.details;
+        onTap: card.credentialBatches != null
+            ? () => _showCredentialBreakdown(context, card)
+            : () => showDialog<void>(
+                  context: context,
+                  builder: (dialogContext) {
+                    final items = card.details;
 
-            return AlertDialog(
-              title: Text(card.label),
-              content: SizedBox(
-                width: double.maxFinite,
-                child: items.isEmpty
-                    ? Text(card.emptyMessage)
-                    : ListView.separated(
-                        shrinkWrap: true,
-                        itemCount: items.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final item = items[index];
-                          return ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(card.detailTitle(item)),
-                            subtitle: Text(card.detailSubtitle(item)),
-                          );
-                        },
+                    return AlertDialog(
+                      title: Text(card.label),
+                      content: SizedBox(
+                        width: double.maxFinite,
+                        child: items.isEmpty
+                            ? Text(card.emptyMessage)
+                            : ListView.separated(
+                                shrinkWrap: true,
+                                itemCount: items.length,
+                                separatorBuilder: (_, __) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final item = items[index];
+                                  return ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: Text(card.detailTitle(item)),
+                                    subtitle: Text(card.detailSubtitle(item)),
+                                  );
+                                },
+                              ),
                       ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Close'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          child: const Text('Close'),
+                        ),
+                      ],
+                    );
+                  },
                 ),
-              ],
-            );
-          },
-        ),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(
@@ -280,6 +281,118 @@ class SuperAdminDashboardView extends StatelessWidget {
                     overflow: TextOverflow.ellipsis),
               ]),
         ),
+      ),
+    );
+  }
+
+  void _showCredentialBreakdown(BuildContext context, _OverviewCard card) {
+    final batches = card.credentialBatches!;
+    final countKey =
+        card.verifiedBreakdown == true ? 'verified_count' : 'total_count';
+    final visibleBatches =
+        batches.where((batch) => (batch[countKey] as num? ?? 0) > 0).toList();
+    String? selectedYear;
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final selected = selectedYear == null
+              ? null
+              : visibleBatches.firstWhere(
+                  (batch) => batch['batch_year'].toString() == selectedYear,
+                );
+          final universities = selected == null
+              ? const <Map<String, dynamic>>[]
+              : List<Map<String, dynamic>>.from(
+                  selected['universities'] ?? const [],
+                )
+                  .where(
+                      (university) => (university[countKey] as num? ?? 0) > 0)
+                  .toList();
+
+          return AlertDialog(
+            title: Row(
+              children: [
+                if (selected != null)
+                  IconButton(
+                    tooltip: 'Back to batches',
+                    onPressed: () => setDialogState(() => selectedYear = null),
+                    icon: const Icon(Icons.arrow_back),
+                  ),
+                Expanded(
+                  child: Text(
+                    selected == null
+                        ? card.label
+                        : '${card.label} • $selectedYear',
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: selected == null
+                  ? visibleBatches.isEmpty
+                      ? const Text('No credential batches are available yet.')
+                      : ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: visibleBatches.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final batch = visibleBatches[index];
+                            final year = batch['batch_year'].toString();
+                            return ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text('Batch $year'),
+                              subtitle: const Text('View by university'),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text('${batch[countKey] ?? 0}'),
+                                  const SizedBox(width: 8),
+                                  const Icon(Icons.chevron_right),
+                                ],
+                              ),
+                              onTap: () =>
+                                  setDialogState(() => selectedYear = year),
+                            );
+                          },
+                        )
+                  : universities.isEmpty
+                      ? const Text(
+                          'No universities have credentials in this batch.')
+                      : ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: universities.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final university = universities[index];
+                            final name = university['name']?.toString() ??
+                                university['code']?.toString() ??
+                                'University';
+                            final displayName =
+                                university['display_name']?.toString();
+                            return ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(name),
+                              subtitle: Text(
+                                displayName == null || displayName == name
+                                    ? 'Batch $selectedYear'
+                                    : '$displayName • Batch $selectedYear',
+                              ),
+                              trailing: Text('${university[countKey] ?? 0}'),
+                            );
+                          },
+                        ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -354,6 +467,8 @@ class _OverviewCard {
   final Color color;
   final String description;
   final List<Map<String, dynamic>> details;
+  final List<Map<String, dynamic>>? credentialBatches;
+  final bool? verifiedBreakdown;
   final String emptyMessage;
   final String Function(Map<String, dynamic>) detailTitle;
   final String Function(Map<String, dynamic>) detailSubtitle;
@@ -365,6 +480,8 @@ class _OverviewCard {
     required this.color,
     required this.description,
     required this.details,
+    this.credentialBatches,
+    this.verifiedBreakdown,
     required this.emptyMessage,
     required this.detailTitle,
     required this.detailSubtitle,

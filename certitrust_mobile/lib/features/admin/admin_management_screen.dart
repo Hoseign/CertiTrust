@@ -269,51 +269,6 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     }
   }
 
-  Future<void> _deleteStudentAccount(
-    Map student,
-    String universityCode,
-  ) async {
-    final id = int.tryParse(student['id']?.toString() ?? '');
-    if (id == null) return;
-    final email = student['email']?.toString() ?? 'this student';
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Remove frozen student account?'),
-        content: Text(
-          'Remove sign-in and frozen-access data for $email at $universityCode? Issued credentials will remain available for verification.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Remove account'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    try {
-      await ApiService.deleteStudentAccount(userId: id);
-      await _loadAdmins();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('$email’s account was removed. Credentials were kept.'),
-        ));
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not remove student account: $error')),
-        );
-      }
-    }
-  }
-
   Future<void> _manageUniversityAccess(
       Map<String, dynamic> admin, bool frozen) async {
     final universityCode = admin['university_code']?.toString();
@@ -616,9 +571,18 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
               final frozenStudents = (admin['frozen_students'] as List? ?? [])
                   .whereType<Map>()
                   .toList();
+              final universityCode = admin['university_code']?.toString() ?? '';
               return Card(
                 margin: const EdgeInsets.only(bottom: 12),
-                child: ExpansionTile(
+                child: ListTile(
+                  onTap: universityCode.isEmpty
+                      ? null
+                      : () => context.push(
+                            '/admin-management/university/${Uri.encodeComponent(universityCode)}',
+                            extra: admin,
+                          ),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   leading: const Icon(Icons.account_balance_outlined),
                   title: Text(admin['name']?.toString() ?? 'University Admin'),
                   subtitle: Column(
@@ -671,378 +635,52 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                       ),
                     ],
                   ),
-                  trailing: PopupMenuButton<String>(
-                    onSelected: (value) async {
-                      if (value == 'edit') _startEdit(admin);
-                      if (value == 'change-google') {
-                        await _changeGoogleAccount(admin);
-                      }
-                      if (value == 'delete') await _deleteAdmin(admin);
-                      if (value == 'freeze') {
-                        await _manageUniversityAccess(admin, true);
-                      }
-                      if (value == 'unfreeze') {
-                        await _manageUniversityAccess(admin, false);
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                      PopupMenuItem(
-                        value: 'freeze',
-                        child: Text(
-                            'Freeze access for ${admin['university_code']}'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      PopupMenuButton<String>(
+                        onSelected: (value) async {
+                          if (value == 'edit') _startEdit(admin);
+                          if (value == 'change-google') {
+                            await _changeGoogleAccount(admin);
+                          }
+                          if (value == 'delete') await _deleteAdmin(admin);
+                          if (value == 'freeze') {
+                            await _manageUniversityAccess(admin, true);
+                          }
+                          if (value == 'unfreeze') {
+                            await _manageUniversityAccess(admin, false);
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
+                              value: 'edit', child: Text('Edit')),
+                          PopupMenuItem(
+                            value: 'freeze',
+                            child: Text(
+                                'Freeze access for ${admin['university_code']}'),
+                          ),
+                          PopupMenuItem(
+                            value: 'unfreeze',
+                            child: Text(
+                                'Restore access for ${admin['university_code']}'),
+                          ),
+                          const PopupMenuItem(
+                              value: 'change-google',
+                              child: Text('Change Google account')),
+                          const PopupMenuItem(
+                              value: 'delete', child: Text('Delete')),
+                        ],
                       ),
-                      PopupMenuItem(
-                        value: 'unfreeze',
-                        child: Text(
-                            'Restore access for ${admin['university_code']}'),
-                      ),
-                      const PopupMenuItem(
-                          value: 'change-google',
-                          child: Text('Change Google account')),
-                      const PopupMenuItem(
-                          value: 'delete', child: Text('Delete')),
+                      if (universityCode.isNotEmpty)
+                        const Icon(Icons.chevron_right),
                     ],
                   ),
-                  children: [
-                    _UniversityStudentManager(
-                      universityCode:
-                          admin['university_code']?.toString() ?? '',
-                      onChanged: _loadAdmins,
-                      onDelete: (student) => _deleteStudentAccount(
-                        student,
-                        admin['university_code']?.toString() ?? '',
-                      ),
-                    ),
-                  ],
                 ),
               );
             }),
         ],
       ),
-    );
-  }
-}
-
-class _UniversityStudentManager extends StatefulWidget {
-  const _UniversityStudentManager({
-    required this.universityCode,
-    required this.onChanged,
-    required this.onDelete,
-  });
-
-  final String universityCode;
-  final Future<void> Function() onChanged;
-  final Future<void> Function(Map<String, dynamic>) onDelete;
-
-  @override
-  State<_UniversityStudentManager> createState() =>
-      _UniversityStudentManagerState();
-}
-
-class _UniversityStudentManagerState extends State<_UniversityStudentManager> {
-  final _searchController = TextEditingController();
-  late Future<Map<String, dynamic>> _studentsFuture;
-  String? _selectedYear;
-  String? _selectedDegree;
-  bool _isUpdating = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _studentsFuture = ApiService.getUniversityStudents(
-      universityCode: widget.universityCode,
-    );
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _reload() async {
-    final refresh = ApiService.getUniversityStudents(
-      universityCode: widget.universityCode,
-    );
-    setState(() => _studentsFuture = refresh);
-    await refresh;
-  }
-
-  Future<void> _toggleAccess(
-    Map<String, dynamic> student,
-    bool frozen,
-  ) async {
-    final id = int.tryParse(student['id']?.toString() ?? '');
-    if (id == null) return;
-    final label = student['name']?.toString() ?? 'this student';
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(
-            frozen ? 'Freeze student account?' : 'Unfreeze student account?'),
-        content: Text(
-          '${frozen ? 'Block' : 'Restore'} account access for $label?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(frozen ? 'Freeze account' : 'Unfreeze account'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    setState(() => _isUpdating = true);
-    try {
-      await ApiService.updateStudentAccess(userId: id, frozen: frozen);
-      await _reload();
-      await widget.onChanged();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(frozen
-              ? '$label’s account is frozen.'
-              : '$label’s account access was restored.'),
-        ));
-      }
-    } catch (error) {
-      if (mounted) {
-        final message = error is ApiRequestException ? error.message : '$error';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: Colors.red.shade700,
-            duration: const Duration(seconds: 6),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isUpdating = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (widget.universityCode.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(16),
-        child: Text('This subadmin does not have a university scope assigned.'),
-      );
-    }
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _studentsFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Padding(
-            padding: EdgeInsets.all(24),
-            child: Center(child: CircularProgressIndicator()),
-          );
-        }
-        if (snapshot.hasError) {
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Text('Could not load university students: ${snapshot.error}'),
-                TextButton(onPressed: _reload, child: const Text('Retry')),
-              ],
-            ),
-          );
-        }
-
-        final students = (snapshot.data?['data'] as List? ?? const [])
-            .map((item) => Map<String, dynamic>.from(item as Map))
-            .toList();
-        final years = students
-            .map((student) =>
-                student['batch_year']?.toString() ?? 'Year unavailable')
-            .toSet()
-            .toList()
-          ..sort((a, b) =>
-              (int.tryParse(b) ?? -1).compareTo(int.tryParse(a) ?? -1));
-        final degrees = students
-            .expand<String>((student) {
-              final studentDegrees = student['degrees'];
-              if (studentDegrees is List) {
-                return studentDegrees.whereType<String>();
-              }
-              final degree = student['degree']?.toString();
-              return degree == null ? const <String>[] : [degree];
-            })
-            .where((degree) => degree.trim().isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
-        final query = _searchController.text.trim().toLowerCase();
-        final visibleStudents = students.where((student) {
-          final year = student['batch_year']?.toString() ?? 'Year unavailable';
-          final matchesYear = _selectedYear == null || year == _selectedYear;
-          final studentDegrees = student['degrees'] is List
-              ? (student['degrees'] as List).map((degree) => degree.toString())
-              : [student['degree']?.toString() ?? ''];
-          final matchesDegree = _selectedDegree == null ||
-              studentDegrees.contains(_selectedDegree);
-          final searchable = [
-            student['name'],
-            student['email'],
-            student['student_id'],
-            student['degree'],
-            student['credential_search'],
-            student['certificate_code'],
-          ].whereType<Object>().join(' ').toLowerCase();
-          return matchesYear &&
-              matchesDegree &&
-              (query.isEmpty || searchable.contains(query));
-        }).toList();
-
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TextField(
-                controller: _searchController,
-                onChanged: (_) => setState(() {}),
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
-                  labelText: 'Search students or credentials',
-                  hintText: 'Name, Gmail, student ID, or degree',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 12,
-                runSpacing: 8,
-                children: [
-                  SizedBox(
-                    width: 190,
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _selectedYear,
-                      decoration: const InputDecoration(
-                        labelText: 'Batch year',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      items: [
-                        const DropdownMenuItem<String>(
-                          value: null,
-                          child: Text('All batches'),
-                        ),
-                        ...years.map((year) => DropdownMenuItem<String>(
-                              value: year,
-                              child: Text(year),
-                            )),
-                      ],
-                      onChanged: (value) =>
-                          setState(() => _selectedYear = value),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 220,
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _selectedDegree,
-                      decoration: const InputDecoration(
-                        labelText: 'Degree',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      items: [
-                        const DropdownMenuItem<String>(
-                          value: null,
-                          child: Text('All degrees'),
-                        ),
-                        ...degrees.map((degree) => DropdownMenuItem<String>(
-                              value: degree,
-                              child: Text(
-                                degree,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            )),
-                      ],
-                      onChanged: (value) =>
-                          setState(() => _selectedDegree = value),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '${visibleStudents.length} student account${visibleStudents.length == 1 ? '' : 's'}',
-                style: Theme.of(context).textTheme.labelLarge,
-              ),
-              if (students.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 20),
-                  child: Text('No student accounts have signed in yet.'),
-                ),
-              if (students.isNotEmpty && visibleStudents.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 20),
-                  child: Text('No students match these filters.'),
-                ),
-              for (final student in visibleStudents)
-                Card(
-                  child: ListTile(
-                    leading: Icon(
-                      student['is_frozen'] == true
-                          ? Icons.lock_outline
-                          : Icons.school_outlined,
-                      color: student['is_frozen'] == true
-                          ? Colors.red
-                          : Colors.teal,
-                    ),
-                    title: Text(student['name']?.toString() ?? 'Student'),
-                    subtitle: Text([
-                      student['email']?.toString() ?? 'No email',
-                      if (student['student_id'] != null)
-                        'Student ID: ${student['student_id']}',
-                      student['degrees'] is List &&
-                              (student['degrees'] as List).isNotEmpty
-                          ? (student['degrees'] as List).join(', ')
-                          : student['degree']?.toString() ??
-                              'Degree not recorded',
-                      'Batch: ${student['batch_year'] ?? 'Year unavailable'}',
-                      if (student['is_frozen'] == true)
-                        'Frozen by: ${student['freeze_owner_email'] ?? 'another administrator'}',
-                    ].join('\n')),
-                    trailing: PopupMenuButton<String>(
-                      enabled: !_isUpdating,
-                      onSelected: (action) {
-                        if (action == 'toggle') {
-                          _toggleAccess(
-                            student,
-                            student['is_frozen'] != true,
-                          );
-                        } else if (action == 'delete') {
-                          widget.onDelete(student).then((_) => _reload());
-                        }
-                      },
-                      itemBuilder: (context) => [
-                        PopupMenuItem(
-                          value: 'toggle',
-                          child: Text(student['is_frozen'] == true
-                              ? 'Unfreeze'
-                              : 'Freeze'),
-                        ),
-                        if (student['is_frozen'] == true)
-                          const PopupMenuItem(
-                            value: 'delete',
-                            child: Text('Remove student account'),
-                          ),
-                      ],
-                      icon: const Icon(Icons.more_vert),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
     );
   }
 }

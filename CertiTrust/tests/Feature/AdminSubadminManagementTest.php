@@ -16,7 +16,7 @@ class AdminSubadminManagementTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_superadmin_can_remove_a_frozen_student_account_and_keep_credentials(): void
+    public function test_only_the_university_subadmin_can_remove_a_frozen_student_account(): void
     {
         $superAdmin = User::create([
             'name' => 'CertiTrust Super Admin',
@@ -24,7 +24,7 @@ class AdminSubadminManagementTest extends TestCase
             'password' => bcrypt('secret'),
             'role' => 'admin',
         ]);
-        User::create([
+        $ucuAdmin = User::create([
             'name' => 'UCU Admin',
             'email' => 'ucu-admin-delete-student@example.edu',
             'password' => bcrypt('secret'),
@@ -61,6 +61,10 @@ class AdminSubadminManagementTest extends TestCase
             ->assertJsonPath('data.0.frozen_students.0.email', $student->email);
 
         $this->deleteJson('/api/admin/students/' . $student->id)
+            ->assertForbidden();
+
+        $this->actingAs($ucuAdmin, 'sanctum')
+            ->deleteJson('/api/admin/students/' . $student->id)
             ->assertOk()
             ->assertJsonPath(
                 'message',
@@ -71,9 +75,63 @@ class AdminSubadminManagementTest extends TestCase
         $this->assertDatabaseHas('certificates', [
             'cert_hash' => str_repeat('e', 64),
         ]);
-        $this->getJson('/api/admin/subadmins')
+        $this->actingAs($superAdmin, 'sanctum')
+            ->getJson('/api/admin/subadmins')
             ->assertOk()
             ->assertJsonCount(0, 'data.0.frozen_students');
+    }
+
+    public function test_student_access_lists_degrees_with_types_and_ordinals(): void
+    {
+        $admin = User::create([
+            'name' => 'UCU Admin',
+            'email' => 'ucu-admin-degree-list@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        User::create([
+            'name' => 'Multi-degree Student',
+            'email' => 'multi-degree-student@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'UCU',
+        ]);
+
+        foreach ([
+            [
+                'certificate_code' => 'CERT-DEGREE-LIST-BACHELOR',
+                'degree' => 'Bachelor of Science in Information Technology',
+                'degree_number' => 1,
+                'issue_date' => '2024-06-01',
+                'cert_hash' => str_repeat('a', 64),
+            ],
+            [
+                'certificate_code' => 'CERT-DEGREE-LIST-MASTERAL',
+                'degree' => 'Master of Science in Information Technology',
+                'degree_number' => 2,
+                'issue_date' => '2026-06-01',
+                'cert_hash' => str_repeat('b', 64),
+            ],
+        ] as $credential) {
+            Certificate::create(array_merge($credential, [
+                'student_name' => 'Multi-degree Student',
+                'recipient_name' => 'Multi-degree Student',
+                'student_id' => 'UCU-MULTI-1001',
+                'student_email' => 'multi-degree-student@example.edu',
+                'course_or_event' => $credential['degree'],
+                'university_code' => 'UCU',
+                'status' => 'Verified',
+            ]));
+        }
+
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/admin/students')
+            ->assertOk()
+            ->assertJsonPath('data.0.credentials.0.degree_number', 1)
+            ->assertJsonPath('data.0.credentials.0.degree_type', 'Undergraduate')
+            ->assertJsonPath('data.0.credentials.1.degree_number', 2)
+            ->assertJsonPath('data.0.credentials.1.degree_type', 'Masteral');
     }
 
     public function test_superadmin_can_freeze_university_access_scopes(): void
@@ -183,6 +241,62 @@ class AdminSubadminManagementTest extends TestCase
             'frozen' => false,
         ])->assertOk();
         $this->assertFalse($ucuStudent->fresh()->isAccessFrozen());
+    }
+
+    public function test_university_freeze_owner_can_restore_one_student_under_its_own_policy(): void
+    {
+        $psuAdmin = User::create([
+            'name' => 'PSU Admin',
+            'email' => 'psu2026admin@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'PSU',
+        ]);
+        $otherPsuAdmin = User::create([
+            'name' => 'Other PSU Admin',
+            'email' => 'other-psu-admin@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'PSU',
+        ]);
+        $student = User::create([
+            'name' => 'PSU Student',
+            'email' => 'psu-student-individual-restore@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'PSU',
+        ]);
+        $anotherStudent = User::create([
+            'name' => 'Another PSU Student',
+            'email' => 'psu-student-still-frozen@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'PSU',
+        ]);
+
+        $this->actingAs($psuAdmin, 'sanctum')
+            ->patchJson('/api/admin/students/access', ['frozen' => true])
+            ->assertOk();
+
+        $this->actingAs($otherPsuAdmin, 'sanctum')
+            ->patchJson('/api/admin/students/' . $student->id . '/access', [
+                'frozen' => false,
+            ])->assertForbidden()
+            ->assertJsonPath('freeze_owner_email', $psuAdmin->email);
+
+        $this->actingAs($psuAdmin, 'sanctum')
+            ->patchJson('/api/admin/students/' . $student->id . '/access', [
+                'frozen' => false,
+            ])->assertOk()
+            ->assertJsonPath('is_frozen', false);
+
+        $this->assertFalse($student->fresh()->isAccessFrozen());
+        $this->assertTrue($anotherStudent->fresh()->isAccessFrozen());
+        $this->assertDatabaseHas('university_access_controls', [
+            'university_code' => 'PSU',
+            'students_frozen' => true,
+            'updated_by' => $psuAdmin->id,
+        ]);
     }
 
     public function test_only_the_freezing_administrator_can_unfreeze_individual_or_university_access(): void
@@ -423,6 +537,50 @@ class AdminSubadminManagementTest extends TestCase
         $this->assertDatabaseMissing('personal_access_tokens', [
             'tokenable_id' => $subadmin->id,
         ]);
+    }
+
+    public function test_superadmin_overview_groups_total_and_verified_credentials_by_batch_and_university(): void
+    {
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+        foreach ([
+            ['CERT-OVERVIEW-UCU-2026', 'UCU', '2026-06-01', 'Verified'],
+            ['CERT-OVERVIEW-PSU-2026', 'PSU', '2026-06-02', 'Pending'],
+            ['CERT-OVERVIEW-PSU-2025', 'PSU', '2025-06-03', 'Valid'],
+        ] as [$code, $universityCode, $issueDate, $status]) {
+            Certificate::create([
+                'certificate_code' => $code,
+                'recipient_name' => $code,
+                'student_name' => $code,
+                'student_id' => $code,
+                'student_email' => strtolower($code) . '@example.edu',
+                'email' => strtolower($code) . '@example.edu',
+                'degree' => 'Bachelor of Science',
+                'course_or_event' => 'Bachelor of Science',
+                'university_code' => $universityCode,
+                'issue_date' => $issueDate,
+                'status' => $status,
+                'cert_hash' => hash('sha256', $code),
+            ]);
+        }
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->getJson('/api/admin/overview')
+            ->assertOk()
+            ->assertJsonPath('data.total_credentials', 3)
+            ->assertJsonPath('data.verified_credentials', 2)
+            ->assertJsonPath('data.credential_batches.0.batch_year', '2026')
+            ->assertJsonPath('data.credential_batches.0.total_count', 2)
+            ->assertJsonPath('data.credential_batches.0.verified_count', 1)
+            ->assertJsonPath('data.credential_batches.0.universities.0.code', 'PSU')
+            ->assertJsonPath('data.credential_batches.0.universities.0.total_count', 1)
+            ->assertJsonPath('data.credential_batches.0.universities.1.code', 'UCU')
+            ->assertJsonPath('data.credential_batches.1.batch_year', '2025')
+            ->assertJsonPath('data.credential_batches.1.verified_count', 1);
     }
 
     public function test_frozen_account_can_sign_in_but_only_use_its_support_chat(): void

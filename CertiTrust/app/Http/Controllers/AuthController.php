@@ -274,8 +274,11 @@ class AuthController extends Controller
                     'recipient_name',
                 ]) as $certificate
         ) {
-            foreach ([$certificate->student_email, $certificate->email] as $email) {
-                $normalizedEmail = strtolower(trim((string) $email));
+            $certificateEmails = array_unique([
+                strtolower(trim((string) $certificate->student_email)),
+                strtolower(trim((string) $certificate->email)),
+            ]);
+            foreach ($certificateEmails as $normalizedEmail) {
                 if ($normalizedEmail === '') {
                     continue;
                 }
@@ -540,6 +543,7 @@ class AuthController extends Controller
                     'student_id',
                     'degree',
                     'course_or_event',
+                    'degree_number',
                     'certificate_code',
                     'issue_date',
                 ]) as $certificate
@@ -591,6 +595,23 @@ class AuthController extends Controller
                     strtolower(trim((string) $student->email))
                 ] ?? [];
                 $latestCertificate = $certificates[0] ?? null;
+                $credentialRecords = collect($certificates)
+                    ->values()
+                    ->map(function ($certificate, int $index) use ($certificates): array {
+                        $degree = $certificate->degree ?: $certificate->course_or_event;
+                        $degreeNumber = (int) ($certificate->degree_number
+                            ?: count($certificates) - $index);
+
+                        return [
+                            'degree' => $degree,
+                            'degree_number' => $degreeNumber,
+                            'degree_type' => $this->degreeType($degree),
+                            'issue_date' => $certificate->issue_date,
+                            'certificate_code' => $certificate->certificate_code,
+                        ];
+                    })
+                    ->sortBy('degree_number')
+                    ->values();
                 $freezeOwnerId = $student->access_frozen === true
                     ? (int) $student->access_frozen_by
                     : ($student->access_frozen === null
@@ -621,6 +642,7 @@ class AuthController extends Controller
                         ->filter()
                         ->unique()
                         ->values(),
+                    'credentials' => $credentialRecords,
                     'certificate_code' => $latestCertificate?->certificate_code,
                     'issue_date' => $latestCertificate?->issue_date,
                     'batch_year' => $latestCertificate?->issue_date
@@ -680,10 +702,14 @@ class AuthController extends Controller
 
         $validated = $request->validate(['frozen' => ['required', 'boolean']]);
         $frozen = (bool) $validated['frozen'];
-        $universityPolicy = $user->access_frozen === null
-            ? UniversityAccessControl::where('university_code', $user->university_code)->first()
-            : null;
-        if ($universityPolicy?->students_frozen) {
+        $universityPolicy = UniversityAccessControl::where(
+            'university_code',
+            $user->university_code,
+        )->first();
+        if (
+            $universityPolicy?->students_frozen
+            && (int) $universityPolicy->updated_by !== (int) $admin->id
+        ) {
             $freezeOwner = $universityPolicy->updated_by
                 ? User::find($universityPolicy->updated_by)
                 : null;
@@ -694,8 +720,8 @@ class AuthController extends Controller
                 'freeze_owner_email' => $freezeOwner?->email,
             ], 403);
         }
-        if ($user->isAccessFrozen()) {
-            $freezeOwnerId = $user->accessFrozenById();
+        if ($user->access_frozen === true) {
+            $freezeOwnerId = (int) $user->access_frozen_by;
             if ($freezeOwnerId !== (int) $admin->id) {
                 $freezeOwner = $freezeOwnerId ? User::find($freezeOwnerId) : null;
                 return response()->json([
@@ -731,10 +757,9 @@ class AuthController extends Controller
     public function deleteStudentAccount(Request $request, User $user)
     {
         $admin = $request->user();
-        $isSuperAdmin = $this->isSuperAdmin($admin);
-        if (!$isSuperAdmin && ($admin->role !== 'admin' || !$admin->university_code)) {
+        if ($admin->role !== 'admin' || !$admin->university_code || $this->isSuperAdmin($admin)) {
             return response()->json([
-                'message' => 'Only a university subadmin or the Super Admin can remove student accounts.',
+                'message' => 'Only a university subadmin can remove student accounts.',
             ], 403);
         }
         if (!in_array($user->role, ['student', 'user'], true)) {
@@ -742,7 +767,7 @@ class AuthController extends Controller
                 'message' => 'Only student accounts can be removed here.',
             ], 422);
         }
-        if (!$isSuperAdmin && $user->university_code !== $admin->university_code) {
+        if ($user->university_code !== $admin->university_code) {
             return response()->json([
                 'message' => 'You may only remove student accounts from your university.',
             ], 403);
@@ -1132,15 +1157,40 @@ class AuthController extends Controller
             ->orderBy('university_code')
             ->get(['id', 'name', 'email', 'role', 'university_code', 'last_seen_at']);
 
-        $universities = User::whereNotNull('university_code')
-            ->where('university_code', '!=', '')
-            ->select('university_code')
-            ->distinct()
-            ->orderBy('university_code')
+        $universities = University::query()
+            ->orderBy('university_name')
             ->get()
-            ->map(fn ($user) => [
-                'code' => $user->university_code,
-                'name' => $this->universityDisplayName($user->university_code),
+            ->map(fn (University $university) => [
+                'code' => $university->code,
+                'name' => $university->university_name,
+                'display_name' => $university->display_name,
+                'branch_campus' => $university->branch_campus,
+            ])
+            ->values();
+        $credentialGroups = DB::table('certificates')
+            ->selectRaw(
+                "SUBSTR(CAST(issue_date AS TEXT), 1, 4) AS batch_year, university_code, COUNT(*) AS total_count, SUM(CASE WHEN LOWER(status) IN ('verified', 'valid') THEN 1 ELSE 0 END) AS verified_count",
+            )
+            ->groupByRaw('SUBSTR(CAST(issue_date AS TEXT), 1, 4), university_code')
+            ->orderByDesc('batch_year')
+            ->orderBy('university_code')
+            ->get();
+        $universitiesByCode = $universities->keyBy('code');
+        $credentialBatches = $credentialGroups
+            ->groupBy('batch_year')
+            ->map(fn ($groups, $year) => [
+                'batch_year' => (string) $year,
+                'total_count' => (int) $groups->sum('total_count'),
+                'verified_count' => (int) $groups->sum('verified_count'),
+                'universities' => $groups->map(fn ($group) => [
+                    'code' => $group->university_code,
+                    'name' => $universitiesByCode->get($group->university_code)['name']
+                        ?? $this->universityDisplayName($group->university_code),
+                    'display_name' => $universitiesByCode->get($group->university_code)['display_name']
+                        ?? $group->university_code,
+                    'total_count' => (int) $group->total_count,
+                    'verified_count' => (int) $group->verified_count,
+                ])->values(),
             ])
             ->values();
 
@@ -1165,7 +1215,10 @@ class AuthController extends Controller
                 'total_universities' => $universities->count(),
                 'universities' => $universities,
                 'total_credentials' => DB::table('certificates')->count(),
-                'verified_credentials' => DB::table('certificates')->where('status', 'Verified')->count(),
+                'verified_credentials' => DB::table('certificates')
+                    ->whereIn(DB::raw('LOWER(status)'), ['verified', 'valid'])
+                    ->count(),
+                'credential_batches' => $credentialBatches,
                 'pending_actions' => 0,
                 'admins' => $admins,
                 'activity' => $certificates,
@@ -1256,6 +1309,31 @@ class AuthController extends Controller
                 'PSU' => 'Pangasinan State University',
                 default => $code ?: 'University',
             };
+    }
+
+    private function degreeType(?string $degree): string
+    {
+        $normalized = strtolower(trim((string) $degree));
+        if (
+            str_contains($normalized, 'master')
+            || preg_match('/\b(mba|ma|maed|m\.ed|med|ms|msc|m\.sc|msit|m\.s|mpa|mph|mfa)\b/i', $normalized)
+        ) {
+            return 'Masteral';
+        }
+        if (
+            str_contains($normalized, 'doctor')
+            || preg_match('/\b(phd|ph\.d|edd|ed\.d)\b/i', $normalized)
+        ) {
+            return 'Doctoral';
+        }
+        if (
+            str_contains($normalized, 'bachelor')
+            || preg_match('/\b(bs[a-z]{0,4}|ba[a-z]{0,4}|bsc|bba|beed|bsed|bshm|bstm|bsn|bsa|b\.s|b\.a|b\.sba)\b/i', $normalized)
+        ) {
+            return 'Undergraduate';
+        }
+
+        return 'Other';
     }
 
     /**

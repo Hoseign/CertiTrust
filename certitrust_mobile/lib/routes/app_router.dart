@@ -70,6 +70,25 @@ class AppRouter {
         builder: (context, state) => const AdminManagementScreen(),
       ),
       GoRoute(
+        path: '/admin-management/university/:code',
+        builder: (context, state) {
+          final admin = state.extra is Map
+              ? Map<String, dynamic>.from(state.extra as Map)
+              : const <String, dynamic>{};
+          final universityName = admin['university_name']?.toString() ??
+              admin['display_name']?.toString() ??
+              state.pathParameters['code']!;
+          final branchCampus = admin['branch_campus']?.toString();
+          return StudentAccessScreen(
+            universityCode: state.pathParameters['code'],
+            universityName: branchCampus == null || branchCampus.isEmpty
+                ? universityName
+                : '$universityName • $branchCampus',
+            superAdminView: true,
+          );
+        },
+      ),
+      GoRoute(
         path: '/student-access',
         builder: (context, state) => const StudentAccessScreen(),
       ),

@@ -3,7 +3,16 @@ import 'package:go_router/go_router.dart';
 import '../../services/api_service.dart';
 
 class StudentAccessScreen extends StatefulWidget {
-  const StudentAccessScreen({super.key});
+  const StudentAccessScreen({
+    super.key,
+    this.universityCode,
+    this.universityName,
+    this.superAdminView = false,
+  });
+
+  final String? universityCode;
+  final String? universityName;
+  final bool superAdminView;
 
   @override
   State<StudentAccessScreen> createState() => _StudentAccessScreenState();
@@ -16,10 +25,17 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
   String? _selectedDegree;
   bool _isUpdating = false;
 
+  static const _masteralFilter = '@type:Masteral';
+  static const _doctoralFilter = '@type:Doctoral';
+  static const _undergraduateFilter = '@type:Undergraduate';
+  static const _multipleDegreesFilter = '@multiple-degrees';
+
   @override
   void initState() {
     super.initState();
-    _studentsFuture = ApiService.getUniversityStudents();
+    _studentsFuture = ApiService.getUniversityStudents(
+      universityCode: widget.universityCode,
+    );
   }
 
   @override
@@ -29,7 +45,9 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
   }
 
   Future<void> _reload() async {
-    final refresh = ApiService.getUniversityStudents();
+    final refresh = ApiService.getUniversityStudents(
+      universityCode: widget.universityCode,
+    );
     setState(() {
       _studentsFuture = refresh;
     });
@@ -187,6 +205,61 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
     }
   }
 
+  List<Map<String, dynamic>> _credentialsFor(Map<String, dynamic> student) {
+    final credentials = student['credentials'];
+    if (credentials is List) {
+      return credentials
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    }
+    return const [];
+  }
+
+  bool _matchesDegreeFilter(Map<String, dynamic> student) {
+    final filter = _selectedDegree;
+    if (filter == null) return true;
+    final credentials = _credentialsFor(student);
+    if (filter == _multipleDegreesFilter) return credentials.length > 1;
+    if (filter.startsWith('@type:')) {
+      final type = filter.substring('@type:'.length);
+      return credentials.any((credential) =>
+          credential['degree_type']?.toString() == type);
+    }
+    if (filter.startsWith('program:')) {
+      final program = filter.substring('program:'.length);
+      return credentials.any(
+        (credential) => credential['degree']?.toString() == program,
+      );
+    }
+    return true;
+  }
+
+  String _ordinal(int number) {
+    if (number % 100 >= 11 && number % 100 <= 13) return '${number}th';
+    return switch (number % 10) {
+      1 => '${number}st',
+      2 => '${number}nd',
+      3 => '${number}rd',
+      _ => '${number}th',
+    };
+  }
+
+  String _studentSubtitle(Map<String, dynamic> student) {
+    final credentials = _credentialsFor(student);
+    return [
+      student['email']?.toString() ?? 'No email',
+      if (student['student_id'] != null)
+        'Student ID: ${student['student_id']}',
+      for (var index = 0; index < credentials.length; index++)
+        '${_ordinal(int.tryParse(credentials[index]['degree_number']?.toString() ?? '') ?? index + 1)} degree: ${credentials[index]['degree'] ?? 'Degree not recorded'} (${credentials[index]['degree_type'] ?? 'Other'})',
+      if (credentials.length > 1) 'Multiple degrees: ${credentials.length}',
+      'Batch: ${student['batch_year'] ?? 'Year unavailable'}',
+      if (student['is_frozen'] == true)
+        'Frozen by: ${student['freeze_owner_email'] ?? 'another administrator'}',
+    ].join('\n');
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
@@ -195,7 +268,9 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
             tooltip: 'Back to records',
             onPressed: () => context.pop(),
           ),
-          title: const Text('Student Account Access'),
+          title: Text(widget.superAdminView
+              ? 'University Student Access'
+              : 'Student Account Access'),
         ),
         body: FutureBuilder<Map<String, dynamic>>(
           future: _studentsFuture,
@@ -236,14 +311,11 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
                 return yearB.compareTo(yearA);
               });
             final degrees = students
-                .expand<String>((student) {
-                  final studentDegrees = student['degrees'];
-                  if (studentDegrees is List) {
-                    return studentDegrees.whereType<String>();
-                  }
-                  final degree = student['degree']?.toString();
-                  return degree == null ? const <String>[] : [degree];
-                })
+                .expand<String>(
+                  (student) => _credentialsFor(student)
+                      .map((credential) => credential['degree']?.toString())
+                      .whereType<String>(),
+                )
                 .where((degree) => degree.trim().isNotEmpty)
                 .toSet()
                 .toList()
@@ -254,12 +326,7 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
                   student['batch_year']?.toString() ?? 'Year unavailable';
               final matchesBatch =
                   _selectedBatchYear == null || year == _selectedBatchYear;
-              final matchesDegree = _selectedDegree == null ||
-                  (student['degrees'] is List
-                      ? (student['degrees'] as List)
-                          .map((degree) => degree.toString())
-                          .contains(_selectedDegree)
-                      : student['degree']?.toString() == _selectedDegree);
+              final matchesDegree = _matchesDegreeFilter(student);
               final searchableText = [
                 student['name'],
                 student['email'],
@@ -274,35 +341,42 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
             }).toList();
             final allFrozen = data['university_students_frozen'] == true;
             final canManageAll = data['can_manage_university_freeze'] != false;
+            final universityLabel = widget.universityName ??
+                ApiService.authUniversity ??
+                'University';
             return ListView(
               padding: const EdgeInsets.all(20),
               children: [
                 Text(
-                  '${ApiService.authUniversity ?? 'University'} students',
+                  '$universityLabel students',
                   style: Theme.of(context)
                       .textTheme
                       .titleLarge
                       ?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Only student accounts can be frozen here. This never freezes your subadmin account.',
-                  style: TextStyle(color: Colors.grey),
+                Text(
+                  widget.superAdminView
+                      ? 'Search and filter student accounts at this university. Student freeze controls are available from each account menu.'
+                      : 'Only student accounts can be frozen here. This never freezes your subadmin account.',
+                  style: const TextStyle(color: Colors.grey),
                 ),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: _isUpdating || (allFrozen && !canManageAll)
-                      ? null
-                      : () => _setAllStudentsFrozen(!allFrozen),
-                  icon: Icon(allFrozen
-                      ? Icons.lock_open_outlined
-                      : Icons.lock_outline),
-                  label: Text(allFrozen
-                      ? canManageAll
-                          ? 'Unfreeze all students'
-                          : 'Students frozen by another administrator'
-                      : 'Freeze all students'),
-                ),
+                if (!widget.superAdminView) ...[
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: _isUpdating || (allFrozen && !canManageAll)
+                        ? null
+                        : () => _setAllStudentsFrozen(!allFrozen),
+                    icon: Icon(allFrozen
+                        ? Icons.lock_open_outlined
+                        : Icons.lock_outline),
+                    label: Text(allFrozen
+                        ? canManageAll
+                            ? 'Unfreeze all students'
+                            : 'Students frozen by another administrator'
+                        : 'Freeze all students'),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 TextField(
                   controller: _searchController,
@@ -350,7 +424,7 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
                 DropdownButtonFormField<String>(
                   initialValue: _selectedDegree,
                   decoration: const InputDecoration(
-                    labelText: 'Filter by degree',
+                    labelText: 'Filter by degree type or program',
                     border: OutlineInputBorder(),
                   ),
                   items: [
@@ -358,8 +432,30 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
                       value: null,
                       child: Text('All degrees'),
                     ),
+                    const DropdownMenuItem<String>(
+                      value: _masteralFilter,
+                      child: Text('Masteral'),
+                    ),
+                    const DropdownMenuItem<String>(
+                      value: _doctoralFilter,
+                      child: Text('Doctoral'),
+                    ),
+                    const DropdownMenuItem<String>(
+                      value: _undergraduateFilter,
+                      child: Text('Undergraduate'),
+                    ),
+                    const DropdownMenuItem<String>(
+                      value: _multipleDegreesFilter,
+                      child: Text('Multiple degrees'),
+                    ),
+                    if (degrees.isNotEmpty)
+                      const DropdownMenuItem<String>(
+                        value: '@programs',
+                        enabled: false,
+                        child: Text('Programs'),
+                      ),
                     ...degrees.map((degree) => DropdownMenuItem<String>(
-                          value: degree,
+                          value: 'program:$degree',
                           child: Text(degree),
                         )),
                   ],
@@ -393,44 +489,41 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
                             : Colors.teal,
                       ),
                       title: Text(student['name']?.toString() ?? 'Student'),
-                      subtitle: Text([
-                        student['email']?.toString() ?? 'No email',
-                        if (student['student_id'] != null)
-                          'Student ID: ${student['student_id']}',
-                        if (student['degrees'] is List &&
-                            (student['degrees'] as List).isNotEmpty)
-                          (student['degrees'] as List).join(', ')
-                        else if (student['degree'] != null)
-                          student['degree'].toString(),
-                        'Batch: ${student['batch_year'] ?? 'Year unavailable'}',
-                        if (student['is_frozen'] == true)
-                          'Frozen by: ${student['freeze_owner_email'] ?? 'another administrator'}',
-                      ].join('\n')),
-                      trailing: PopupMenuButton<String>(
-                        enabled: !_isUpdating,
-                        onSelected: (action) {
-                          if (action == 'toggle') {
-                            _setStudentFrozen(
-                              student,
-                              student['is_frozen'] != true,
-                            );
-                          } else if (action == 'delete') {
-                            _deleteStudentAccount(student);
-                          }
-                        },
-                        itemBuilder: (context) => [
-                          PopupMenuItem(
-                            value: 'toggle',
-                            child: Text(student['is_frozen'] == true
-                                ? 'Unfreeze'
-                                : 'Freeze'),
-                          ),
-                          const PopupMenuItem(
-                            value: 'delete',
-                            child: Text('Remove student account'),
-                          ),
-                        ],
-                      ),
+                      subtitle: Text(_studentSubtitle(student)),
+                      trailing: widget.superAdminView &&
+                              student['is_frozen'] == true &&
+                              student['can_manage_access'] == false
+                          ? const Tooltip(
+                              message:
+                                  'Only the administrator who froze this student can unfreeze them.',
+                              child: Icon(Icons.lock_outline),
+                            )
+                          : PopupMenuButton<String>(
+                              enabled: !_isUpdating,
+                              onSelected: (action) {
+                                if (action == 'toggle') {
+                                  _setStudentFrozen(
+                                    student,
+                                    student['is_frozen'] != true,
+                                  );
+                                } else if (action == 'delete') {
+                                  _deleteStudentAccount(student);
+                                }
+                              },
+                              itemBuilder: (context) => [
+                                PopupMenuItem(
+                                  value: 'toggle',
+                                  child: Text(student['is_frozen'] == true
+                                      ? 'Unfreeze'
+                                      : 'Freeze'),
+                                ),
+                                if (!widget.superAdminView)
+                                  const PopupMenuItem(
+                                    value: 'delete',
+                                    child: Text('Remove student account'),
+                                  ),
+                              ],
+                            ),
                     ),
                   ),
               ],
