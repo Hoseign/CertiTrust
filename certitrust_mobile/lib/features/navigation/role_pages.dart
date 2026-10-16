@@ -683,6 +683,17 @@ class _RecordsScreenState extends State<RecordsScreen>
                 }
               }
             }
+            if (!_showMultipleDegreeOrganizer && visibleRecords.isEmpty) {
+              content.add(const Padding(
+                padding: EdgeInsets.symmetric(vertical: 32),
+                child: Center(
+                  child: Text(
+                    'No records match this filter. Try another filter or search.',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ));
+            }
             return Column(children: [
               Padding(
                 padding: const EdgeInsets.all(16),
@@ -698,18 +709,10 @@ class _RecordsScreenState extends State<RecordsScreen>
                 ),
               ),
               Expanded(
-                child: _showMultipleDegreeOrganizer
-                    ? ListView(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                        children: content,
-                      )
-                    : visibleRecords.isEmpty
-                        ? const Center(
-                            child: Text('No matching certificate records.'))
-                        : ListView(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                            children: content,
-                          ),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  children: content,
+                ),
               ),
             ]);
           },

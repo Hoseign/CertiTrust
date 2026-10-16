@@ -724,4 +724,67 @@ void main() {
     ApiService.authRole = null;
     ApiService.authEmail = null;
   });
+
+  testWidgets('empty degree filter keeps the Records filters visible',
+      (WidgetTester tester) async {
+    ApiService.authRole = 'admin';
+    ApiService.authEmail = 'subadmin@example.edu';
+
+    await http.runWithClient(
+      () async {
+        final router = GoRouter(
+          initialLocation: '/records',
+          routes: [
+            GoRoute(
+              path: '/records',
+              builder: (context, state) => const RecordsScreen(),
+            ),
+          ],
+        );
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        await tester.pumpAndSettle();
+
+        expect(find.text('BSIT Only Student'), findsOneWidget);
+        await tester.ensureVisible(find.text('Masteral'));
+        await tester.tap(find.text('Masteral'));
+        await tester.pumpAndSettle();
+
+        expect(router.state.uri.path, '/records');
+        expect(find.text('Filter certificate records'), findsOneWidget);
+        expect(find.text('Masteral'), findsOneWidget);
+        expect(find.text('All records'), findsOneWidget);
+        expect(
+          find.text(
+              'No records match this filter. Try another filter or search.'),
+          findsOneWidget,
+        );
+
+        router.dispose();
+      },
+      () => MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'data': [
+              {
+                'id': 20,
+                'student_name': 'BSIT Only Student',
+                'student_id': 'PSU-2001',
+                'student_email': 'bsit@example.edu',
+                'degree': 'BSIT',
+                'degree_number': 1,
+                'cert_hash': 'bsit-only-hash',
+                'certificate_code': 'CERT-BSIT-ONLY',
+                'status': 'Verified',
+                'issue_date': '2026-06-01',
+              },
+            ],
+          }),
+          200,
+        ),
+      ),
+    );
+
+    ApiService.authRole = null;
+    ApiService.authEmail = null;
+  });
 }

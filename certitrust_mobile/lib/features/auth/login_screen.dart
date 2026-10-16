@@ -146,8 +146,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _showFrozenAccessDialog(
-      Map<String, dynamic> authResult) async {
+  Future<void> _showFrozenAccessDialog(Map<String, dynamic> authResult) async {
     final contact = authResult['freeze_contact'] is Map
         ? Map<String, dynamic>.from(authResult['freeze_contact'] as Map)
         : null;
@@ -188,109 +187,141 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _showStudentIdVerificationDialog(String userEmail) async {
     final TextEditingController idController = TextEditingController();
+    Map<String, dynamic>? verificationResult;
+    var cancelled = false;
 
     try {
       await showDialog<void>(
         context: context,
         barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
-        title: const Text('Security Verification'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Logged in as: $userEmail'),
-            const SizedBox(height: 12),
-            const Text(
-                'Please enter your official Student ID to complete security validation:'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: idController,
-              decoration: const InputDecoration(
-                labelText: 'Student ID',
-                border: OutlineInputBorder(),
-                hintText: 'e.g., 20260001',
+        builder: (dialogContext) {
+          var isVerifying = false;
+          String? verificationMessage;
+          return StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: const Text('Security Verification'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Logged in as: $userEmail'),
+                  const SizedBox(height: 12),
+                  const Text(
+                      'Please enter your official Student ID to complete security validation:'),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: idController,
+                    enabled: !isVerifying,
+                    onChanged: (_) {
+                      if (verificationMessage != null) {
+                        setDialogState(() => verificationMessage = null);
+                      }
+                    },
+                    decoration: const InputDecoration(
+                      labelText: 'Student ID',
+                      border: OutlineInputBorder(),
+                      hintText: 'e.g., 20260001',
+                    ),
+                  ),
+                  if (verificationMessage != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      verificationMessage!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ],
               ),
+              actions: [
+                TextButton(
+                  onPressed: isVerifying
+                      ? null
+                      : () {
+                          cancelled = true;
+                          Navigator.pop(dialogContext);
+                        },
+                  child: const Text('Cancel',
+                      style: TextStyle(color: Colors.grey)),
+                ),
+                ElevatedButton(
+                  onPressed: isVerifying
+                      ? null
+                      : () async {
+                          final studentIdInput = idController.text.trim();
+                          if (studentIdInput.isEmpty) return;
+
+                          setDialogState(() => isVerifying = true);
+                          try {
+                            verificationResult =
+                                await ApiService.verifyStudentIdMapping(
+                              email: userEmail,
+                              studentId: studentIdInput,
+                            );
+                            if (!dialogContext.mounted) return;
+                            if (verificationResult == null ||
+                                verificationResult!['success'] != true) {
+                              setDialogState(() {
+                                isVerifying = false;
+                                verificationMessage = verificationResult?[
+                                            'message']
+                                        ?.toString() ??
+                                    'The Student ID does not match database records.';
+                              });
+                              return;
+                            }
+                          } catch (error) {
+                            debugPrint('Error verifying Student ID: $error');
+                            if (!dialogContext.mounted) return;
+                            setDialogState(() {
+                              isVerifying = false;
+                              verificationMessage = error is ApiRequestException
+                                  ? error.message
+                                  : 'Unable to verify this Student ID. Please try again.';
+                            });
+                            return;
+                          }
+
+                          Navigator.pop(dialogContext);
+                        },
+                  child: isVerifying
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Verify & Proceed'),
+                ),
+              ],
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-              await ApiService.logout();
-              await _googleSignIn.signOut();
-            },
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final studentIdInput = idController.text.trim();
-              if (studentIdInput.isEmpty) return;
-
-              try {
-                // Call Laravel API to verify Student ID mapping against email
-                final verificationResult =
-                    await ApiService.verifyStudentIdMapping(
-                  email: userEmail,
-                  studentId: studentIdInput,
-                );
-
-                if (verificationResult == null ||
-                    verificationResult['success'] != true) {
-                  if (!dialogContext.mounted || !mounted) return;
-                  Navigator.pop(dialogContext);
-                  _showErrorDialog(
-                    'Student ID Warning',
-                    verificationResult?['message'] ??
-                        'The Student ID does not match database records.',
-                  );
-                  return;
-                }
-
-                final matchingCert = verificationResult['certificate'];
-                final profile =
-                    verificationResult['profile'] as Map<String, dynamic>? ??
-                        {};
-                final hasProfile = (profile['profile_image_url']
-                            ?.toString()
-                            .isNotEmpty ??
-                        false) ||
-                    (profile['profile_icon']?.toString().isNotEmpty ?? false);
-
-                if (!dialogContext.mounted || !mounted) return;
-                Navigator.pop(dialogContext);
-                if (hasProfile) {
-                  context.go('/dashboard', extra: matchingCert);
-                } else {
-                  await _showStudentProfileSetup(matchingCert);
-                }
-              } catch (err) {
-                debugPrint('Error verifying Student ID: $err');
-                if (mounted) {
-                  if (err is ApiRequestException &&
-                      (err.statusCode == 404 || err.statusCode == 422)) {
-                    if (dialogContext.mounted) {
-                      Navigator.of(dialogContext).pop();
-                    }
-                    _showWarningDialog(
-                      'Student ID Warning',
-                      err.message,
-                    );
-                  } else {
-                    final message = err is ApiRequestException
-                        ? err.message
-                        : err.toString();
-                    _showErrorDialog('Verification Error', message);
-                  }
-                }
-              }
-            },
-            child: const Text('Verify & Proceed'),
-          ),
-        ],
-        ),
+          );
+        },
       );
+
+      if (!mounted) return;
+      if (cancelled) {
+        await ApiService.logout();
+        await _googleSignIn.signOut();
+        return;
+      }
+
+      if (verificationResult == null ||
+          verificationResult!['success'] != true) {
+        return;
+      }
+
+      final matchingCert = verificationResult!['certificate'];
+      final profile =
+          verificationResult!['profile'] as Map<String, dynamic>? ?? {};
+      final hasProfile =
+          (profile['profile_image_url']?.toString().isNotEmpty ?? false) ||
+              (profile['profile_icon']?.toString().isNotEmpty ?? false);
+
+      if (hasProfile) {
+        context.go('/dashboard', extra: matchingCert);
+      } else {
+        await _showStudentProfileSetup(matchingCert);
+      }
     } finally {
       idController.dispose();
     }
@@ -345,6 +376,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           type: FileType.image,
                           withData: true,
                         );
+                        if (!dialogContext.mounted) return;
                         if (result?.files.single.bytes != null) {
                           setDialogState(() {
                             selectedPhoto = result!.files.single;
@@ -370,13 +402,15 @@ class _LoginScreenState extends State<LoginScreen> {
                               imageBytes: selectedPhoto?.bytes,
                               imageName: selectedPhoto?.name,
                             );
-                            if (!mounted) return;
+                            if (!mounted || !dialogContext.mounted) return;
                             Navigator.pop(dialogContext);
                             this
                                 .context
                                 .go('/dashboard', extra: matchingCertificate);
                           } catch (error) {
-                            setDialogState(() => saving = false);
+                            if (dialogContext.mounted) {
+                              setDialogState(() => saving = false);
+                            }
                             if (mounted) {
                               ScaffoldMessenger.of(this.context).showSnackBar(
                                 SnackBar(
