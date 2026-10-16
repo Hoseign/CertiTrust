@@ -9,9 +9,9 @@ import '../../services/api_service.dart';
 // import '../../services/api_service.dart';
 
 import 'widgets/admin_dashboard_view.dart';
+import 'widgets/all_certificates_modal.dart';
 import 'widgets/super_admin_dashboard_view.dart';
 import 'widgets/student_dashboard_view.dart';
-import 'widgets/all_certificates_modal.dart';
 import '../navigation/role_pages.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -84,10 +84,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<List<Map<String, dynamic>>> _fetchLiveCertificates() async {
-    return ApiService.getCertificatesForCurrentUser();
+    return ApiService.getCertificatesForCurrentUser(limit: 5);
   }
 
-  void _showAllCertificatesModal() {
+  Future<List<Map<String, dynamic>>> _fetchRecentVerifications() {
+    return ApiService.getRecentVerifications();
+  }
+
+  void _showRecentCertificatesModal() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -215,7 +219,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 32),
             AdminDashboardView(
               fetchCertificates: _fetchLiveCertificates,
-              onShowAllCertificates: _showAllCertificatesModal,
+              fetchRecentVerifications: _fetchRecentVerifications,
+              onViewRecentCredentials: _showRecentCertificatesModal,
             ),
           ],
         ),

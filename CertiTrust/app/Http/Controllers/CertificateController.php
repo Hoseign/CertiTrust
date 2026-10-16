@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use App\Models\User;
 use App\Models\Certificate;
+use App\Models\CertificateVerification;
 use App\Models\University;
 use App\Services\SupabaseDiplomaStorage;
 
@@ -47,6 +48,12 @@ class CertificateController extends Controller
         } elseif ($user?->university_code) {
             $query->where('university_code', $user->university_code);
         }
+
+        $limit = $request->integer('limit');
+        if ($limit > 0) {
+            $query->limit(min($limit, 20));
+        }
+
         return response()->json(['data' => $query->get()]);
     }
 
@@ -108,6 +115,12 @@ class CertificateController extends Controller
                 $this->universityDetails($degree->university_code),
             ));
 
+            if ($allVerified) {
+                CertificateVerification::create([
+                    'certificate_id' => $certificate->id,
+                ]);
+            }
+
             return response()->json([
                 'data' => [
                     'multi_degree' => true,
@@ -121,14 +134,58 @@ class CertificateController extends Controller
             ]);
         }
 
-        return $certificate
-            ? response()->json([
+        if (!$certificate) {
+            return response()->json(['message' => 'Certificate not found.'], 404);
+        }
+
+        $status = strtolower(trim((string) $certificate->status));
+        if (in_array($status, ['verified', 'valid'], true)) {
+            CertificateVerification::create([
+                'certificate_id' => $certificate->id,
+            ]);
+        }
+
+        return response()->json([
                 'data' => array_merge(
                     $certificate->toArray(),
                     $this->universityDetails($certificate->university_code),
                 ),
-            ])
-            : response()->json(['message' => 'Certificate not found.'], 404);
+            ]);
+    }
+
+    public function recentVerifications(Request $request)
+    {
+        $user = $request->user();
+        $isSuperAdmin = strtolower((string) $user?->email) === 'certitrust256@gmail.com';
+        if ($user?->role !== 'admin' || (!$isSuperAdmin && !$user->university_code)) {
+            return response()->json([
+                'message' => 'Only authorized administrators can view recent verifications.',
+            ], 403);
+        }
+
+        $query = CertificateVerification::query()
+            ->with('certificate')
+            ->whereHas('certificate', function ($certificates) use ($user, $isSuperAdmin) {
+                if (!$isSuperAdmin) {
+                    $certificates->where('university_code', $user->university_code);
+                }
+            })
+            ->latest('created_at');
+
+        $limit = $request->integer('limit', 5);
+        $verifications = $query
+            ->limit(max(1, min($limit, 20)))
+            ->get()
+            ->map(function (CertificateVerification $verification) {
+                $certificate = $verification->certificate;
+                return array_merge(
+                    $certificate->toArray(),
+                    $this->universityDetails($certificate->university_code),
+                    ['verified_at' => $verification->created_at],
+                );
+            });
+
+        return response()->json(['data' => $verifications]);
     }
 
     private function universityDetails(?string $universityCode): array

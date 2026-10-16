@@ -98,6 +98,7 @@ Route::middleware(['auth:sanctum', EnsureAccountIsNotFrozen::class])->group(func
     Route::post('/certificates/check-diploma-file-names', [CertificateController::class, 'checkDiplomaFileNames']);
     Route::post('/certificates/batch', [CertificateController::class, 'storeBatch']);
     Route::get('/certificates', [CertificateController::class, 'index']);
+    Route::get('/admin/recent-verifications', [CertificateController::class, 'recentVerifications']);
     Route::post('/certificates/{certificate}/deletion-request', [CertificateDeletionRequestController::class, 'store']);
     Route::get('/admin/certificate-deletion-requests', [CertificateDeletionRequestController::class, 'index']);
     Route::patch('/admin/certificate-deletion-requests/{deletionRequest}', [CertificateDeletionRequestController::class, 'review']);

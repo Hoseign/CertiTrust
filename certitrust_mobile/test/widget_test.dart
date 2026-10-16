@@ -5,6 +5,7 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -17,6 +18,7 @@ import 'package:certitrust_mobile/main.dart';
 import 'package:certitrust_mobile/features/admin/admin_management_screen.dart';
 import 'package:certitrust_mobile/features/admin/student_access_screen.dart';
 import 'package:certitrust_mobile/features/dashboard/widgets/student_dashboard_view.dart';
+import 'package:certitrust_mobile/features/dashboard/widgets/admin_dashboard_view.dart';
 import 'package:certitrust_mobile/features/navigation/role_pages.dart';
 import 'package:certitrust_mobile/services/api_service.dart';
 
@@ -26,6 +28,63 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
 
     expect(find.byType(CertiTrustApp), findsOneWidget);
+  });
+
+  testWidgets('admin dashboard refreshes credentials and verification activity',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(400, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var credentialRequests = 0;
+    var verificationRequests = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: AdminDashboardView(
+              fetchCertificates: () async {
+                credentialRequests++;
+                return [
+                  {
+                    'student_name': 'New Credential',
+                    'student_id': 'UCU-2026-1',
+                    'degree': 'BSIT',
+                  }
+                ];
+              },
+              fetchRecentVerifications: () async {
+                verificationRequests++;
+                return [
+                  {
+                    'student_name': 'Recently Verified',
+                    'degree': 'BSIT',
+                    'university_name': 'Urdaneta City University',
+                    'status': 'Verified',
+                  }
+                ];
+              },
+              onViewRecentCredentials: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Recent Verified'), findsOneWidget);
+    expect(find.text('Recent Credentials'), findsWidgets);
+    expect(find.text('Recently Verified'), findsOneWidget);
+    expect(find.text('New Credential'), findsOneWidget);
+    expect(credentialRequests, 1);
+    expect(verificationRequests, 1);
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+
+    expect(credentialRequests, 2);
+    expect(verificationRequests, 2);
   });
 
   testWidgets('multiple-degree selection offers one shared verification QR',
@@ -196,9 +255,73 @@ void main() {
     ApiService.authEmail = null;
   });
 
+  testWidgets('chat polling does not start overlapping contact requests',
+      (WidgetTester tester) async {
+    ApiService.authRole = 'admin';
+    ApiService.authEmail = 'admin@example.edu';
+    ApiService.authToken = 'test-token';
+    final pendingContacts = Completer<http.Response>();
+    var contactsRequests = 0;
+    final router = GoRouter(
+      initialLocation: '/ansq',
+      routes: [
+        GoRoute(
+          path: '/ansq',
+          builder: (context, state) => const ChatScreen(isAdmin: true),
+        ),
+      ],
+    );
+
+    await http.runWithClient(
+      () async {
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 4));
+
+        expect(contactsRequests, 1);
+        pendingContacts.complete(http.Response(
+          jsonEncode({
+            'data': [
+              {'id': 7, 'name': 'UCU Student', 'role_label': 'Student'},
+            ],
+          }),
+          200,
+        ));
+        await tester.pumpAndSettle();
+
+        expect(find.text('UCU Student'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+      () => MockClient((request) async {
+        if (request.method == 'GET' &&
+            request.url.path.endsWith('/chat/contacts')) {
+          contactsRequests++;
+          return pendingContacts.future;
+        }
+        if (request.method == 'GET' &&
+            request.url.path.endsWith('/chat/messages')) {
+          return http.Response(jsonEncode({'data': []}), 200);
+        }
+        return http.Response(
+          jsonEncode({'message': 'Unexpected request'}),
+          404,
+        );
+      }),
+    );
+
+    router.dispose();
+    ApiService.authRole = null;
+    ApiService.authEmail = null;
+    ApiService.authToken = null;
+  });
+
   testWidgets(
       'student access refresh updates state without Future callback error',
       (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     ApiService.authRole = 'admin';
     ApiService.authUniversity = 'UCU';
     ApiService.authToken = 'test-token';
@@ -209,6 +332,12 @@ void main() {
         await tester.pumpWidget(
           const MaterialApp(home: StudentAccessScreen()),
         );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(ExpansionTile));
+        await tester.pumpAndSettle();
+        final studentMenu = find.byType(PopupMenuButton<String>);
+        await tester.ensureVisible(studentMenu);
+        await tester.tap(studentMenu);
         await tester.pumpAndSettle();
         await tester.tap(find.text('Freeze'));
         await tester.pumpAndSettle();
@@ -410,10 +539,11 @@ void main() {
         await tester.tap(find.text('Students with multiple degrees (1)'));
         await tester.pumpAndSettle();
 
-        expect(find.text('Ucu Student (2 degrees)'), findsOneWidget);
-        expect(find.text('Single Degree Student (1 degrees)'), findsNothing);
+        expect(find.text('Ucu Student (2 credentials)'), findsOneWidget);
+        expect(
+            find.text('Single Degree Student (1 credentials)'), findsNothing);
 
-        await tester.tap(find.text('Ucu Student (2 degrees)'));
+        await tester.tap(find.text('Ucu Student (2 credentials)'));
         await tester.pumpAndSettle();
         expect(find.text('Show combined QR'), findsOneWidget);
         await tester.tap(find.text('Show combined QR'));
@@ -424,5 +554,98 @@ void main() {
         (_) async => http.Response(jsonEncode({'data': certificates}), 200),
       ),
     );
+  });
+
+  testWidgets(
+      'subadmin records filter by degree type, ordinal, multiple degrees, and issued program',
+      (WidgetTester tester) async {
+    ApiService.authRole = 'admin';
+    ApiService.authEmail = 'subadmin@example.edu';
+    final certificates = [
+      {
+        'id': 1,
+        'student_name': 'Graduate Student',
+        'student_id': 'PSU-1001',
+        'student_email': 'graduate@example.edu',
+        'degree': 'BSIT',
+        'degree_number': 1,
+        'cert_hash': 'graduate-bachelor-hash',
+        'certificate_code': 'CERT-GRADUATE-1',
+        'status': 'Verified',
+        'issue_date': '2024-06-01',
+      },
+      {
+        'id': 2,
+        'student_name': 'Graduate Student',
+        'student_id': 'PSU-1001',
+        'student_email': 'graduate@example.edu',
+        'degree': 'MSIT',
+        'degree_number': 2,
+        'cert_hash': 'graduate-master-hash',
+        'certificate_code': 'CERT-GRADUATE-2',
+        'status': 'Verified',
+        'issue_date': '2026-06-01',
+      },
+      {
+        'id': 3,
+        'student_name': 'Graduate Student',
+        'student_id': 'PSU-1001',
+        'student_email': 'graduate@example.edu',
+        'degree': 'PhD',
+        'degree_number': 3,
+        'cert_hash': 'graduate-doctoral-hash',
+        'certificate_code': 'CERT-GRADUATE-3',
+        'status': 'Verified',
+        'issue_date': '2026-06-01',
+      },
+    ];
+
+    await http.runWithClient(
+      () async {
+        final router = GoRouter(
+          initialLocation: '/records',
+          routes: [
+            GoRoute(
+              path: '/records',
+              builder: (context, state) => const RecordsScreen(),
+            ),
+          ],
+        );
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Filter certificate records'), findsOneWidget);
+        expect(find.text('Organize by degree'), findsNothing);
+        expect(find.text('Masteral'), findsOneWidget);
+        expect(find.text('Doctoral'), findsOneWidget);
+
+        await tester.tap(find.text('Masteral'));
+        await tester.pumpAndSettle();
+        expect(find.text('No matching certificate records.'), findsNothing);
+
+        await tester.ensureVisible(find.text('Doctoral'));
+        await tester.tap(find.text('Doctoral'));
+        await tester.pumpAndSettle();
+        expect(find.text('No matching certificate records.'), findsNothing);
+
+        await tester.ensureVisible(find.text('Multiple degrees (1 students)'));
+        await tester.tap(find.text('Multiple degrees (1 students)'));
+        await tester.pumpAndSettle();
+        expect(find.text('No matching certificate records.'), findsNothing);
+
+        await tester.ensureVisible(find.text('BSIT'));
+        await tester.tap(find.text('BSIT'));
+        await tester.pumpAndSettle();
+        expect(find.text('No matching certificate records.'), findsNothing);
+
+        router.dispose();
+      },
+      () => MockClient(
+        (_) async => http.Response(jsonEncode({'data': certificates}), 200),
+      ),
+    );
+
+    ApiService.authRole = null;
+    ApiService.authEmail = null;
   });
 }

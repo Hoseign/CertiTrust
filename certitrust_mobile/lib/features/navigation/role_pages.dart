@@ -14,10 +14,14 @@ class RecordsScreen extends StatefulWidget {
   State<RecordsScreen> createState() => _RecordsScreenState();
 }
 
-class _RecordsScreenState extends State<RecordsScreen> {
+class _RecordsScreenState extends State<RecordsScreen>
+    with WidgetsBindingObserver {
   final _searchController = TextEditingController();
   late Future<List<Map<String, dynamic>>> _records;
-  int? _selectedDegreeNumber;
+  Timer? _refreshTimer;
+  bool _isRefreshing = false;
+  bool _isAppActive = true;
+  String _selectedRecordFilter = 'all';
   String? _selectedBatchYear;
   bool _showMultipleDegreeOrganizer = false;
   String? _selectedMultiDegreeStudent;
@@ -25,13 +29,41 @@ class _RecordsScreenState extends State<RecordsScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _records = ApiService.getCertificatesForCurrentUser();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (_isAppActive) _refreshRecords();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _isAppActive = state == AppLifecycleState.resumed;
+    if (_isAppActive) _refreshRecords();
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _refreshRecords() async {
+    if (_isRefreshing) return;
+    final refresh = ApiService.getCertificatesForCurrentUser();
+    setState(() {
+      _isRefreshing = true;
+      _records = refresh;
+    });
+    try {
+      await refresh;
+    } catch (error) {
+      debugPrint('Error refreshing certificate records: $error');
+    } finally {
+      if (mounted) setState(() => _isRefreshing = false);
+    }
   }
 
   Future<void> _requestDeletion(Map<String, dynamic> record) async {
@@ -120,6 +152,73 @@ class _RecordsScreenState extends State<RecordsScreen> {
 
   int _degreeNumber(Map<String, dynamic> record) =>
       int.tryParse(record['degree_number']?.toString() ?? '') ?? 1;
+
+  String _degreeType(Map<String, dynamic> record) {
+    final degree = (record['degree'] ?? record['course_or_event'] ?? '')
+        .toString()
+        .toLowerCase();
+    final acronym = degree.replaceAll(RegExp(r'[^a-z0-9]'), '');
+    if (degree.contains('master') ||
+        acronym.startsWith('mba') ||
+        acronym.startsWith('ma') ||
+        acronym.startsWith('ms') ||
+        acronym.startsWith('mpa') ||
+        acronym.startsWith('mph') ||
+        acronym.startsWith('mfa')) {
+      return 'masteral';
+    }
+    if (degree.contains('doctor') ||
+        const ['phd', 'edd', 'dba', 'dpa', 'deng', 'md', 'jd']
+            .any((code) => acronym == code || acronym.startsWith(code))) {
+      return 'doctoral';
+    }
+    if (degree.contains('bachelor') ||
+        acronym.startsWith('bs') ||
+        acronym.startsWith('ba') ||
+        const [
+          'beed',
+          'bsed',
+          'bshm',
+          'bstm',
+          'bsn',
+          'bsa',
+        ].any((code) => acronym.startsWith(code))) {
+      return 'bachelors';
+    }
+    return 'other';
+  }
+
+  bool _matchesRecordFilter(
+    Map<String, dynamic> record, {
+    required Set<String> multipleDegreeStudentKeys,
+  }) {
+    if (_selectedRecordFilter == 'all') return true;
+    if (_selectedRecordFilter == 'multiple') {
+      final key = _studentGroupKey(record);
+      return key != null && multipleDegreeStudentKeys.contains(key);
+    }
+    if (_selectedRecordFilter.startsWith('ordinal:')) {
+      return _degreeNumber(record) ==
+          int.tryParse(_selectedRecordFilter.substring('ordinal:'.length));
+    }
+    if (_selectedRecordFilter.startsWith('type:')) {
+      return _degreeType(record) ==
+          _selectedRecordFilter.substring('type:'.length);
+    }
+    if (_selectedRecordFilter.startsWith('program:')) {
+      return (record['degree'] ?? record['course_or_event'])?.toString() ==
+          _selectedRecordFilter.substring('program:'.length);
+    }
+    return true;
+  }
+
+  void _selectRecordFilter(String filter) {
+    setState(() {
+      _showMultipleDegreeOrganizer = false;
+      _selectedMultiDegreeStudent = null;
+      _selectedRecordFilter = filter;
+    });
+  }
 
   String? _studentGroupKey(Map<String, dynamic> record) {
     final studentId = record['student_id']?.toString().trim().toLowerCase();
@@ -286,6 +385,17 @@ class _RecordsScreenState extends State<RecordsScreen> {
         appBar: AppBar(
           title: const Text('Certificate Records'),
           actions: [
+            IconButton(
+              tooltip: 'Refresh records',
+              onPressed: _isRefreshing ? null : _refreshRecords,
+              icon: _isRefreshing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+            ),
             if (_isSchoolAdmin)
               IconButton(
                 onPressed: () => context.push('/student-access'),
@@ -297,8 +407,25 @@ class _RecordsScreenState extends State<RecordsScreen> {
         body: FutureBuilder<List<Map<String, dynamic>>>(
           future: _records,
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Unable to load records: ${snapshot.error}'),
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      onPressed: _isRefreshing ? null : _refreshRecords,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              );
             }
             final query = _searchController.text.trim().toLowerCase();
             final allRecords = snapshot.data ?? const <Map<String, dynamic>>[];
@@ -308,6 +435,8 @@ class _RecordsScreenState extends State<RecordsScreen> {
                 _canOrganizeMultipleDegrees
                     ? _multipleDegreeGroups(allRecords)
                     : {};
+            final multipleDegreeStudentKeys =
+                multipleDegreeGroups.keys.toSet();
             if (_selectedMultiDegreeStudent != null &&
                 !multipleDegreeGroups
                     .containsKey(_selectedMultiDegreeStudent)) {
@@ -315,12 +444,24 @@ class _RecordsScreenState extends State<RecordsScreen> {
             }
             final degreeNumbers = allRecords.map(_degreeNumber).toSet().toList()
               ..sort();
+            final programs = allRecords
+                .map((record) =>
+                    (record['degree'] ?? record['course_or_event'])
+                        ?.toString()
+                        .trim())
+                .whereType<String>()
+                .where((program) => program.isNotEmpty)
+                .toSet()
+                .toList()
+              ..sort();
             final degreeFilteredRecords = _isSchoolAdmin &&
-                    !_showMultipleDegreeOrganizer &&
-                    _selectedDegreeNumber != null
+                    !_showMultipleDegreeOrganizer
                 ? searchedRecords
-                    .where((record) =>
-                        _degreeNumber(record) == _selectedDegreeNumber)
+                    .where((record) => _matchesRecordFilter(
+                          record,
+                          multipleDegreeStudentKeys:
+                              multipleDegreeStudentKeys,
+                        ))
                     .toList()
                 : searchedRecords;
             final visibleRecords = ApiService.authRole != 'student' &&
@@ -333,7 +474,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
             final content = <Widget>[];
             if (_canOrganizeMultipleDegrees &&
                 multipleDegreeGroups.isNotEmpty) {
-              content.add(_sectionHeader('Multiple degrees'));
+              content.add(_sectionHeader('Multiple-degree QR and student groups'));
               content.add(
                 Wrap(
                   spacing: 8,
@@ -427,39 +568,52 @@ class _RecordsScreenState extends State<RecordsScreen> {
                 ));
               }
             }
-            if (_isSchoolAdmin && degreeNumbers.isNotEmpty) {
-              content.add(_sectionHeader('Organize by degree'));
+            if (_isSchoolAdmin) {
+              content.add(_sectionHeader('Filter certificate records'));
               content.add(
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('All records'),
+                      selected: _selectedRecordFilter == 'all',
+                      onSelected: (_) => _selectRecordFilter('all'),
+                    ),
+                    if (multipleDegreeGroups.isNotEmpty)
                       ChoiceChip(
-                        label: const Text('All degrees'),
-                        selected: !_showMultipleDegreeOrganizer &&
-                            _selectedDegreeNumber == null,
-                        onSelected: (_) => setState(() {
-                          _showMultipleDegreeOrganizer = false;
-                          _selectedMultiDegreeStudent = null;
-                          _selectedDegreeNumber = null;
-                        }),
+                        label: Text(
+                            'Multiple degrees (${multipleDegreeGroups.length} students)'),
+                        selected: _selectedRecordFilter == 'multiple',
+                        onSelected: (_) => _selectRecordFilter('multiple'),
                       ),
-                      const SizedBox(width: 8),
-                      for (final degreeNumber in degreeNumbers) ...[
-                        ChoiceChip(
-                          label: Text('${_ordinal(degreeNumber)} degree'),
-                          selected: !_showMultipleDegreeOrganizer &&
-                              _selectedDegreeNumber == degreeNumber,
-                          onSelected: (_) => setState(() {
-                            _showMultipleDegreeOrganizer = false;
-                            _selectedMultiDegreeStudent = null;
-                            _selectedDegreeNumber = degreeNumber;
-                          }),
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                    ],
-                  ),
+                    for (final option in const [
+                      ('type:masteral', 'Masteral'),
+                      ('type:doctoral', 'Doctoral'),
+                      ('type:bachelors', "Bachelor's"),
+                    ])
+                      ChoiceChip(
+                        label: Text(option.$2),
+                        selected: _selectedRecordFilter == option.$1,
+                        onSelected: (_) => _selectRecordFilter(option.$1),
+                      ),
+                    for (final degreeNumber in degreeNumbers)
+                      ChoiceChip(
+                        label: Text('${_ordinal(degreeNumber)} degree'),
+                        selected:
+                            _selectedRecordFilter == 'ordinal:$degreeNumber',
+                        onSelected: (_) =>
+                            _selectRecordFilter('ordinal:$degreeNumber'),
+                      ),
+                    for (final program in programs)
+                      ChoiceChip(
+                        label: Text(program),
+                        selected:
+                            _selectedRecordFilter == 'program:$program',
+                        onSelected: (_) =>
+                            _selectRecordFilter('program:$program'),
+                      ),
+                  ],
                 ),
               );
             }
@@ -751,6 +905,8 @@ class _ChatScreenState extends State<ChatScreen> {
   int _loadGeneration = 0;
   bool _isLoading = true;
   bool _hasLoaded = false;
+  bool _isFetchingItems = false;
+  bool _reloadQueued = false;
   Timer? _refreshTimer;
 
   @override
@@ -759,14 +915,20 @@ class _ChatScreenState extends State<ChatScreen> {
     _pendingInitialContactId = widget.initialContactId;
     _loadItems();
     _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      _loadItems();
+      _loadItems(periodic: true);
     });
   }
 
   Future<void> _loadItems({
     bool showLoading = false,
     bool reportErrors = false,
+    bool periodic = false,
   }) async {
+    if (_isFetchingItems) {
+      if (!periodic) _reloadQueued = true;
+      return;
+    }
+    _isFetchingItems = true;
     final generation = ++_loadGeneration;
     final selectedContact = _selectedContact;
     final search = _searchController.text;
@@ -801,6 +963,7 @@ class _ChatScreenState extends State<ChatScreen> {
         items = [...items, ...unsentMessages];
       } else {
         items = await ApiService.getChatContacts(search: search);
+        if (!mounted || generation != _loadGeneration) return;
         final initialContactId = _pendingInitialContactId;
         _pendingInitialContactId = null;
         if (initialContactId != null || widget.restrictedMode) {
@@ -852,6 +1015,12 @@ class _ChatScreenState extends State<ChatScreen> {
           SnackBar(content: Text('Could not refresh this chat: $error')),
         );
       }
+    } finally {
+      _isFetchingItems = false;
+      if (_reloadQueued && mounted) {
+        _reloadQueued = false;
+        scheduleMicrotask(() => _loadItems());
+      }
     }
   }
 
@@ -897,6 +1066,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _openContact(Map<String, dynamic> contact) {
+    _loadGeneration++;
     setState(() {
       _selectedContact = contact;
       _items = [];
@@ -909,6 +1079,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _closeConversation() {
+    _loadGeneration++;
     setState(() {
       _selectedContact = null;
       _replyTo = null;

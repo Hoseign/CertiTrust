@@ -1021,11 +1021,14 @@ class ApiService {
     return body;
   }
 
-  static Future<List<Map<String, dynamic>>>
-      getCertificatesForCurrentUser() async {
+  static Future<List<Map<String, dynamic>>> getCertificatesForCurrentUser(
+      {int? limit}) async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/certificates'),
-          headers: _getHeaders);
+      var uri = Uri.parse('$baseUrl/certificates');
+      if (limit != null) {
+        uri = uri.replace(queryParameters: {'limit': '$limit'});
+      }
+      final response = await http.get(uri, headers: _getHeaders);
       if (response.statusCode != 200)
         throw Exception('Failed to load certificates [${response.statusCode}]');
       _recordConnectionSuccess();
@@ -1035,6 +1038,26 @@ class ApiService {
       _recordConnectionFailure(_connectionMessage(error));
       rethrow;
     }
+  }
+
+  static Future<List<Map<String, dynamic>>> getRecentVerifications(
+      {int limit = 5}) async {
+    final uri = Uri.parse('$baseUrl/admin/recent-verifications')
+        .replace(queryParameters: {'limit': '$limit'});
+    final response =
+        await http.get(uri, headers: _getHeaders).timeout(
+              const Duration(seconds: 8),
+            );
+    if (response.statusCode != 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Unable to load recent verifications.',
+      );
+    }
+    _recordConnectionSuccess();
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return List<Map<String, dynamic>>.from(body['data'] ?? const []);
   }
 
   static Future<Map<String, dynamic>?> getStudentCertificate(
@@ -1055,8 +1078,9 @@ class ApiService {
   }
 
   static Future<List<Map<String, dynamic>>> getChatMessages() async {
-    final response = await http.get(Uri.parse('$baseUrl/chat/messages'),
-        headers: _getHeaders);
+    final response = await http
+        .get(Uri.parse('$baseUrl/chat/messages'), headers: _getHeaders)
+        .timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
       throw Exception('Failed to load chat [${response.statusCode}]');
     }
@@ -1066,9 +1090,10 @@ class ApiService {
 
   static Future<List<Map<String, dynamic>>> getChatMessagesForStudent(
       String userId) async {
-    final response = await http.get(
-        Uri.parse('$baseUrl/chat/messages?with_user_id=$userId'),
-        headers: _getHeaders);
+    final response = await http
+        .get(Uri.parse('$baseUrl/chat/messages?with_user_id=$userId'),
+            headers: _getHeaders)
+        .timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
       final body = jsonDecode(response.body);
       final message = body is Map ? body['message']?.toString() : null;
@@ -1086,8 +1111,9 @@ class ApiService {
     final query = search.trim().isEmpty
         ? ''
         : '?search=${Uri.encodeQueryComponent(search.trim())}';
-    final response = await http.get(Uri.parse('$baseUrl/chat/contacts$query'),
-        headers: _getHeaders);
+    final response = await http
+        .get(Uri.parse('$baseUrl/chat/contacts$query'), headers: _getHeaders)
+        .timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
       final body = jsonDecode(response.body);
       final message = body is Map ? body['message']?.toString() : null;

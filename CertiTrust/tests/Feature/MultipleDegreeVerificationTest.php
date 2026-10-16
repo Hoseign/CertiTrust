@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Certificate;
+use App\Models\CertificateVerification;
 use App\Models\University;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -173,5 +174,111 @@ class MultipleDegreeVerificationTest extends TestCase
             ->assertJsonCount(2, 'data')
             ->assertJsonFragment(['certificate_code' => 'CERT-OLD-EMAIL'])
             ->assertJsonFragment(['certificate_code' => 'CERT-NEW-EMAIL']);
+    }
+
+    public function test_certificate_list_can_return_only_the_latest_requested_records(): void
+    {
+        $student = User::create([
+            'name' => 'Alex Student',
+            'email' => 'alex@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'UCU',
+        ]);
+
+        foreach ([
+            ['code' => 'CERT-OLDER', 'date' => '2024-06-01', 'hash' => str_repeat('1', 64)],
+            ['code' => 'CERT-NEWER', 'date' => '2026-06-01', 'hash' => str_repeat('2', 64)],
+        ] as $record) {
+            Certificate::create([
+                'certificate_code' => $record['code'],
+                'recipient_name' => 'Alex Student',
+                'student_name' => 'Alex Student',
+                'student_id' => 'UCU-1001',
+                'student_email' => 'alex@example.edu',
+                'degree' => 'Bachelor of Science in Information Technology',
+                'course_or_event' => 'BSIT',
+                'university_code' => 'UCU',
+                'issue_date' => $record['date'],
+                'status' => 'Verified',
+                'cert_hash' => $record['hash'],
+            ]);
+        }
+
+        $this->actingAs($student, 'sanctum')
+            ->getJson('/api/certificates?limit=1')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.certificate_code', 'CERT-NEWER');
+    }
+
+    public function test_successful_verification_is_recorded_and_shown_to_the_school_admin(): void
+    {
+        $admin = User::create([
+            'name' => 'UCU Admin',
+            'email' => 'admin@ucu.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        $certificate = Certificate::create([
+            'certificate_code' => 'CERT-RECENTLY-VERIFIED',
+            'recipient_name' => 'Alex Student',
+            'student_name' => 'Alex Student',
+            'student_id' => 'UCU-1001',
+            'student_email' => 'alex@example.edu',
+            'degree' => 'Bachelor of Science in Information Technology',
+            'course_or_event' => 'BSIT',
+            'university_code' => 'UCU',
+            'issue_date' => '2026-06-01',
+            'status' => 'Verified',
+            'cert_hash' => str_repeat('a', 64),
+        ]);
+
+        $this->getJson('/api/certificates/' . $certificate->certificate_code)
+            ->assertOk()
+            ->assertJsonPath('data.status', 'Verified');
+
+        $this->assertDatabaseHas('certificate_verifications', [
+            'certificate_id' => $certificate->id,
+        ]);
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/admin/recent-verifications')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.student_name', 'Alex Student')
+            ->assertJsonPath('data.0.university_code', 'UCU');
+    }
+
+    public function test_recent_verifications_exclude_other_universities_for_subadmins(): void
+    {
+        $admin = User::create([
+            'name' => 'UCU Admin',
+            'email' => 'admin@ucu.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        $otherSchoolCertificate = Certificate::create([
+            'certificate_code' => 'CERT-OTHER-SCHOOL-VERIFIED',
+            'recipient_name' => 'PSU Student',
+            'student_name' => 'PSU Student',
+            'student_id' => 'PSU-1001',
+            'student_email' => 'psu@example.edu',
+            'degree' => 'BSIT',
+            'course_or_event' => 'BSIT',
+            'university_code' => 'PSU',
+            'issue_date' => '2026-06-01',
+            'status' => 'Verified',
+            'cert_hash' => str_repeat('b', 64),
+        ]);
+        CertificateVerification::create([
+            'certificate_id' => $otherSchoolCertificate->id,
+        ]);
+
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/admin/recent-verifications')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
     }
 }

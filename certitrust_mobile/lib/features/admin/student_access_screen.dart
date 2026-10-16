@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../services/api_service.dart';
@@ -18,12 +20,16 @@ class StudentAccessScreen extends StatefulWidget {
   State<StudentAccessScreen> createState() => _StudentAccessScreenState();
 }
 
-class _StudentAccessScreenState extends State<StudentAccessScreen> {
+class _StudentAccessScreenState extends State<StudentAccessScreen>
+    with WidgetsBindingObserver {
   final _searchController = TextEditingController();
   late Future<Map<String, dynamic>> _studentsFuture;
+  Timer? _refreshTimer;
   String? _selectedBatchYear;
   String? _selectedDegree;
   bool _isUpdating = false;
+  bool _isRefreshing = false;
+  bool _isAppActive = true;
 
   static const _masteralFilter = '@type:Masteral';
   static const _doctoralFilter = '@type:Doctoral';
@@ -32,25 +38,51 @@ class _StudentAccessScreenState extends State<StudentAccessScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _studentsFuture = ApiService.getUniversityStudents(
       universityCode: widget.universityCode,
     );
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (_isAppActive && !_isUpdating) _refreshAutomatically();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _isAppActive = state == AppLifecycleState.resumed;
+    if (_isAppActive && !_isUpdating) _refreshAutomatically();
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
   }
 
   Future<void> _reload() async {
+    if (_isRefreshing) return;
     final refresh = ApiService.getUniversityStudents(
       universityCode: widget.universityCode,
     );
     setState(() {
+      _isRefreshing = true;
       _studentsFuture = refresh;
     });
-    await refresh;
+    try {
+      await refresh;
+    } finally {
+      if (mounted) setState(() => _isRefreshing = false);
+    }
+  }
+
+  Future<void> _refreshAutomatically() async {
+    try {
+      await _reload();
+    } catch (error) {
+      debugPrint('Unable to refresh student access list: $error');
+    }
   }
 
   Future<void> _setAllStudentsFrozen(bool frozen) async {

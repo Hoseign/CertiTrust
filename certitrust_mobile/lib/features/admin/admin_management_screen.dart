@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../services/api_service.dart';
@@ -14,7 +16,8 @@ class AdminManagementScreen extends StatefulWidget {
   State<AdminManagementScreen> createState() => _AdminManagementScreenState();
 }
 
-class _AdminManagementScreenState extends State<AdminManagementScreen> {
+class _AdminManagementScreenState extends State<AdminManagementScreen>
+    with WidgetsBindingObserver {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _nameController = TextEditingController();
@@ -25,16 +28,31 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
   int? _editingId;
   bool _isSubmitting = false;
   bool _isLoading = true;
+  bool _isRefreshing = false;
+  bool _isAppActive = true;
+  Timer? _refreshTimer;
   List<Map<String, dynamic>> _admins = [];
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadAdmins();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (_isAppActive) _loadAdmins(showLoading: false);
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _isAppActive = state == AppLifecycleState.resumed;
+    if (_isAppActive) _loadAdmins(showLoading: false);
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _emailController.dispose();
     _nameController.dispose();
     _universityController.dispose();
@@ -43,8 +61,10 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     super.dispose();
   }
 
-  Future<void> _loadAdmins() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadAdmins({bool showLoading = true}) async {
+    if (_isRefreshing) return;
+    _isRefreshing = true;
+    if (showLoading) setState(() => _isLoading = true);
     try {
       final admins = await ApiService.getSubadmins();
       if (!mounted) return;
@@ -55,9 +75,15 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
     } catch (error) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString())),
-      );
+      if (showLoading) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.toString())),
+        );
+      } else {
+        debugPrint('Unable to refresh subadmin list: $error');
+      }
+    } finally {
+      _isRefreshing = false;
     }
   }
 
@@ -448,7 +474,10 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          Text(widget.accessOnly ? 'University Access Controls' : 'Subadmin Accounts',
+          Text(
+              widget.accessOnly
+                  ? 'University Access Controls'
+                  : 'Subadmin Accounts',
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Text(
@@ -458,114 +487,117 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
             style: const TextStyle(color: Colors.grey),
           ),
           if (!widget.accessOnly) ...[
-          const SizedBox(height: 24),
-          Form(
-            key: _formKey,
-            child: Column(children: [
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                    labelText: 'Display name', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _emailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: InputDecoration(
-                  labelText: 'Google account email',
-                  border: const OutlineInputBorder(),
-                  errorText: _emailError,
+            const SizedBox(height: 24),
+            Form(
+              key: _formKey,
+              child: Column(children: [
+                TextFormField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(
+                      labelText: 'Display name', border: OutlineInputBorder()),
                 ),
-                onChanged: (_) {
-                  if (_emailError != null) setState(() => _emailError = null);
-                },
-                validator: (value) {
-                  final email = value?.trim() ?? '';
-                  return email.contains('@') ? null : 'Enter a valid email.';
-                },
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _universityController,
-                decoration: const InputDecoration(
-                  labelText: 'University name',
-                  hintText: 'e.g. University of Cebu',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    labelText: 'Google account email',
+                    border: const OutlineInputBorder(),
+                    errorText: _emailError,
+                  ),
+                  onChanged: (_) {
+                    if (_emailError != null) setState(() => _emailError = null);
+                  },
+                  validator: (value) {
+                    final email = value?.trim() ?? '';
+                    return email.contains('@') ? null : 'Enter a valid email.';
+                  },
                 ),
-                onChanged: (_) => setState(_updateGeneratedCode),
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'Enter the full university name.'
-                    : null,
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _branchController,
-                decoration: const InputDecoration(
-                  labelText: 'Branch campus (optional)',
-                  hintText: 'e.g. Bayambang Campus',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _universityController,
+                  decoration: const InputDecoration(
+                    labelText: 'University name',
+                    hintText: 'e.g. University of Cebu',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setState(_updateGeneratedCode),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Enter the full university name.'
+                      : null,
                 ),
-                onChanged: (_) => setState(_updateGeneratedCode),
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _universityCodeController,
-                textCapitalization: TextCapitalization.characters,
-                decoration: const InputDecoration(
-                  labelText: 'Display name / university short code',
-                  hintText: 'Generated from the university name',
-                  helperText: 'Editable; use 1–10 letters or numbers.',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _branchController,
+                  decoration: const InputDecoration(
+                    labelText: 'Branch campus (optional)',
+                    hintText: 'e.g. Bayambang Campus',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setState(_updateGeneratedCode),
                 ),
-                onChanged: (value) {
-                  final normalized = value.toUpperCase();
-                  if (normalized != value) {
-                    _universityCodeController.value =
-                        _universityCodeController.value.copyWith(
-                      text: normalized,
-                      selection:
-                          TextSelection.collapsed(offset: normalized.length),
-                    );
-                  }
-                },
-                validator: (value) {
-                  final code = value?.trim() ?? '';
-                  return RegExp(r'^[A-Z0-9]{1,10}$').hasMatch(code)
-                      ? null
-                      : 'Use 1–10 letters or numbers.';
-                },
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _isSubmitting ? null : _submitAdmin,
-                  icon: _isSubmitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2))
-                      : Icon(
-                          _editingId == null ? Icons.person_add : Icons.save),
-                  label: Text(_editingId == null
-                      ? 'Create administrator account'
-                      : 'Update administrator account'),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _universityCodeController,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: const InputDecoration(
+                    labelText: 'Display name / university short code',
+                    hintText: 'Generated from the university name',
+                    helperText: 'Editable; use 1–10 letters or numbers.',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (value) {
+                    final normalized = value.toUpperCase();
+                    if (normalized != value) {
+                      _universityCodeController.value =
+                          _universityCodeController.value.copyWith(
+                        text: normalized,
+                        selection:
+                            TextSelection.collapsed(offset: normalized.length),
+                      );
+                    }
+                  },
+                  validator: (value) {
+                    final code = value?.trim() ?? '';
+                    return RegExp(r'^[A-Z0-9]{1,10}$').hasMatch(code)
+                        ? null
+                        : 'Use 1–10 letters or numbers.';
+                  },
                 ),
-              ),
-              if (_editingId != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: TextButton.icon(
-                    onPressed: _resetForm,
-                    icon: const Icon(Icons.close),
-                    label: const Text('Cancel edit'),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _isSubmitting ? null : _submitAdmin,
+                    icon: _isSubmitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : Icon(
+                            _editingId == null ? Icons.person_add : Icons.save),
+                    label: Text(_editingId == null
+                        ? 'Create administrator account'
+                        : 'Update administrator account'),
                   ),
                 ),
-            ]),
-          ),
+                if (_editingId != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: TextButton.icon(
+                      onPressed: _resetForm,
+                      icon: const Icon(Icons.close),
+                      label: const Text('Cancel edit'),
+                    ),
+                  ),
+              ]),
+            ),
           ],
           const SizedBox(height: 28),
-          Text(widget.accessOnly ? 'Registered Universities' : 'Registered Subadmins',
+          Text(
+              widget.accessOnly
+                  ? 'Registered Universities'
+                  : 'Registered Subadmins',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           if (_isLoading)

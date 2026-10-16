@@ -3,10 +3,40 @@ import 'package:flutter/material.dart';
 import 'qr_code_dialog.dart';
 import 'universal_html/html.dart' as html;
 
-class AllCertificatesModal extends StatelessWidget {
+class AllCertificatesModal extends StatefulWidget {
   final Future<List<Map<String, dynamic>>> Function() fetchCertificates;
 
   const AllCertificatesModal({super.key, required this.fetchCertificates});
+
+  @override
+  State<AllCertificatesModal> createState() => _AllCertificatesModalState();
+}
+
+class _AllCertificatesModalState extends State<AllCertificatesModal> {
+  late Future<List<Map<String, dynamic>>> _certificates;
+  bool _isRefreshing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _certificates = widget.fetchCertificates();
+  }
+
+  Future<void> _refresh() async {
+    if (_isRefreshing) return;
+    final refresh = widget.fetchCertificates();
+    setState(() {
+      _certificates = refresh;
+      _isRefreshing = true;
+    });
+    try {
+      await refresh;
+    } catch (error) {
+      debugPrint('Unable to refresh recent credentials: $error');
+    } finally {
+      if (mounted) setState(() => _isRefreshing = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,21 +55,38 @@ class AllCertificatesModal extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
-                    'All Issued Credentials',
+                    'Recent Issued Credentials',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
+                  Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Refresh recent credentials',
+                        icon: _isRefreshing
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.refresh),
+                        onPressed: _isRefreshing ? null : _refresh,
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
                   ),
                 ],
               ),
               const Divider(),
               Expanded(
                 child: FutureBuilder<List<Map<String, dynamic>>>(
-                  future: fetchCertificates(),
+                  future: _certificates,
                   builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        !snapshot.hasData) {
                       return const Center(child: CircularProgressIndicator());
                     }
                     if (snapshot.hasError) {
@@ -59,34 +106,43 @@ class AllCertificatesModal extends StatelessWidget {
                         return ListTile(
                           leading: const Icon(Icons.school, color: Colors.blue),
                           title: Text(cert['student_name'] ?? 'Unknown'),
-                          subtitle: Text('${cert['degree']} • ID: ${cert['student_id']}'),
+                          subtitle: Text(
+                              '${cert['degree']} • ID: ${cert['student_id']}'),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (imageUrl != null && imageUrl.toString().isNotEmpty)
+                              if (imageUrl != null &&
+                                  imageUrl.toString().isNotEmpty)
                                 IconButton(
-                                  icon: const Icon(Icons.download, color: Colors.blue),
+                                  icon: const Icon(Icons.download,
+                                      color: Colors.blue),
                                   tooltip: 'Download Diploma',
                                   onPressed: () async {
                                     if (kIsWeb) {
                                       final anchor = html.HTMLAnchorElement()
                                         ..href = imageUrl
-                                        ..download = 'Diploma_${cert['student_name']?.replaceAll(' ', '_')}.jpg'
+                                        ..download =
+                                            'Diploma_${cert['student_name']?.replaceAll(' ', '_')}.jpg'
                                         ..target = '_blank';
                                       html.document.body?.appendChild(anchor);
                                       anchor.click();
                                       anchor.remove();
                                     } else {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Opening diploma image link...')),
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        const SnackBar(
+                                            content: Text(
+                                                'Opening diploma image link...')),
                                       );
                                     }
                                   },
                                 ),
                               IconButton(
-                                icon: const Icon(Icons.qr_code, color: Colors.teal),
+                                icon: const Icon(Icons.qr_code,
+                                    color: Colors.teal),
                                 tooltip: 'Get QR Code',
-                                onPressed: () => showQRCodeDialog(context, cert),
+                                onPressed: () =>
+                                    showQRCodeDialog(context, cert),
                               ),
                             ],
                           ),

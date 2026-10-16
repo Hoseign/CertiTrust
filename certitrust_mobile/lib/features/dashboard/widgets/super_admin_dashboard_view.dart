@@ -1,7 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-class SuperAdminDashboardView extends StatelessWidget {
+class SuperAdminDashboardView extends StatefulWidget {
   final Future<Map<String, dynamic>> Function() fetchOverview;
 
   const SuperAdminDashboardView({
@@ -10,9 +12,60 @@ class SuperAdminDashboardView extends StatelessWidget {
   });
 
   @override
+  State<SuperAdminDashboardView> createState() =>
+      _SuperAdminDashboardViewState();
+}
+
+class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
+    with WidgetsBindingObserver {
+  late Future<Map<String, dynamic>> _overview;
+  Timer? _refreshTimer;
+  bool _isRefreshing = false;
+  bool _isAppActive = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _overview = widget.fetchOverview();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (_isAppActive) _refresh();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _isAppActive = state == AppLifecycleState.resumed;
+    if (_isAppActive) _refresh();
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    if (_isRefreshing) return;
+    final refresh = widget.fetchOverview();
+    setState(() {
+      _overview = refresh;
+      _isRefreshing = true;
+    });
+    try {
+      await refresh;
+    } catch (error) {
+      debugPrint('Unable to refresh super admin dashboard: $error');
+    } finally {
+      if (mounted) setState(() => _isRefreshing = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return FutureBuilder<Map<String, dynamic>>(
-      future: fetchOverview(),
+      future: _overview,
       builder: (context, snapshot) {
         final data = snapshot.data ?? const <String, dynamic>{};
         final activity =
@@ -95,7 +148,7 @@ class SuperAdminDashboardView extends StatelessWidget {
         ];
 
         return RefreshIndicator(
-          onRefresh: () async => fetchOverview(),
+          onRefresh: _refresh,
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
             children: [
@@ -109,7 +162,8 @@ class SuperAdminDashboardView extends StatelessWidget {
                   'Register subadmins and monitor global credential activity.',
                   style: TextStyle(color: Color(0xFF657184))),
               const SizedBox(height: 20),
-              if (snapshot.connectionState == ConnectionState.waiting)
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  !snapshot.hasData)
                 const Padding(
                     padding: EdgeInsets.all(28),
                     child: Center(child: CircularProgressIndicator()))

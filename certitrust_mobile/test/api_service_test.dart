@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:certitrust_mobile/services/api_service.dart';
 import 'package:certitrust_mobile/core/utils/hash_util.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -55,12 +59,52 @@ void main() {
     );
   });
 
-  test('rejects duplicated absolute URLs that include the full API host twice', () {
+  test('rejects duplicated absolute URLs that include the full API host twice',
+      () {
     expect(
       ApiService.normalizeBaseUrl(
         'https://certitrust-yhzl.onrender.com/apihttps://certitrust-yhzl.onrender.com/api/health',
       ),
       'https://certitrust-yhzl.onrender.com/api',
     );
+  });
+
+  test('certificate requests can be limited for recent dashboard records',
+      () async {
+    Uri? requestedUri;
+
+    await http.runWithClient(
+      () async {
+        final certificates =
+            await ApiService.getCertificatesForCurrentUser(limit: 5);
+        expect(certificates, isEmpty);
+      },
+      () => MockClient((request) async {
+        requestedUri = request.url;
+        return http.Response(jsonEncode({'data': []}), 200);
+      }),
+    );
+
+    expect(requestedUri?.path, endsWith('/certificates'));
+    expect(requestedUri?.queryParameters['limit'], '5');
+  });
+
+  test('recent verification requests use the scoped activity endpoint',
+      () async {
+    Uri? requestedUri;
+
+    await http.runWithClient(
+      () async {
+        final verifications = await ApiService.getRecentVerifications();
+        expect(verifications, isEmpty);
+      },
+      () => MockClient((request) async {
+        requestedUri = request.url;
+        return http.Response(jsonEncode({'data': []}), 200);
+      }),
+    );
+
+    expect(requestedUri?.path, endsWith('/admin/recent-verifications'));
+    expect(requestedUri?.queryParameters['limit'], '5');
   });
 }
