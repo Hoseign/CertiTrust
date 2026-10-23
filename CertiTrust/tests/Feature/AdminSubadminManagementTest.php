@@ -876,6 +876,35 @@ class AdminSubadminManagementTest extends TestCase
         ]);
     }
 
+    public function test_google_login_matches_registered_subadmin_email_case_insensitively_and_ignores_whitespace(): void
+    {
+        $subadmin = User::create([
+            'name' => 'Registered Subadmin',
+            'email' => '  Subadmin.Example@Example.edu ',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+
+        Http::fake([
+            'https://www.googleapis.com/oauth2/v3/userinfo' => Http::response([
+                'email' => 'subadmin.example@example.edu',
+                'email_verified' => true,
+                'name' => 'Registered Subadmin',
+                'sub' => 'registered-subadmin-123',
+            ], 200),
+        ]);
+
+        $response = $this->postJson('/api/auth/google', [
+            'access_token' => 'valid-access-token',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('role', 'admin')
+            ->assertJsonPath('university_code', 'UCU');
+        $this->assertSame($subadmin->id, User::where('google_id', 'registered-subadmin-123')->value('id'));
+    }
+
     public function test_issued_student_can_sign_in_and_verify_their_credential_by_hash(): void
     {
         Http::fake([

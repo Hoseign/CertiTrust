@@ -71,6 +71,11 @@ Route::middleware(['auth:sanctum', EnsureAccountIsNotFrozen::class])->group(func
         }
         return $user;
     });
+    Route::post('/logout', function (Request $request) {
+        $request->user()->currentAccessToken()?->delete();
+
+        return response()->json(['message' => 'Successfully logged out.']);
+    });
     Route::post('/user/profile', [AuthController::class, 'updateProfile']);
 
     Route::post('/admin/users', [AuthController::class, 'createAdmin']);

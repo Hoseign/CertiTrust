@@ -103,11 +103,11 @@ class AuthController extends Controller
             $googleId = $googleId ?? ('google_' . md5($email));
 
             $normalizedEmail = strtolower(trim($email));
-            $existingUser = User::whereRaw('LOWER(email) = ?', [$normalizedEmail])->first();
+            $existingUser = User::whereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail])->first();
             $certificateQuery = DB::table('certificates')
                 ->where(function ($query) use ($normalizedEmail) {
-                    $query->whereRaw('LOWER(email) = ?', [$normalizedEmail])
-                        ->orWhereRaw('LOWER(student_email) = ?', [$normalizedEmail]);
+                    $query->whereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail])
+                        ->orWhereRaw('LOWER(TRIM(student_email)) = ?', [$normalizedEmail]);
                 });
             $certificate = (clone $certificateQuery)->latest('id')->first();
             $hasCertificate = $certificate !== null;
@@ -123,13 +123,6 @@ class AuthController extends Controller
                 return response()->json([
                     'status' => 'error',
                     'message' => 'The Super Admin account has not been created in the system yet.',
-                ], 403);
-            }
-
-            if (!$existingUser && !$certificate) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'This Google account is not registered in CertiTrust yet. Only the Super Admin is seeded by default; all other accounts must be created by the system admin.',
                 ], 403);
             }
 
