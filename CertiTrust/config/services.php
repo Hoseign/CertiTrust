@@ -43,7 +43,11 @@ return [
 
     'certitrust' => [
         'enabled' => env('CERTITRUST_CHAIN_ENABLED', false),
-        'rpc_url' => env('POLYGON_AMOY_RPC_URL', 'https://rpc-amoy.polygon.technology/'),
+        'rpc_url' => env('POLYGON_AMOY_RPC_URL', 'https://polygon-amoy-bor-rpc.publicnode.com'),
+        'rpc_fallback_urls' => array_filter(array_map('trim', explode(',', (string) env(
+            'POLYGON_AMOY_RPC_FALLBACK_URLS',
+            'https://rpc-amoy.polygon.technology/'
+        )))),
         'chain_id' => env('POLYGON_AMOY_CHAIN_ID', 80002),
         'contract_address' => env('CERTITRUST_CONTRACT_ADDRESS'),
         'private_key' => env('CERTITRUST_SIGNER_PRIVATE_KEY'),

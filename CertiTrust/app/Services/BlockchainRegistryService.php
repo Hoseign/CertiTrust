@@ -2,11 +2,12 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Web3p\EthereumTx\Transaction;
-use Kornrunner\Keccak;
+use kornrunner\Keccak;
 
 class BlockchainRegistryService
 {
@@ -145,20 +146,55 @@ class BlockchainRegistryService
 
     private function rpc(string $url, string $method, array $params): string
     {
-        $response = Http::timeout(25)->acceptJson()->post($url, [
-            'jsonrpc' => '2.0',
-            'id' => 1,
-            'method' => $method,
-            'params' => $params,
-        ]);
-        $payload = $response->json();
+        $urls = array_values(array_unique(array_filter(array_merge(
+            [$url],
+            (array) config('services.certitrust.rpc_fallback_urls', []),
+        ))));
+        $lastFailure = null;
 
-        if (!$response->successful() || isset($payload['error']) || !array_key_exists('result', $payload ?? [])) {
-            $message = $payload['error']['message'] ?? 'Polygon RPC request failed.';
-            throw new RuntimeException($message);
+        foreach ($urls as $index => $endpoint) {
+            try {
+                $response = Http::timeout(25)->acceptJson()->post($endpoint, [
+                    'jsonrpc' => '2.0',
+                    'id' => 1,
+                    'method' => $method,
+                    'params' => $params,
+                ]);
+            } catch (ConnectionException $exception) {
+                $lastFailure = $exception;
+                if ($index < count($urls) - 1) {
+                    Log::warning('Polygon Amoy RPC endpoint was unreachable; trying a fallback.', [
+                        'method' => $method,
+                        'endpoint_index' => $index,
+                    ]);
+                }
+                continue;
+            }
+
+            if (!$response->successful()) {
+                $lastFailure = new RuntimeException(
+                    "Polygon RPC returned HTTP {$response->status()}."
+                );
+                continue;
+            }
+
+            $payload = $response->json();
+            if (isset($payload['error'])) {
+                throw new RuntimeException($payload['error']['message'] ?? 'Polygon RPC request failed.');
+            }
+            if (!is_array($payload) || !array_key_exists('result', $payload)) {
+                $lastFailure = new RuntimeException('Polygon RPC returned an invalid response.');
+                continue;
+            }
+
+            return (string) $payload['result'];
         }
 
-        return (string) $payload['result'];
+        throw new RuntimeException(
+            'All configured Polygon Amoy RPC endpoints failed: '
+                . ($lastFailure?->getMessage() ?? 'no RPC endpoints are configured.'),
+            previous: $lastFailure,
+        );
     }
 
     private function addressFromPrivateKey(string $privateKey): string

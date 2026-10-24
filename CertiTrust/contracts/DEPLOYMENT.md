@@ -15,12 +15,15 @@ Set these values in the Laravel `.env` locally and in Render's environment setti
 
 ```dotenv
 CERTITRUST_CHAIN_ENABLED=true
-POLYGON_AMOY_RPC_URL=https://rpc-amoy.polygon.technology/
+POLYGON_AMOY_RPC_URL=https://polygon-amoy-bor-rpc.publicnode.com
+POLYGON_AMOY_RPC_FALLBACK_URLS=https://rpc-amoy.polygon.technology/
 POLYGON_AMOY_CHAIN_ID=80002
 CERTITRUST_CONTRACT_ADDRESS=0xYOUR_DEPLOYED_CONTRACT_ADDRESS
 CERTITRUST_SIGNER_PRIVATE_KEY=YOUR_TEST_WALLET_PRIVATE_KEY
 CERTITRUST_CONTRACT_ABI_PATH=contracts/build/contracts_CertiTrustRegistry_sol_CertiTrustRegistry.abi
 ```
+
+The service tries `POLYGON_AMOY_RPC_URL` first, then each comma-separated URL in `POLYGON_AMOY_RPC_FALLBACK_URLS` if the endpoint is unreachable or returns an HTTP failure. Public RPC services can rate-limit requests; use a provider-issued Amoy URL if needed.
 
 Never commit `.env`, paste a private key into chat, or put the signer key in a React `VITE_*` or Flutter `--dart-define` variable. Fund the signer with Amoy test MATIC. After changing Render environment values, restart/redeploy the service.
 
