@@ -1,39 +1,37 @@
 
+import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './context/AuthContext.jsx'
 import { isSuperAdminSession } from './services/authService'
+import CertiTrustLoadingIndicator from './components/CertiTrustLoadingIndicator'
 
-// Admin pages
-import Dashboard from './pages/admin/dashboard'
-import PsuAdminDashboard from './pages/admin/PsuAdminDashboard'
-import Certificates from './pages/admin/certificates'
-import AuthPage from './pages/admin/AuthPage'
-import Notifications from './pages/admin/notifications'
-import Profile from './pages/admin/profile'
-import Records from './pages/admin/records.'
-import Verification from './pages/admin/verification'
-import AskQ from './pages/admin/AskQ'
-
-// Student pages
-import StudentPortal from './pages/students/studentPortal'
-import CertificateVerification from './pages/students/certificateVerification'
-import StudentInbox from './pages/students/studentInbox'
-import StudentChat from './pages/students/studentChat'
-import StudentRecords from './pages/students/StudentRecords'
-import StudentProfile from './pages/students/StudentProfile'
-
-// Super Admin pages
-import SuperAdminDashboard from './pages/superadmin/SuperAdminDashboard'
-import SuperAdminRecords from './pages/superadmin/SuperAdminRecords'
-import SuperAdminVerify from './pages/superadmin/SuperAdminVerify'
-import SuperAdminAsk from './pages/superadmin/SuperAdminAsk'
-import SuperAdminCreateSubadmin from './pages/superadmin/SuperAdminCreateSubadmin'
-import SuperAdminLogs from './pages/superadmin/SuperAdminLogs'
-import SuperAdminFreezeAccess from './pages/superadmin/SuperAdminFreezeAccess'
-import SuperAdminStudentAccess from './pages/superadmin/SuperAdminStudentAccess'
-import SuperAdminDeletionRequests from './pages/superadmin/SuperAdminDeletionRequests'
-import SuperAdminChat from './pages/superadmin/SuperAdminChat'
-import SuperAdminJunk from './pages/superadmin/SuperAdminJunk'
+const Dashboard = lazy(() => import('./pages/admin/dashboard'))
+const StudentAccess = lazy(() => import('./pages/admin/StudentAccess'))
+const PsuAdminDashboard = lazy(() => import('./pages/admin/PsuAdminDashboard'))
+const Certificates = lazy(() => import('./pages/admin/certificates'))
+const AuthPage = lazy(() => import('./pages/admin/AuthPage'))
+const Notifications = lazy(() => import('./pages/admin/notifications'))
+const Profile = lazy(() => import('./pages/admin/profile'))
+const Records = lazy(() => import('./pages/admin/records.'))
+const Verification = lazy(() => import('./pages/admin/verification'))
+const AskQ = lazy(() => import('./pages/admin/AskQ'))
+const StudentPortal = lazy(() => import('./pages/students/studentPortal'))
+const CertificateVerification = lazy(() => import('./pages/students/certificateVerification'))
+const StudentInbox = lazy(() => import('./pages/students/studentInbox'))
+const StudentChat = lazy(() => import('./pages/students/studentChat'))
+const StudentRecords = lazy(() => import('./pages/students/StudentRecords'))
+const StudentProfile = lazy(() => import('./pages/students/StudentProfile'))
+const SuperAdminDashboard = lazy(() => import('./pages/superadmin/SuperAdminDashboard'))
+const SuperAdminRecords = lazy(() => import('./pages/superadmin/SuperAdminRecords'))
+const SuperAdminVerify = lazy(() => import('./pages/superadmin/SuperAdminVerify'))
+const SuperAdminAsk = lazy(() => import('./pages/superadmin/SuperAdminAsk'))
+const SuperAdminCreateSubadmin = lazy(() => import('./pages/superadmin/SuperAdminCreateSubadmin'))
+const SuperAdminLogs = lazy(() => import('./pages/superadmin/SuperAdminLogs'))
+const SuperAdminFreezeAccess = lazy(() => import('./pages/superadmin/SuperAdminFreezeAccess'))
+const SuperAdminStudentAccess = lazy(() => import('./pages/superadmin/SuperAdminStudentAccess'))
+const SuperAdminDeletionRequests = lazy(() => import('./pages/superadmin/SuperAdminDeletionRequests'))
+const SuperAdminChat = lazy(() => import('./pages/superadmin/SuperAdminChat'))
+const SuperAdminJunk = lazy(() => import('./pages/superadmin/SuperAdminJunk'))
 
 function getLandingPath(user) {
     if (!user) return '/login'
@@ -94,6 +92,11 @@ function App() {
     const isSuperAdmin = isSuperAdminSession(user);
 
     return (
+        <Suspense fallback={
+            <main className="flex min-h-screen items-center justify-center bg-[#F6F8FC]">
+                <CertiTrustLoadingIndicator size={96} message="Loading CertiTrust..." className="text-sm font-medium text-slate-600" />
+            </main>
+        }>
         <Routes>
             {/* Login / splash */}
             <Route path="/" element={isAuthenticated ? <Navigate to={getLandingPath(user)} replace /> : <AuthPage />} />
@@ -141,6 +144,7 @@ function App() {
             <Route path="/certificates" element={admin(<Certificates />)} />
             <Route path="/inbox" element={<Navigate to="/ansq" replace />} />
             <Route path="/notifications" element={admin(<Notifications />)} />
+            <Route path="/student-accounts" element={admin(<StudentAccess />)} />
             <Route path="/verification" element={admin(<Verification />)} />
 
             {/* Student */}
@@ -152,6 +156,7 @@ function App() {
             <Route path="/ask-admin" element={student(<StudentChat />)} />
             <Route path="*" element={<Navigate to={isAuthenticated ? getLandingPath(user) : '/login'} replace />} />
         </Routes>
+        </Suspense>
     )
 }
 

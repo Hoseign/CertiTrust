@@ -6,12 +6,12 @@ const menuItems = [
     { name: "Create Subadmin Account", path: "/superadmin/create-subadmin", icon: "+" },
     { name: "University Access", path: "/superadmin/freeze-access", icon: "◉" },
     { name: "Deletion Requests", path: "/superadmin/deletion-requests", icon: "⌛" },
-    { name: "Junk", path: "/superadmin/junk", icon: "▣" },
+    { name: "Junk / Recycle Bin", path: "/superadmin/junk", icon: "▣" },
     { name: "Global Credential Logs", path: "/superadmin/logs", icon: "EQ" },
     { name: "Records", path: "/superadmin/records", icon: "▤" },
     { name: "Issue Certificates", path: "/superadmin/issue", icon: "↑" },
     { name: "Verify", path: "/superadmin/verify", icon: "✓" },
-    { name: "Ask", path: "/superadmin/ask", icon: "?" },
+    { name: "AnsQ", path: "/superadmin/ask", icon: "?" },
 ];
 
 export default function SuperAdminSideBar() {

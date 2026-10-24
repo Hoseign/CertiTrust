@@ -194,7 +194,7 @@ class _AdminManagementScreenState extends State<AdminManagementScreen>
       builder: (context) => AlertDialog(
         title: const Text('Remove subadmin'),
         content: Text(
-            'Remove ${admin['name'] ?? admin['email']} from ${admin['university_code']}?'),
+            'Remove ${admin['name'] ?? admin['email']} from ${admin['university_code']}? Their account and associated student records will be moved to Junk.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -213,8 +213,9 @@ class _AdminManagementScreenState extends State<AdminManagementScreen>
       if (!mounted) return;
       await _loadAdmins();
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Subadmin removed.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Subadmin and associated student records moved to Junk.'),
+      ));
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -665,15 +666,17 @@ class _AdminManagementScreenState extends State<AdminManagementScreen>
                                 : Colors.red,
                           ),
                           const SizedBox(width: 6),
-                          Text(
-                            frozenStudents.isEmpty
-                                ? 'Frozen students: None'
-                                : 'Frozen students: ${frozenStudents.length}',
-                            style: TextStyle(
-                              color: frozenStudents.isEmpty
-                                  ? Colors.green
-                                  : Colors.red,
-                              fontWeight: FontWeight.w600,
+                          Flexible(
+                            child: Text(
+                              frozenStudents.isEmpty
+                                  ? 'Frozen students: None'
+                                  : 'Frozen students: ${frozenStudents.length}',
+                              style: TextStyle(
+                                color: frozenStudents.isEmpty
+                                    ? Colors.green
+                                    : Colors.red,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ],

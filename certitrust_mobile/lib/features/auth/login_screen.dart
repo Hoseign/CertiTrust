@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -109,15 +111,9 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       if (e is ApiRequestException) {
-        final isAccountWarning =
-            e.statusCode == 403 || e.statusCode == 401 || e.statusCode == 422;
         final lowerMessage = e.message.toLowerCase();
-        final isUnregisteredAccount = isAccountWarning ||
-            lowerMessage.contains('not registered') ||
-            lowerMessage.contains('wrong account') ||
-            lowerMessage.contains('not found') ||
-            lowerMessage.contains('invalid google') ||
-            lowerMessage.contains('authentication failed');
+        final isUnregisteredAccount =
+            e.statusCode == 403 || lowerMessage.contains('not registered');
 
         if (isUnregisteredAccount) {
           await ApiService.logout();
@@ -182,6 +178,10 @@ class _LoginScreenState extends State<LoginScreen> {
   String _signInErrorMessage(Object error) {
     if (error is ApiRequestException) {
       return 'The API rejected the sign-in request (${error.statusCode}).\n\n${error.message}';
+    }
+    if (error is TimeoutException) {
+      return error.message ??
+          'The authentication server took too long to respond. Please try again shortly.';
     }
     return 'We could not complete Google sign-in.\n\n${error.toString()}\n\nAPI: ${ApiService.baseUrl}';
   }

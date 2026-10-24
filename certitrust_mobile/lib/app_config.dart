@@ -1,7 +1,15 @@
 class AppConfig {
+  static const String productionApiUrl =
+      'https://certitrust-yhzl.onrender.com/api';
+  static const String _apiUrlOverride =
+      String.fromEnvironment('CERTITRUST_API_URL');
+  static String get apiBaseUrl =>
+      _apiUrlOverride.isEmpty ? productionApiUrl : _apiUrlOverride;
+
   // Supabase Configuration
   static const String supabaseUrl = 'https://iyihdmwblpxriuoxfrys.supabase.co';
-  static const String supabasePublishableKey = 'sb_publishable_8CWcmw0xfJch5y-TwTfz3w_PcMPXaMh';
+  static const String supabasePublishableKey =
+      'sb_publishable_8CWcmw0xfJch5y-TwTfz3w_PcMPXaMh';
 
   // Polygon Amoy Testnet RPC
   static const String polygonRpcUrl = 'https://rpc-amoy.polygon.technology/';

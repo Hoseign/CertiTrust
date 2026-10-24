@@ -69,30 +69,28 @@
     position: relative;
     display: inline-block;
     flex: none;
+    overflow: hidden;
+    border-radius: 22%;
+    background: #0a192f;
 }
 
 .certitrust-loading-mark img,
 .certitrust-loading-fill {
     position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
+    inset: 12%;
+    width: 76%;
+    height: 76%;
     object-fit: contain;
 }
 
 .certitrust-loading-mark img {
-    opacity: 0.16;
+    opacity: 0.65;
 }
 
 .certitrust-loading-fill {
-    background: linear-gradient(
-        to top,
-        #003366 0%,
-        #1684d8 52%,
-        #d4af37 100%
-    );
-    -webkit-mask: url("/certitrustlogo.png") center / contain no-repeat;
-    mask: url("/certitrustlogo.png") center / contain no-repeat;
+    background: #fff;
+    -webkit-mask: url("/certitrustlogo-loading.png") center / contain no-repeat;
+    mask: url("/certitrustlogo-loading.png") center / contain no-repeat;
     animation: mobileSplashFill 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
 

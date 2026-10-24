@@ -7,6 +7,7 @@ use App\Models\AdminActionLog;
 use App\Models\UniversityAccessControl;
 use App\Models\University;
 use App\Models\User;
+use App\Models\ChatMessage;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
@@ -786,57 +787,44 @@ class AuthController extends Controller
             ], 403);
         }
 
-        $targetEmail = $user->email;
-        $universityCode = $user->university_code;
-        $studentUserId = $user->id;
-        $actorEmail = $admin->email;
-        $deletedCertificates = DB::transaction(function () use (
-            $user,
-            $targetEmail,
-            $universityCode,
-            $actorEmail,
-        ): int {
-            $user->tokens()->delete();
+        if (!Schema::hasTable('student_deletion_requests') || !Schema::hasTable('junk_items')) {
+            return response()->json([
+                'message' => 'The recycle bin is not available yet. Apply the pending database migrations before requesting student removal.',
+            ], 503);
+        }
 
-            $certificateQuery = DB::table('certificates')
-                ->where('university_code', $universityCode)
-                ->where(function ($query) use ($targetEmail) {
-                    $query->whereRaw('LOWER(TRIM(student_email)) = ?', [
-                        strtolower(trim($targetEmail)),
-                    ])->orWhereRaw('LOWER(TRIM(email)) = ?', [
-                        strtolower(trim($targetEmail)),
-                    ]);
-                });
-            $certificates = $certificateQuery->get([
-                'certificate_code',
-                'cert_hash',
-                'university_code',
-            ]);
-            $this->recordRevokedCredentialIdentifiers($certificates, $actorEmail);
-            $deletedCertificates = $certificateQuery->delete();
-            $user->delete();
+        $pending = DB::table('student_deletion_requests')
+            ->where('student_user_id', $user->id)
+            ->where('status', 'pending')
+            ->exists();
+        if ($pending) {
+            return response()->json([
+                'message' => 'A removal request for this student is already waiting for Super Admin approval.',
+            ], 409);
+        }
 
-            return $deletedCertificates;
-        });
+        $requestId = DB::table('student_deletion_requests')->insertGetId([
+            'student_user_id' => $user->id,
+            'requested_by' => $admin->id,
+            'student_name' => $user->name,
+            'student_email' => $user->email,
+            'university_code' => $user->university_code,
+            'status' => 'pending',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         $this->logAdminAction(
-            'deleted_student_account',
-            $targetEmail,
-            $universityCode,
-            [
-                'student_user_id' => $studentUserId,
-                'deleted_certificate_count' => $deletedCertificates,
-            ],
+            'requested_student_removal',
+            $user->email,
+            $user->university_code,
+            ['student_user_id' => $user->id, 'request_id' => $requestId],
         );
 
         return response()->json([
-            'message' => 'Student account and issued database credentials were removed. Immutable blockchain transactions remain on-chain.',
-            'data' => [
-                'deleted_user_id' => $studentUserId,
-                'university_code' => $universityCode,
-                'deleted_certificate_count' => $deletedCertificates,
-            ],
-        ]);
+            'message' => 'Student removal request sent to the Super Admin for approval.',
+            'data' => ['request_id' => $requestId, 'status' => 'pending'],
+        ], 202);
     }
 
     public function purgeAccountsAndCredentials(Request $request)
@@ -871,6 +859,12 @@ class AuthController extends Controller
             UniversityAccessControl::query()->delete();
             $universityCount = University::query()->count();
             University::query()->delete();
+            $junkCount = Schema::hasTable('junk_items')
+                ? DB::table('junk_items')->delete()
+                : 0;
+            $studentRemovalRequestCount = Schema::hasTable('student_deletion_requests')
+                ? DB::table('student_deletion_requests')->delete()
+                : 0;
 
             return [
                 'deleted_subadmin_count' => $subadminCount,
@@ -878,6 +872,8 @@ class AuthController extends Controller
                 'deleted_account_count' => $accountCount,
                 'deleted_certificate_count' => $certificateCount,
                 'deleted_university_count' => $universityCount,
+                'deleted_junk_item_count' => $junkCount,
+                'deleted_student_removal_request_count' => $studentRemovalRequestCount,
             ];
         });
 
@@ -898,147 +894,199 @@ class AuthController extends Controller
         ]);
     }
 
-    public function listDeletedSubadminUniversities(Request $request)
+    public function listJunkItems(Request $request)
     {
         $this->ensureSuperAdmin($request);
 
-        if (!Schema::hasTable('admin_action_logs')) {
-            return response()->json(['data' => []]);
-        }
-
-        $deletions = AdminActionLog::query()
-            ->where('action', 'deleted_subadmin')
-            ->whereNotNull('university_code')
-            ->latest('created_at')
-            ->get(['id', 'target_email', 'university_code', 'created_at']);
-
-        return response()->json([
-            'data' => $deletions
-                ->groupBy(fn (AdminActionLog $log) => strtoupper((string) $log->university_code))
-                ->map(function ($logs, string $code) {
-                    return [
-                        'university_code' => $code,
-                        'university_name' => University::find($code)?->university_name
-                            ?: $this->universityDisplayName($code),
-                        'deleted_subadmins' => $logs
-                            ->map(fn (AdminActionLog $log) => [
-                                'email' => $log->target_email,
-                                'deleted_at' => $log->created_at?->toISOString(),
-                            ])
-                            ->values(),
-                        'latest_deleted_at' => $logs->first()?->created_at?->toISOString(),
-                    ];
-                })
-                ->values(),
-        ]);
-    }
-
-    public function deleteJunkStudent(Request $request, string $universityCode, User $user)
-    {
-        $this->ensureSuperAdmin($request);
-        $universityCode = strtoupper($universityCode);
-        abort_unless(University::whereKey($universityCode)->exists(), 404);
-
-        if (
-            !in_array($user->role, ['student', 'user'], true)
-            || strtoupper((string) $user->university_code) !== $universityCode
-        ) {
+        if (!Schema::hasTable('junk_items')) {
             return response()->json([
-                'message' => 'The selected account is not a student at this university.',
-            ], 422);
+                'message' => 'The recycle bin is unavailable. Apply the pending database migration and try again.',
+            ], 503);
         }
 
-        $studentEmail = strtolower(trim((string) $user->email));
-        $studentName = $user->name;
-        $studentId = $user->id;
-        $actorEmail = $request->user()?->email;
-
-        $deletedCertificates = DB::transaction(function () use (
-            $user,
-            $studentEmail,
-            $universityCode,
-            $actorEmail,
-        ): int {
-            $user->tokens()->delete();
-            $certificateQuery = DB::table('certificates')
-                ->where('university_code', $universityCode)
-                ->where(function ($query) use ($studentEmail) {
-                    $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$studentEmail])
-                        ->orWhereRaw('LOWER(TRIM(email)) = ?', [$studentEmail]);
-                });
-            $certificates = $certificateQuery->get([
-                'certificate_code',
-                'cert_hash',
-                'university_code',
-            ]);
-            $this->recordRevokedCredentialIdentifiers($certificates, $actorEmail);
-            $deletedCertificates = $certificateQuery->delete();
-            $user->delete();
-
-            return $deletedCertificates;
-        });
-
-        $this->logAdminAction(
-            'purged_student_record',
-            $studentEmail,
-            $universityCode,
-            [
-                'student_user_id' => $studentId,
-                'student_name' => $studentName,
-                'deleted_certificate_count' => $deletedCertificates,
-            ],
-        );
-
         return response()->json([
-            'message' => 'Student account and its database certificate records were permanently deleted.',
-            'deleted_certificate_count' => $deletedCertificates,
+            'data' => DB::table('junk_items')
+                ->latest('deleted_at')
+                ->get()
+                ->map(function (object $item): array {
+                    $payload = json_decode($item->payload, true);
+                    $certificates = is_array($payload['certificates'] ?? null)
+                        ? $payload['certificates']
+                        : [];
+
+                    return [
+                        'id' => (int) $item->id,
+                        'record_type' => $item->record_type,
+                        'university_code' => $item->university_code,
+                        'university_name' => $this->universityDisplayName($item->university_code),
+                        'student_user_id' => $item->student_user_id,
+                        'student_name' => $item->student_name,
+                        'student_email' => $item->student_email,
+                        'student_id' => $item->student_id,
+                        'source' => $item->source,
+                        'deleted_by_email' => $item->deleted_by_email,
+                        'deleted_at' => $item->deleted_at,
+                        'credential_count' => count($certificates),
+                        'payload' => $payload,
+                    ];
+                }),
         ]);
     }
 
-    public function deleteJunkUniversityRecords(Request $request, string $universityCode)
+    public function listStudentDeletionRequests(Request $request)
     {
         $this->ensureSuperAdmin($request);
-        $universityCode = strtoupper($universityCode);
-        abort_unless(University::whereKey($universityCode)->exists(), 404);
-
-        $actorEmail = $request->user()?->email;
-        [$deletedStudents, $deletedCertificates] = DB::transaction(function () use ($universityCode, $actorEmail): array {
-            $students = User::whereIn('role', ['student', 'user'])
-                ->where('university_code', $universityCode)
-                ->get();
-            $students->each(fn (User $student) => $student->tokens()->delete());
-            $certificateQuery = DB::table('certificates')
-                ->where('university_code', $universityCode);
-            $certificates = $certificateQuery->get([
-                'certificate_code',
-                'cert_hash',
-                'university_code',
-            ]);
-            $this->recordRevokedCredentialIdentifiers($certificates, $actorEmail);
-            $deletedCertificates = $certificateQuery->delete();
-            $deletedStudents = User::whereIn('role', ['student', 'user'])
-                ->where('university_code', $universityCode)
-                ->delete();
-
-            return [$deletedStudents, $deletedCertificates];
-        });
-
-        $this->logAdminAction(
-            'purged_university_student_records',
-            null,
-            $universityCode,
-            [
-                'deleted_student_count' => $deletedStudents,
-                'deleted_certificate_count' => $deletedCertificates,
-                'university_registration_retained' => true,
-            ],
-        );
+        if (!Schema::hasTable('student_deletion_requests')) {
+            return response()->json([
+                'message' => 'Student removal requests are unavailable. Apply the pending database migration and try again.',
+            ], 503);
+        }
 
         return response()->json([
-            'message' => 'All student accounts and database certificate records for this university were permanently deleted. University registration and immutable blockchain transactions were retained.',
-            'deleted_student_count' => $deletedStudents,
-            'deleted_certificate_count' => $deletedCertificates,
+            'data' => DB::table('student_deletion_requests')
+                ->latest('created_at')
+                ->get()
+                ->map(function (object $item): array {
+                    $item->requester_name = User::find($item->requested_by)?->name;
+                    return (array) $item;
+                }),
         ]);
+    }
+
+    public function reviewStudentDeletionRequest(Request $request, int $deletionRequestId)
+    {
+        $this->ensureSuperAdmin($request);
+        $validated = $request->validate([
+            'decision' => ['required', 'in:approved,rejected'],
+            'reviewer_note' => ['nullable', 'string', 'max:2000'],
+        ]);
+        if (!Schema::hasTable('student_deletion_requests') || !Schema::hasTable('junk_items')) {
+            return response()->json([
+                'message' => 'Student removal requests and the recycle bin are unavailable. Apply the pending database migrations.',
+            ], 503);
+        }
+
+        return DB::transaction(function () use ($validated, $deletionRequestId, $request) {
+            $deletion = DB::table('student_deletion_requests')
+                ->lockForUpdate()
+                ->where('id', $deletionRequestId)
+                ->first();
+            if (!$deletion) {
+                return response()->json(['message' => 'Student removal request not found.'], 404);
+            }
+            if ($deletion->status !== 'pending') {
+                return response()->json(['message' => 'This request has already been reviewed.'], 422);
+            }
+
+            $junkItemId = null;
+            if ($validated['decision'] === 'approved') {
+                $student = User::lockForUpdate()->find($deletion->student_user_id);
+                if (!$student || !in_array($student->role, ['student', 'user'], true)) {
+                    return response()->json(['message' => 'The student account no longer exists.'], 404);
+                }
+                $junkItemId = $this->moveStudentToJunk(
+                    $student,
+                    'student_removal_approved',
+                    $request->user()?->email,
+                );
+            }
+
+            DB::table('student_deletion_requests')
+                ->where('id', $deletionRequestId)
+                ->update([
+                    'status' => $validated['decision'],
+                    'reviewed_by' => $request->user()?->id,
+                    'reviewer_note' => $validated['reviewer_note'] ?? null,
+                    'reviewed_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            $this->logAdminAction(
+                'reviewed_student_removal',
+                $deletion->student_email,
+                $deletion->university_code,
+                [
+                    'request_id' => $deletionRequestId,
+                    'decision' => $validated['decision'],
+                    'junk_item_id' => $junkItemId,
+                ],
+            );
+
+            $requester = User::find($deletion->requested_by);
+            if ($requester) {
+                ChatMessage::create([
+                    'user_id' => $request->user()->id,
+                    'recipient_user_id' => $requester->id,
+                    'university_code' => $deletion->university_code,
+                    'sender_email' => $request->user()->email,
+                    'sender_name' => 'CertiTrust Super Admin',
+                    'message' => 'Student removal request for ' . $deletion->student_name
+                        . ' was ' . $validated['decision'] . '.'
+                        . ($validated['decision'] === 'approved'
+                            ? ' The account and credentials were moved to Junk for permanent deletion.'
+                            : ' The student account remains active.')
+                        . (!empty($validated['reviewer_note'])
+                            ? ' Super Admin note: ' . trim($validated['reviewer_note'])
+                            : ''),
+                    'deleted_by' => [],
+                ]);
+            }
+
+            return response()->json([
+                'data' => [
+                    'id' => $deletionRequestId,
+                    'status' => $validated['decision'],
+                    'junk_item_id' => $junkItemId,
+                ],
+            ]);
+        });
+    }
+
+    public function permanentlyDeleteJunkItem(
+        Request $request,
+        int $junkItem,
+        \App\Services\SupabaseDiplomaStorage $storage,
+    ) {
+        $this->ensureSuperAdmin($request);
+        if (!Schema::hasTable('junk_items')) {
+            return response()->json(['message' => 'The recycle bin migration has not been applied.'], 503);
+        }
+        $item = DB::table('junk_items')->where('id', $junkItem)->first();
+        if (!$item) {
+            return response()->json(['message' => 'Junk item not found.'], 404);
+        }
+
+        $payload = json_decode((string) $item->payload, true);
+        $certificates = is_array($payload)
+            && is_array($payload['certificates'] ?? null)
+                ? $payload['certificates']
+                : [];
+        if (isset($certificates['diploma_url'])) {
+            $certificates = [$certificates];
+        }
+        foreach ($certificates as $certificate) {
+            if (is_array($certificate) && is_string($certificate['diploma_url'] ?? null)
+                && trim($certificate['diploma_url']) !== '') {
+                $storageError = $storage->delete($certificate['diploma_url']);
+                if ($storageError) {
+                    return response()->json([
+                        'message' => $storageError['message'],
+                    ], $storageError['status']);
+                }
+            }
+        }
+
+        DB::transaction(function () use ($junkItem, $item): void {
+            DB::table('junk_items')->where('id', $junkItem)->delete();
+            $this->logAdminAction(
+                'permanently_deleted_junk_item',
+                $item->student_email,
+                $item->university_code,
+                ['junk_item_id' => $junkItem, 'record_type' => $item->record_type],
+            );
+        });
+
+        return response()->json(['message' => 'The item was permanently deleted from Junk.']);
     }
 
     public function updateAllStudentAccess(Request $request)
@@ -1347,20 +1395,73 @@ class AuthController extends Controller
         $universityCode = $user->university_code;
         $targetEmail = $user->email;
         $userId = $user->id;
-        $user->delete();
+        if (!Schema::hasTable('junk_items')) {
+            return response()->json([
+                'message' => 'The recycle bin is not available yet. Apply the pending database migrations before deleting subadmins.',
+            ], 503);
+        }
+
+        $movedStudentCount = DB::transaction(function () use ($user, $request): int {
+            $students = User::whereIn('role', ['student', 'user'])
+                ->where('university_code', $user->university_code)
+                ->lockForUpdate()
+                ->get();
+            foreach ($students as $student) {
+                $this->moveStudentToJunk(
+                    $student,
+                    'subadmin_removed',
+                    $request->user()?->email,
+                );
+            }
+            if (Schema::hasTable('student_deletion_requests')) {
+                DB::table('student_deletion_requests')
+                    ->whereIn('student_user_id', $students->pluck('id'))
+                    ->where('status', 'pending')
+                    ->update([
+                        'status' => 'approved',
+                        'reviewed_by' => $request->user()?->id,
+                        'reviewer_note' => 'Moved to Junk when the university subadmin was removed.',
+                        'reviewed_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+            }
+            $user->tokens()->delete();
+            DB::table('junk_items')->insert([
+                'record_type' => 'subadmin_account',
+                'university_code' => $user->university_code,
+                'student_name' => $user->name,
+                'student_email' => $user->email,
+                'source' => 'subadmin_removed',
+                'deleted_by_email' => $request->user()?->email,
+                'payload' => json_encode([
+                    'subadmin' => $user->only(['id', 'name', 'email', 'role', 'university_code']),
+                ], JSON_THROW_ON_ERROR),
+                'deleted_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $user->delete();
+
+            return $students->count();
+        });
 
         $this->logAdminAction(
             'deleted_subadmin',
             $targetEmail,
             $universityCode,
-            ['label' => 'Deleted university admin account', 'deleted_user_id' => $userId]
+            [
+                'label' => 'Deleted university admin account',
+                'deleted_user_id' => $userId,
+                'moved_student_count' => $movedStudentCount,
+            ]
         );
 
         return response()->json([
-            'message' => 'University subadmin account removed successfully.',
+            'message' => 'University subadmin was removed. The subadmin and their student records were moved to Junk.',
             'data' => [
                 'university_code' => $universityCode,
                 'deleted_user_id' => $userId,
+                'moved_student_count' => $movedStudentCount,
             ],
         ]);
     }
@@ -1567,6 +1668,60 @@ class AuthController extends Controller
         if ($revoked !== []) {
             DB::table('revoked_credentials')->insert($revoked);
         }
+    }
+
+    private function moveStudentToJunk(
+        User $student,
+        string $source,
+        ?string $actorEmail,
+    ): int {
+        if (!Schema::hasTable('junk_items')) {
+            abort(503, 'The recycle bin migration has not been applied.');
+        }
+        $universityCode = (string) $student->university_code;
+        $studentEmail = strtolower(trim((string) $student->email));
+        $certificateQuery = DB::table('certificates')
+            ->where('university_code', $universityCode)
+            ->where(function ($query) use ($studentEmail) {
+                $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$studentEmail])
+                    ->orWhereRaw('LOWER(TRIM(email)) = ?', [$studentEmail]);
+            });
+        $certificates = $certificateQuery->get();
+        $certificatePayload = $certificates
+            ->map(fn (object $certificate): array => (array) $certificate)
+            ->all();
+
+        $junkItemId = DB::table('junk_items')->insertGetId([
+            'record_type' => 'student_account',
+            'university_code' => $universityCode,
+            'student_user_id' => $student->id,
+            'student_name' => $student->name,
+            'student_email' => $student->email,
+            'student_id' => $certificates->first()?->student_id,
+            'source' => $source,
+            'deleted_by_email' => $actorEmail,
+            'payload' => json_encode([
+                'student' => $student->only([
+                    'id',
+                    'name',
+                    'email',
+                    'role',
+                    'university_code',
+                    'created_at',
+                ]),
+                'certificates' => $certificatePayload,
+            ], JSON_THROW_ON_ERROR),
+            'deleted_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->recordRevokedCredentialIdentifiers($certificates, $actorEmail);
+        $certificateQuery->delete();
+        $student->tokens()->delete();
+        $student->delete();
+
+        return $junkItemId;
     }
 
     private function universityDisplayName(?string $code): string

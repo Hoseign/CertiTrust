@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import SuperAdminSideBar from "../../components/SuperAdminSideBar";
 import CertiTrustLoadingIndicator from "../../components/CertiTrustLoadingIndicator";
-import { listDeletionRequests, reviewDeletionRequest } from "../../services/adminApi";
+import {
+    listDeletionRequests,
+    listStudentDeletionRequests,
+    reviewDeletionRequest,
+    reviewStudentDeletionRequest,
+} from "../../services/adminApi";
 
 type DeletionRequest = {
     id: number;
@@ -17,10 +22,20 @@ type DeletionRequest = {
     concern: string;
 };
 
+type StudentDeletionRequest = {
+    id: number;
+    student: string;
+    email: string;
+    school: string;
+    requestedBy: string;
+    status: string;
+};
+
 export default function SuperAdminDeletionRequests() {
     const navigate = useNavigate();
     const [selected, setSelected] = useState<DeletionRequest | null>(null);
     const [requests, setRequests] = useState<DeletionRequest[]>([]);
+    const [studentRequests, setStudentRequests] = useState<StudentDeletionRequest[]>([]);
     const [reviewerNote, setReviewerNote] = useState("");
     const [isLoading, setIsLoading] = useState(true);
     const [isReviewing, setIsReviewing] = useState(false);
@@ -29,7 +44,10 @@ export default function SuperAdminDeletionRequests() {
     const refresh = async (silent = false) => {
         if (!silent) setIsLoading(true);
         try {
-            const records = await listDeletionRequests();
+            const [records, studentRecords] = await Promise.all([
+                listDeletionRequests(),
+                listStudentDeletionRequests(),
+            ]);
             setRequests(records.map((record) => ({
                 id: Number(record.id),
                 student: String(record.student_name || "Student"),
@@ -41,6 +59,14 @@ export default function SuperAdminDeletionRequests() {
                 requestedBy: String(record.requester_name || record.requester_email || "University admin"),
                 status: String(record.status || "pending"),
                 concern: String(record.reason || ""),
+            })));
+            setStudentRequests(studentRecords.map((record) => ({
+                id: Number(record.id),
+                student: String(record.student_name || "Student"),
+                email: String(record.student_email || "Not recorded"),
+                school: String(record.university_code || ""),
+                requestedBy: String(record.requester_name || "University subadmin"),
+                status: String(record.status || "pending"),
             })));
             setError("");
         } catch (requestError) {
@@ -75,6 +101,28 @@ export default function SuperAdminDeletionRequests() {
         }
     };
 
+    const reviewStudent = async (
+        request: StudentDeletionRequest,
+        decision: "approved" | "rejected",
+    ) => {
+        if (decision === "approved" && !window.confirm(
+            `Move ${request.student} and their database credentials to Junk? They will only be permanently deleted if you later choose Permanently delete in the recycle bin.`,
+        )) return;
+        setIsReviewing(true);
+        setError("");
+        try {
+            await reviewStudentDeletionRequest(request.id, decision, reviewerNote.trim() || undefined);
+            setReviewerNote("");
+            await refresh(true);
+        } catch (requestError) {
+            const message = (requestError as { response?: { data?: { message?: string } } })
+                .response?.data?.message;
+            setError(message || "Unable to review this student removal request.");
+        } finally {
+            setIsReviewing(false);
+        }
+    };
+
     useEffect(() => {
         if (!selected) return;
         const onKey = (e: KeyboardEvent) => {
@@ -100,10 +148,39 @@ export default function SuperAdminDeletionRequests() {
 
                     {/* HEADER */}
                     <h1 className="text-3xl font-extrabold text-[#0A192F] mb-8">
-                        Credential Deletion Requests
+                        Deletion Requests
                     </h1>
                     {error && <p role="alert" className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
+                    <h2 className="mb-4 text-xl font-bold text-[#0A192F]">Student account removal requests</h2>
+                    <p className="mb-4 text-sm text-slate-600">Approval moves the student account and its database credentials to Junk. Nothing is permanently deleted until you delete it from the recycle bin.</p>
+                    <div className="mb-10 divide-y divide-gray-200 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                        {studentRequests.length === 0 ? (
+                            <p className="p-6 text-sm text-slate-500">No student account removal requests.</p>
+                        ) : studentRequests.map((request) => (
+                            <article key={request.id} className="flex flex-wrap items-center justify-between gap-4 p-5">
+                                <div>
+                                    <p className="font-semibold text-[#0A192F]">{request.student}</p>
+                                    <p className="mt-1 text-sm text-slate-600">{request.email} · {request.school}</p>
+                                    <p className="mt-1 text-xs text-slate-500">Requested by {request.requestedBy} · {request.status}</p>
+                                </div>
+                                {request.status === "pending" && (
+                                    <div className="flex flex-wrap gap-2">
+                                        <button type="button" disabled={isReviewing} onClick={() => void reviewStudent(request, "rejected")} className="min-h-10 rounded-lg border border-slate-300 px-3 font-semibold text-slate-700 disabled:opacity-50">Reject</button>
+                                        <button type="button" disabled={isReviewing} onClick={() => void reviewStudent(request, "approved")} className="min-h-10 rounded-lg bg-blue-800 px-3 font-bold text-white disabled:opacity-50">Approve and move to Junk</button>
+                                    </div>
+                                )}
+                            </article>
+                        ))}
+                        {studentRequests.some((request) => request.status === "pending") && (
+                            <div className="p-4">
+                                <label className="mb-1 block text-sm font-semibold text-slate-700" htmlFor="student-review-note">Super Admin note (optional)</label>
+                                <input id="student-review-note" value={reviewerNote} onChange={(event) => setReviewerNote(event.target.value)} className="min-h-10 w-full rounded-lg border border-slate-300 px-3" />
+                            </div>
+                        )}
+                    </div>
+
+                    <h2 className="mb-4 text-xl font-bold text-[#0A192F]">Credential deletion requests</h2>
                     {/* REQUESTS */}
                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
 
@@ -266,7 +343,7 @@ export default function SuperAdminDeletionRequests() {
                                 {selected.status === "pending" && (
                                     <div className="flex gap-3">
                                         <button type="button" disabled={isReviewing} onClick={() => void review("rejected")} className="min-h-11 rounded-lg border border-red-300 px-4 font-semibold text-red-700 disabled:opacity-50">Reject</button>
-                                        <button type="button" disabled={isReviewing} onClick={() => void review("approved")} className="min-h-11 rounded-lg bg-emerald-700 px-4 font-semibold text-white disabled:opacity-50">Approve</button>
+                                        <button type="button" disabled={isReviewing} onClick={() => void review("approved")} className="min-h-11 rounded-lg bg-emerald-700 px-4 font-semibold text-white disabled:opacity-50">Approve and move to Junk</button>
                                     </div>
                                 )}
 

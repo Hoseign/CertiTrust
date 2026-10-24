@@ -64,15 +64,18 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
 
   Future<void> _reload() async {
     if (_isRefreshing) return;
-    final refresh = ApiService.getUniversityStudents(
-      universityCode: widget.universityCode,
-    );
     setState(() {
       _isRefreshing = true;
-      _studentsFuture = refresh;
     });
     try {
-      await refresh;
+      final refresh = await ApiService.getUniversityStudents(
+        universityCode: widget.universityCode,
+      );
+      if (mounted) {
+        setState(() {
+          _studentsFuture = Future.value(refresh);
+        });
+      }
     } finally {
       if (mounted) setState(() => _isRefreshing = false);
     }
@@ -199,9 +202,9 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Remove student account?'),
+        title: const Text('Request student removal?'),
         content: Text(
-          'Permanently remove the sign-in account and issued database credentials for $label? Their QR codes will no longer verify. Blockchain transactions cannot be erased.',
+          'Send a request to the Super Admin to remove $label? The student account remains active until approved. If approved, the account and credentials will move to Junk for permanent deletion. Blockchain history cannot be erased.',
         ),
         actions: [
           TextButton(
@@ -210,7 +213,7 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Remove account'),
+            child: const Text('Send request'),
           ),
         ],
       ),
@@ -222,10 +225,10 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
       final result = await ApiService.deleteStudentAccount(userId: studentId);
       await _reload();
       if (mounted) {
-        final deletedCount = result['data']?['deleted_certificate_count'] ?? 0;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
-            '$label’s account and $deletedCount database credential(s) were removed. Blockchain transactions remain on-chain.',
+            result['message']?.toString() ??
+                'Student removal request sent to the Super Admin.',
           ),
         ));
       }
@@ -644,7 +647,7 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
                                     if (!widget.superAdminView)
                                       const PopupMenuItem(
                                         value: 'delete',
-                                        child: Text('Remove student account'),
+                                        child: Text('Request student removal'),
                                       ),
                                   ],
                                 ),

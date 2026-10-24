@@ -9,7 +9,6 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use App\Services\SupabaseDiplomaStorage;
 
 class CertificateDeletionRequestController extends Controller
 {
@@ -72,8 +71,7 @@ class CertificateDeletionRequestController extends Controller
 
     public function review(
         Request $request,
-        int $deletionRequestId,
-        SupabaseDiplomaStorage $storage
+        int $deletionRequestId
     ) {
         $reviewer = $request->user();
         if (!$this->isSuperAdmin($reviewer?->email)) {
@@ -85,7 +83,7 @@ class CertificateDeletionRequestController extends Controller
             'reviewer_note' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        return DB::transaction(function () use ($validated, $reviewer, $deletionRequestId, $storage) {
+        return DB::transaction(function () use ($validated, $reviewer, $deletionRequestId) {
             $deletionRequest = CertificateDeletionRequest::lockForUpdate()->find($deletionRequestId);
             if (!$deletionRequest) {
                 return response()->json(['message' => 'Deletion request not found.'], 404);
@@ -95,23 +93,14 @@ class CertificateDeletionRequestController extends Controller
             }
 
             if ($validated['decision'] === 'approved') {
-                if (!Schema::hasTable('revoked_credentials')) {
+                if (!Schema::hasTable('revoked_credentials') || !Schema::hasTable('junk_items')) {
                     return response()->json([
-                        'message' => 'Credential removal tracking is unavailable. Apply pending database migrations before approving deletion.',
+                        'message' => 'Credential removal tracking and the recycle bin are unavailable. Apply pending database migrations before approving deletion.',
                     ], 503);
                 }
                 $certificate = Certificate::lockForUpdate()->find($deletionRequest->certificate_id);
                 if (!$certificate) {
                     return response()->json(['message' => 'The credential no longer exists.'], 404);
-                }
-
-                if ($certificate->diploma_url) {
-                    $storageError = $storage->delete($certificate->diploma_url);
-                    if ($storageError) {
-                        return response()->json([
-                            'message' => $storageError['message'],
-                        ], $storageError['status']);
-                    }
                 }
 
                 DB::table('revoked_credentials')->insert([
@@ -120,6 +109,21 @@ class CertificateDeletionRequestController extends Controller
                     'university_code' => $certificate->university_code,
                     'revoked_by_email' => $reviewer->email,
                     'revoked_at' => now(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+                DB::table('junk_items')->insert([
+                    'record_type' => 'credential_record',
+                    'university_code' => $certificate->university_code,
+                    'student_name' => $certificate->student_name ?: $certificate->recipient_name,
+                    'student_email' => $certificate->student_email ?: $certificate->email,
+                    'student_id' => $certificate->student_id,
+                    'source' => 'credential_removal_approved',
+                    'deleted_by_email' => $reviewer->email,
+                    'payload' => json_encode([
+                        'certificates' => [$certificate->toArray()],
+                    ], JSON_THROW_ON_ERROR),
+                    'deleted_at' => now(),
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
@@ -136,7 +140,7 @@ class CertificateDeletionRequestController extends Controller
             $requester = User::find($deletionRequest->requested_by);
             if ($requester) {
                 $decisionLabel = $validated['decision'] === 'approved'
-                    ? 'approved. The credential has been deleted.'
+                    ? 'approved. The credential was moved to Junk for permanent deletion.'
                     : 'rejected. The credential remains active.';
                 $message = 'Deletion request for ' . $deletionRequest->student_name
                     . ' (Student ID ' . ($deletionRequest->student_id ?: 'N/A') . ') was '

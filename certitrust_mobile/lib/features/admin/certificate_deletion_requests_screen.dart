@@ -14,6 +14,7 @@ class CertificateDeletionRequestsScreen extends StatefulWidget {
 class _CertificateDeletionRequestsScreenState
     extends State<CertificateDeletionRequestsScreen> {
   late Future<List<Map<String, dynamic>>> _requests;
+  late Future<List<Map<String, dynamic>>> _studentRequests;
   final _noteController = TextEditingController();
   bool _isReviewing = false;
 
@@ -21,6 +22,7 @@ class _CertificateDeletionRequestsScreenState
   void initState() {
     super.initState();
     _requests = ApiService.getCertificateDeletionRequests();
+    _studentRequests = ApiService.getStudentDeletionRequests();
   }
 
   @override
@@ -31,10 +33,12 @@ class _CertificateDeletionRequestsScreenState
 
   Future<void> _refresh() async {
     final requests = ApiService.getCertificateDeletionRequests();
+    final studentRequests = ApiService.getStudentDeletionRequests();
     setState(() {
       _requests = requests;
+      _studentRequests = studentRequests;
     });
-    await requests;
+    await Future.wait([requests, studentRequests]);
   }
 
   Future<void> _openConcern(Map<String, dynamic> request) async {
@@ -131,7 +135,7 @@ class _CertificateDeletionRequestsScreenState
                         dimension: 18,
                         child: CertiTrustLoadingIndicator(size: 18),
                       )
-                    : const Text('Approve deletion'),
+                    : const Text('Approve and move to Junk'),
               ),
             ],
           ],
@@ -160,7 +164,7 @@ class _CertificateDeletionRequestsScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(decision == 'approved'
-              ? 'Credential deleted. The subadmin was notified in chat.'
+              ? 'Credential moved to Junk. The subadmin was notified in chat.'
               : 'Request rejected. The subadmin was notified in chat.'),
         ),
       );
@@ -179,6 +183,59 @@ class _CertificateDeletionRequestsScreenState
     }
   }
 
+  Future<void> _reviewStudentRequest(
+    Map<String, dynamic> request,
+    String decision,
+  ) async {
+    final approved = decision == 'approved';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+            approved ? 'Approve student removal?' : 'Reject student removal?'),
+        content: Text(approved
+            ? 'The account and its database credentials will be moved to Junk. They will not be permanently deleted until you delete them from the recycle bin.'
+            : 'The student account will remain active.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(approved ? 'Approve and move to Junk' : 'Reject'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _isReviewing = true);
+    try {
+      await ApiService.reviewStudentDeletionRequest(
+        requestId: request['id'].toString(),
+        decision: decision,
+      );
+      await _refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(approved
+                ? 'Student account moved to Junk.'
+                : 'Student removal request rejected.'),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not review request: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isReviewing = false);
+    }
+  }
+
   Widget _detail(String label, dynamic value) {
     if (value == null || value.toString().isEmpty) {
       return const SizedBox.shrink();
@@ -190,66 +247,157 @@ class _CertificateDeletionRequestsScreenState
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Credential Deletion Requests')),
-        body: FutureBuilder<List<Map<String, dynamic>>>(
-          future: _requests,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CertiTrustLoadingIndicator());
-            }
-            if (snapshot.hasError) {
-              return Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('Could not load requests: ${snapshot.error}'),
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
-                      onPressed: _refresh,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Retry'),
-                    ),
-                  ],
-                ),
-              );
-            }
-            final requests = snapshot.data ?? const [];
-            if (requests.isEmpty) {
-              return const Center(child: Text('No deletion requests yet.'));
-            }
-            return RefreshIndicator(
-              onRefresh: _refresh,
-              child: ListView.separated(
-                padding: const EdgeInsets.all(16),
-                itemCount: requests.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final request = requests[index];
-                  final pending = request['status'] == 'pending';
-                  return ListTile(
-                    leading: CircleAvatar(
-                      child: Icon(
-                          pending ? Icons.pending_actions : Icons.task_alt),
-                    ),
-                    title:
-                        Text(request['student_name']?.toString() ?? 'Student'),
-                    subtitle: Text(
-                      'ID: ${request['student_id'] ?? 'N/A'} • ${request['university_code'] ?? 'N/A'}\n'
-                      '${request['status'] ?? 'pending'} • Requested by ${request['requester_name'] ?? 'subadmin'}',
-                    ),
-                    isThreeLine: true,
-                    trailing: IconButton(
-                      tooltip: 'Read concern and review request',
-                      icon: const Icon(Icons.message_outlined),
-                      onPressed: () => _openConcern(request),
-                    ),
-                    onTap: () => _openConcern(request),
-                  );
-                },
+  Widget build(BuildContext context) => DefaultTabController(
+        length: 2,
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('Deletion Requests'),
+            bottom: const TabBar(
+              tabs: [
+                Tab(text: 'Credentials'),
+                Tab(text: 'Student accounts'),
+              ],
+            ),
+          ),
+          body: TabBarView(
+            children: [
+              _buildCredentialRequests(),
+              _buildStudentRequests(),
+            ],
+          ),
+        ),
+      );
+
+  Widget _buildCredentialRequests() =>
+      FutureBuilder<List<Map<String, dynamic>>>(
+        future: _requests,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CertiTrustLoadingIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Could not load requests: ${snapshot.error}'),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: _refresh,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry'),
+                  ),
+                ],
               ),
             );
-          },
-        ),
+          }
+          final requests = snapshot.data ?? const [];
+          if (requests.isEmpty) {
+            return const Center(child: Text('No deletion requests yet.'));
+          }
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: requests.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final request = requests[index];
+                final pending = request['status'] == 'pending';
+                return ListTile(
+                  leading: CircleAvatar(
+                    child:
+                        Icon(pending ? Icons.pending_actions : Icons.task_alt),
+                  ),
+                  title: Text(request['student_name']?.toString() ?? 'Student'),
+                  subtitle: Text(
+                    'ID: ${request['student_id'] ?? 'N/A'} • ${request['university_code'] ?? 'N/A'}\n'
+                    '${request['status'] ?? 'pending'} • Requested by ${request['requester_name'] ?? 'subadmin'}',
+                  ),
+                  isThreeLine: true,
+                  trailing: IconButton(
+                    tooltip: 'Read concern and review request',
+                    icon: const Icon(Icons.message_outlined),
+                    onPressed: () => _openConcern(request),
+                  ),
+                  onTap: () => _openConcern(request),
+                );
+              },
+            ),
+          );
+        },
+      );
+
+  Widget _buildStudentRequests() => FutureBuilder<List<Map<String, dynamic>>>(
+        future: _studentRequests,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CertiTrustLoadingIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Could not load student requests: ${snapshot.error}'),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: _refresh,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry'),
+                  ),
+                ],
+              ),
+            );
+          }
+          final requests = snapshot.data ?? const [];
+          if (requests.isEmpty) {
+            return const Center(
+              child: Text('No student account removal requests.'),
+            );
+          }
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: requests.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final request = requests[index];
+                final pending = request['status'] == 'pending';
+                return ListTile(
+                  leading: CircleAvatar(
+                    child: Icon(
+                      pending ? Icons.pending_actions : Icons.task_alt,
+                    ),
+                  ),
+                  title: Text(request['student_name']?.toString() ?? 'Student'),
+                  subtitle: Text(
+                    '${request['student_email'] ?? 'No email'} · ${request['university_code'] ?? 'N/A'}\n'
+                    '${request['status'] ?? 'pending'} · Requested by ${request['requester_name'] ?? 'subadmin'}',
+                  ),
+                  isThreeLine: true,
+                  trailing: pending
+                      ? PopupMenuButton<String>(
+                          enabled: !_isReviewing,
+                          onSelected: (decision) =>
+                              _reviewStudentRequest(request, decision),
+                          itemBuilder: (context) => const [
+                            PopupMenuItem(
+                              value: 'approved',
+                              child: Text('Approve and move to Junk'),
+                            ),
+                            PopupMenuItem(
+                              value: 'rejected',
+                              child: Text('Reject'),
+                            ),
+                          ],
+                        )
+                      : null,
+                );
+              },
+            ),
+          );
+        },
       );
 }

@@ -11,6 +11,7 @@ import '../features/navigation/role_pages.dart';
 import '../features/admin/admin_management_screen.dart';
 import '../features/admin/student_access_screen.dart';
 import '../features/admin/certificate_deletion_requests_screen.dart';
+import '../features/admin/super_admin_junk_screen.dart';
 import '../features/qr_scanner/verification_confirmation_screen.dart';
 
 class AppRouter {
@@ -108,6 +109,10 @@ class AppRouter {
       GoRoute(
         path: '/deletion-requests',
         builder: (context, state) => const CertificateDeletionRequestsScreen(),
+      ),
+      GoRoute(
+        path: '/super-admin/junk',
+        builder: (context, state) => const SuperAdminJunkScreen(),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) => navigationShell,

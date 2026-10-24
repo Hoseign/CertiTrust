@@ -206,7 +206,7 @@ export default function SuperAdminCreateSubadmin() {
 
     const removeSubadmin = (item: Subadmin) => {
         setOpenMenuId(null);
-        if (!window.confirm(`Delete the ${item.code} subadmin account? Its student records will remain and can be reviewed in Super Admin Junk.`)) return;
+        if (!window.confirm(`Delete the ${item.code} subadmin account? The subadmin and their student accounts and credentials will be moved to Junk for review and permanent deletion.`)) return;
         void deleteSubadmin(Number(item.id))
             .then(async () => {
                 if (editingId === item.id) setEditingId(null);

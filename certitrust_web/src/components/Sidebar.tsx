@@ -25,6 +25,7 @@ export default function Sidebar() {
     const menuItems = [
         { name: "Dashboard", path: isPsuAdmin ? "/psu-admin" : "/admin-dashboard", icon: "⌂" },
         { name: "Academic Records", path: "/records", icon: "▤" },
+        { name: "Student Accounts", path: "/student-accounts", icon: "♙" },
         { name: "AnsQ", path: "/ansq", icon: "?" },
         { name: "Certificates", path: "/certificates", icon: "▣" },
         { name: "Verification", path: "/verification", icon: "✓" },

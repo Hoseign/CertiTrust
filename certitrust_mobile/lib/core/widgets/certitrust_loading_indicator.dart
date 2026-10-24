@@ -42,11 +42,10 @@ class _CertiTrustLoadingIndicatorState extends State<CertiTrustLoadingIndicator>
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     Widget logo() => SizedBox.square(
           dimension: widget.size,
           child: Image.asset(
-            'web/assets/images/certitrustlogo.png',
+            'web/assets/images/certitrustlogo-loading.png',
             fit: BoxFit.contain,
           ),
         );
@@ -58,34 +57,46 @@ class _CertiTrustLoadingIndicatorState extends State<CertiTrustLoadingIndicator>
         children: [
           SizedBox.square(
             dimension: widget.size,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Opacity(opacity: 0.16, child: logo()),
-                AnimatedBuilder(
-                  animation: _fill,
-                  builder: (context, child) => ClipRect(
-                    child: Align(
-                      alignment: Alignment.bottomCenter,
-                      heightFactor: 0.12 + _controller.value * 0.88,
-                      child: child,
-                    ),
-                  ),
-                  child: ShaderMask(
-                    blendMode: BlendMode.srcIn,
-                    shaderCallback: (bounds) => LinearGradient(
-                      begin: Alignment.bottomCenter,
-                      end: Alignment.topCenter,
-                      colors: [
-                        colors.primary,
-                        const Color(0xFF1684D8),
-                        colors.secondary,
-                      ],
-                    ).createShader(bounds),
-                    child: logo(),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(widget.size * 0.2),
+              child: ColoredBox(
+                color: const Color(0xFF0A192F),
+                child: Padding(
+                  padding: EdgeInsets.all(widget.size * 0.12),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Opacity(
+                        opacity: 0.65,
+                        child: ColorFiltered(
+                          colorFilter: const ColorFilter.mode(
+                            Color(0xFF60A5FA),
+                            BlendMode.srcIn,
+                          ),
+                          child: logo(),
+                        ),
+                      ),
+                      AnimatedBuilder(
+                        animation: _fill,
+                        builder: (context, child) => ClipRect(
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            heightFactor: 0.12 + _fill.value * 0.88,
+                            child: child,
+                          ),
+                        ),
+                        child: ColorFiltered(
+                          colorFilter: const ColorFilter.mode(
+                            Colors.white,
+                            BlendMode.srcIn,
+                          ),
+                          child: logo(),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
           if (widget.message != null) ...[
@@ -94,7 +105,7 @@ class _CertiTrustLoadingIndicatorState extends State<CertiTrustLoadingIndicator>
               widget.message!,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: colors.onSurfaceVariant,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.w500,
                   ),
             ),

@@ -21,7 +21,7 @@ class _CredentialDraft {
   final studentName = TextEditingController();
   final studentEmail = TextEditingController();
   final degree = TextEditingController();
-  String school = ApiService.authUniversity ?? 'UCU';
+  String school = ApiService.authUniversity ?? '';
   PlatformFile? diploma;
   bool isAdditionalDegree = false;
   int? degreeNumber;
@@ -114,6 +114,12 @@ class _IssueScreenState extends State<IssueScreen> {
   bool _isLoadingAdminCheck = true;
   bool _isAdmin = false;
   bool _isProcessing = false;
+  List<Map<String, dynamic>> _universities = [];
+  String? _selectedUniversityCode;
+  String? _universityLoadError;
+  bool get _isSuperAdmin => ApiService.isSuperAdmin;
+  String? get _issuanceUniversityCode =>
+      _isSuperAdmin ? _selectedUniversityCode : ApiService.authUniversity;
 
   @override
   void initState() {
@@ -136,7 +142,53 @@ class _IssueScreenState extends State<IssueScreen> {
   }
 
   Future<void> _verifyAdminAccess() async {
-    final isAdmin = ApiService.authRole == 'admin' && !ApiService.isSuperAdmin;
+    final isAdmin = ApiService.authRole == 'admin';
+    if (mounted) {
+      setState(() {
+        _isLoadingAdminCheck = true;
+        _universityLoadError = null;
+      });
+    }
+    if (isAdmin && _isSuperAdmin) {
+      try {
+        final universities = await ApiService.getUniversities();
+        if (universities.isEmpty) {
+          throw StateError('No registered universities are available for issuing.');
+        }
+        final requestedCode =
+            widget.initialRecord?['university_code']?.toString();
+        final preferredCode = universities.any(
+          (university) =>
+              university['code']?.toString() == requestedCode,
+        )
+            ? requestedCode
+            : universities.first['code']?.toString();
+        if (preferredCode == null || preferredCode.isEmpty) {
+          throw StateError('A university could not be selected for issuance.');
+        }
+        if (mounted) {
+          setState(() {
+            _isAdmin = true;
+            _universities = universities;
+            _selectedUniversityCode = preferredCode;
+            for (final draft in _drafts) {
+              draft.school = preferredCode;
+            }
+            _isLoadingAdminCheck = false;
+          });
+        }
+        return;
+      } catch (error) {
+        if (mounted) {
+          setState(() {
+            _isAdmin = true;
+            _universityLoadError = error.toString();
+            _isLoadingAdminCheck = false;
+          });
+        }
+        return;
+      }
+    }
     if (mounted) {
       setState(() {
         _isAdmin = isAdmin;
@@ -164,7 +216,10 @@ class _IssueScreenState extends State<IssueScreen> {
     }
   }
 
-  void _addDraft() => setState(() => _drafts.add(_CredentialDraft()));
+  void _addDraft() {
+    final draft = _CredentialDraft()..school = _issuanceUniversityCode ?? '';
+    setState(() => _drafts.add(draft));
+  }
 
   void _removeDraft(int index) {
     final draft = _drafts.removeAt(index);
@@ -181,6 +236,7 @@ class _IssueScreenState extends State<IssueScreen> {
     final uploaded = await ApiService.uploadDiploma(
       fileBytes: file.bytes!,
       fileName: file.name,
+      universityCode: _issuanceUniversityCode,
     );
     final url = uploaded['diploma_url']?.toString();
     if (url == null || url.isEmpty) {
@@ -342,6 +398,7 @@ class _IssueScreenState extends State<IssueScreen> {
       var activeDrafts = List<_CredentialDraft>.from(_drafts);
       var validation = await ApiService.validateBatchIssuance(
         activeDrafts.map(_validationRecord).toList(),
+        universityCode: _issuanceUniversityCode,
       );
       final candidates = List<Map<String, dynamic>>.from(
         validation['additional_degree_candidates'] as List? ?? const [],
@@ -368,6 +425,7 @@ class _IssueScreenState extends State<IssueScreen> {
       }
       validation = await ApiService.validateBatchIssuance(
         activeDrafts.map(_validationRecord).toList(),
+        universityCode: _issuanceUniversityCode,
       );
       final validationWarnings = List<String>.from(
         validation['warnings'] as List? ?? const [],
@@ -438,6 +496,27 @@ class _IssueScreenState extends State<IssueScreen> {
         body: const Center(child: Text('Administrator access is required.')),
       );
     }
+    if (_universityLoadError != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Issue Academic Credentials')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Could not load universities: $_universityLoadError'),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: _verifyAdminAccess,
+                  child: const Text('Try again'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -454,6 +533,42 @@ class _IssueScreenState extends State<IssueScreen> {
             child: ListView(
               padding: const EdgeInsets.all(24),
               children: [
+                if (_isSuperAdmin) ...[
+                  DropdownButtonFormField<String>(
+                    initialValue: _selectedUniversityCode,
+                    decoration: const InputDecoration(
+                      labelText: 'University/School',
+                      prefixIcon: Icon(Icons.account_balance),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _universities
+                        .map((university) {
+                          final code = university['code']?.toString() ?? '';
+                          final name =
+                              university['university_name']?.toString() ??
+                                  code;
+                          return DropdownMenuItem(
+                            value: code,
+                            child: Text('$name ($code)'),
+                          );
+                        })
+                        .where((item) => item.value?.isNotEmpty == true)
+                        .toList(),
+                    validator: (value) => value == null || value.isEmpty
+                        ? 'Select a university'
+                        : null,
+                    onChanged: (code) {
+                      if (code == null) return;
+                      setState(() {
+                        _selectedUniversityCode = code;
+                        for (final draft in _drafts) {
+                          draft.school = code;
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                ],
                 Row(
                   children: [
                     Expanded(

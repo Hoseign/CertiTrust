@@ -15,32 +15,41 @@ export type AdminAccount = {
     university_code: string;
     [field: string]: unknown;
 };
-export type DeletedSubadminUniversity = {
-    university_code: string;
+export type JunkItem = {
+    id: number;
+    record_type: string;
+    university_code: string | null;
     university_name: string;
-    deleted_subadmins: { email: string; deleted_at: string | null }[];
-    latest_deleted_at: string | null;
+    student_user_id: number | null;
+    student_name: string | null;
+    student_email: string | null;
+    student_id: string | null;
+    source: string;
+    deleted_by_email: string | null;
+    deleted_at: string;
+    credential_count: number;
+    payload: {
+        certificates?: Record<string, unknown>[];
+        subadmin?: Record<string, unknown>;
+        student?: Record<string, unknown>;
+    } | null;
 };
 
-export async function listDeletedSubadminUniversities() {
-    const { data } = await apiClient.get<ApiCollection<DeletedSubadminUniversity>>("/admin/junk");
-    return data.data;
+export async function listJunkItems() {
+    const { data } = await apiClient.get<ApiCollection<JunkItem>>("/admin/junk");
+    if (!Array.isArray(data.data)) {
+        throw new Error("The recycle bin returned an invalid item list.");
+    }
+    const supportedTypes = new Set(["student_account", "subadmin_account", "credential_record"]);
+    return data.data.filter((item) => {
+        const id = Number(item.id);
+        return Number.isSafeInteger(id) && id > 0 && supportedTypes.has(item.record_type);
+    });
 }
 
-export async function permanentlyDeleteJunkStudent(universityCode: string, userId: number) {
-    const { data } = await apiClient.delete(
-        `/admin/junk/${encodeURIComponent(universityCode)}/students/${userId}`,
-    );
-    return data as { message: string; deleted_certificate_count: number };
-}
-
-export async function permanentlyDeleteJunkUniversity(universityCode: string) {
-    const { data } = await apiClient.delete(`/admin/junk/${encodeURIComponent(universityCode)}`);
-    return data as {
-        message: string;
-        deleted_student_count: number;
-        deleted_certificate_count: number;
-    };
+export async function permanentlyDeleteJunkItem(junkItemId: number) {
+    const { data } = await apiClient.delete(`/admin/junk/${junkItemId}`);
+    return data as { message: string };
 }
 
 export async function listSubadmins(universityCode?: string) {
@@ -158,6 +167,25 @@ export async function reviewDeletionRequest(
 ) {
     const { data } = await apiClient.patch(
         `/admin/certificate-deletion-requests/${requestId}`,
+        { decision, reviewer_note: reviewerNote },
+    );
+    return data;
+}
+
+export async function listStudentDeletionRequests() {
+    const { data } = await apiClient.get<ApiCollection<Record<string, unknown>>>(
+        "/admin/student-deletion-requests",
+    );
+    return data.data;
+}
+
+export async function reviewStudentDeletionRequest(
+    requestId: number,
+    decision: "approved" | "rejected",
+    reviewerNote?: string,
+) {
+    const { data } = await apiClient.patch(
+        `/admin/student-deletion-requests/${requestId}`,
         { decision, reviewer_note: reviewerNote },
     );
     return data;

@@ -166,4 +166,67 @@ void main() {
     expect(requestMethod, 'DELETE');
     expect(requestedUri?.path, endsWith('/admin/accounts-and-credentials'));
   });
+
+  test(
+      'student removal returns a pending approval instead of deleting immediately',
+      () async {
+    Uri? requestedUri;
+    String? requestMethod;
+
+    await http.runWithClient(
+      () async {
+        final result = await ApiService.deleteStudentAccount(userId: 42);
+        expect(result['data']['status'], 'pending');
+      },
+      () => MockClient((request) async {
+        requestedUri = request.url;
+        requestMethod = request.method;
+        return http.Response(
+          jsonEncode({
+            'message': 'Student removal request sent for approval.',
+            'data': {'request_id': 5, 'status': 'pending'},
+          }),
+          202,
+        );
+      }),
+    );
+
+    expect(requestMethod, 'DELETE');
+    expect(requestedUri?.path, endsWith('/admin/students/42'));
+  });
+
+  test('Junk screen loads and permanently deletes through the shared API',
+      () async {
+    final requestedPaths = <String>[];
+    final requestedMethods = <String>[];
+
+    await http.runWithClient(
+      () async {
+        final items = await ApiService.getJunkItems();
+        expect(items.single['record_type'], 'student_account');
+        await ApiService.permanentlyDeleteJunkItem(junkItemId: '9');
+      },
+      () => MockClient((request) async {
+        requestedPaths.add(request.url.path);
+        requestedMethods.add(request.method);
+        if (request.method == 'GET') {
+          return http.Response(
+            jsonEncode({
+              'data': [
+                {'id': 9, 'record_type': 'student_account'},
+                {'record_type': 'student_account'},
+                {'id': 10, 'record_type': 'unknown_record'},
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response(jsonEncode({'message': 'Deleted.'}), 200);
+      }),
+    );
+
+    expect(requestedPaths[0], endsWith('/admin/junk'));
+    expect(requestedPaths[1], endsWith('/admin/junk/9'));
+    expect(requestedMethods, ['GET', 'DELETE']);
+  });
 }

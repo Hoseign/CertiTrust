@@ -81,9 +81,10 @@ Route::middleware(['auth:sanctum', EnsureAccountIsNotFrozen::class])->group(func
     Route::post('/admin/users', [AuthController::class, 'createAdmin']);
     Route::delete('/admin/accounts-and-credentials', [AuthController::class, 'purgeAccountsAndCredentials']);
     Route::get('/admin/subadmins', [AuthController::class, 'listSubadmins']);
-    Route::get('/admin/junk', [AuthController::class, 'listDeletedSubadminUniversities']);
-    Route::delete('/admin/junk/{universityCode}/students/{user}', [AuthController::class, 'deleteJunkStudent']);
-    Route::delete('/admin/junk/{universityCode}', [AuthController::class, 'deleteJunkUniversityRecords']);
+    Route::get('/admin/junk', [AuthController::class, 'listJunkItems']);
+    Route::delete('/admin/junk/{junkItem}', [AuthController::class, 'permanentlyDeleteJunkItem']);
+    Route::get('/admin/student-deletion-requests', [AuthController::class, 'listStudentDeletionRequests']);
+    Route::patch('/admin/student-deletion-requests/{deletionRequest}', [AuthController::class, 'reviewStudentDeletionRequest']);
     Route::get('/admin/universities', [AuthController::class, 'listUniversities']);
     Route::get('/admin/universities/{universityCode}/students', [AuthController::class, 'listStudentsForUniversity']);
     Route::patch('/admin/universities/{universityCode}/access', [AuthController::class, 'updateUniversityAccess']);

@@ -54,7 +54,6 @@ export default function AuthPage() {
     const [googleLoadError, setGoogleLoadError] = useState(false);
     const [googleLoadAttempt, setGoogleLoadAttempt] = useState(0);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [showSplash, setShowSplash] = useState(true);
     const [message, setMessage] = useState("");
     const [studentEmail, setStudentEmail] = useState("");
     const [studentId, setStudentId] = useState("");
@@ -64,11 +63,6 @@ export default function AuthPage() {
     const googleClientId =
         import.meta.env.VITE_GOOGLE_CLIENT_ID ||
         "839744246515-npnpn8u8urse0emqmt6ag0fscdfdqmsm.apps.googleusercontent.com";
-
-    useEffect(() => {
-        const timeout = window.setTimeout(() => setShowSplash(false), 1800);
-        return () => window.clearTimeout(timeout);
-    }, []);
 
     useEffect(() => {
         let active = true;
@@ -236,18 +230,6 @@ export default function AuthPage() {
         }
     };
 
-    if (showSplash) {
-        return (
-            <main className="mobile-splash min-h-screen bg-[#F6F8FC] flex flex-col items-center justify-center">
-                <CertiTrustLoadingIndicator
-                    size={132}
-                    message="Preparing your credentials..."
-                    className="mobile-splash text-sm font-medium text-slate-600"
-                />
-            </main>
-        );
-    }
-
     return (
         <div className="min-h-screen bg-[#F6F8FC]">
             <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2">
@@ -325,14 +307,18 @@ export default function AuthPage() {
                                         type="button"
                                         disabled={isSubmitting}
                                         onClick={handleGoogleSignIn}
-                                        className="flex w-full items-center justify-center gap-3 rounded-lg border border-slate-300 px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
+                                        className={`flex w-full items-center justify-center gap-3 rounded-lg border px-4 py-3 font-semibold transition disabled:cursor-wait disabled:opacity-70 ${
+                                            isSubmitting
+                                                ? "border-[#0A192F] bg-[#0A192F] text-white"
+                                                : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                                        }`}
                                     >
                                         {isSubmitting ? (
                                             <CertiTrustLoadingIndicator
                                                 size={20}
                                                 message="Signing in..."
                                                 inline
-                                                className="text-slate-700"
+                                                className="text-white"
                                             />
                                         ) : (
                                             <svg aria-hidden="true" viewBox="0 0 48 48" className="h-5 w-5">

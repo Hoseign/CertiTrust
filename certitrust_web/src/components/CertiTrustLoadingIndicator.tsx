@@ -22,7 +22,7 @@ export default function CertiTrustLoadingIndicator({
                 style={{ width: size, height: size }}
                 aria-hidden="true"
             >
-                <img src="/certitrustlogo.png" alt="" />
+                <img src="/certitrustlogo-loading.png" alt="" />
                 <span className="certitrust-loading-fill" />
             </span>
             {message ? <span className="certitrust-loading-message">{message}</span> : null}

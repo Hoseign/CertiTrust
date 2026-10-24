@@ -177,7 +177,7 @@ class CertificateController extends Controller
         return response()->json(['data' => $data]);
     }
 
-    public function revoke(Request $request, Certificate $certificate, SupabaseDiplomaStorage $storage)
+    public function revoke(Request $request, Certificate $certificate)
     {
         $actor = $request->user();
         if (
@@ -188,19 +188,10 @@ class CertificateController extends Controller
                 'message' => 'Only the Super Admin can revoke a credential record.',
             ], 403);
         }
-        if (!Schema::hasTable('revoked_credentials')) {
+        if (!Schema::hasTable('revoked_credentials') || !Schema::hasTable('junk_items')) {
             return response()->json([
-                'message' => 'Credential removal tracking is unavailable. Apply pending database migrations before removing credentials.',
+                'message' => 'Credential removal tracking and the recycle bin are unavailable. Apply pending database migrations before removing credentials.',
             ], 503);
-        }
-
-        if ($certificate->diploma_url) {
-            $storageError = $storage->delete($certificate->diploma_url);
-            if ($storageError) {
-                return response()->json([
-                    'message' => $storageError['message'],
-                ], $storageError['status']);
-            }
         }
 
         $certificateCode = $certificate->certificate_code;
@@ -227,6 +218,21 @@ class CertificateController extends Controller
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+            DB::table('junk_items')->insert([
+                'record_type' => 'credential_record',
+                'university_code' => $universityCode,
+                'student_name' => $certificate->student_name ?: $certificate->recipient_name,
+                'student_email' => $targetEmail,
+                'student_id' => $certificate->student_id,
+                'source' => 'credential_revoked',
+                'deleted_by_email' => $actor->email,
+                'payload' => json_encode([
+                    'certificates' => [$certificate->toArray()],
+                ], JSON_THROW_ON_ERROR),
+                'deleted_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
             $certificate->delete();
             if (Schema::hasTable('admin_action_logs')) {
                 AdminActionLog::create([
@@ -243,7 +249,7 @@ class CertificateController extends Controller
         });
 
         return response()->json([
-            'message' => 'The database credential was revoked. Its QR code will no longer resolve; immutable blockchain transactions remain on-chain.',
+            'message' => 'The database credential was revoked and moved to Junk. Its QR code reports removed; immutable blockchain transactions remain on-chain.',
             'data' => [
                 'certificate_id' => $certificateId,
                 'certificate_code' => $certificateCode,

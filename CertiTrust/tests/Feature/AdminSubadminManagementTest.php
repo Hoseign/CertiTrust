@@ -16,6 +16,18 @@ class AdminSubadminManagementTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_chat_api_preflight_returns_cors_headers_for_local_web_app(): void
+    {
+        $this->call('OPTIONS', '/api/chat/contacts', [], [], [], [
+            'HTTP_ORIGIN' => 'http://localhost:5173',
+            'HTTP_ACCESS_CONTROL_REQUEST_METHOD' => 'GET',
+            'HTTP_ACCESS_CONTROL_REQUEST_HEADERS' => 'authorization,content-type,x-requested-with',
+        ])->assertNoContent()
+            ->assertHeader('Access-Control-Allow-Origin', 'http://localhost:5173')
+            ->assertHeader('Access-Control-Allow-Methods')
+            ->assertHeader('Access-Control-Allow-Headers');
+    }
+
     public function test_only_superadmin_can_revoke_a_certificate_and_make_its_qr_unresolvable(): void
     {
         $superAdmin = User::create([
@@ -122,6 +134,27 @@ class AdminSubadminManagementTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        DB::table('junk_items')->insert([
+            'record_type' => 'student_account',
+            'university_code' => 'UCU',
+            'student_name' => 'Old junk student',
+            'student_email' => 'old-junk-student@example.edu',
+            'source' => 'student_removal_approved',
+            'payload' => json_encode(['student' => [], 'certificates' => []]),
+            'deleted_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('student_deletion_requests')->insert([
+            'student_user_id' => $student->id,
+            'requested_by' => $subadmin->id,
+            'student_name' => $student->name,
+            'student_email' => $student->email,
+            'university_code' => 'PSU',
+            'status' => 'pending',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         foreach ([
             ['code' => 'PURGE-UCU-CREDENTIAL', 'hash' => str_repeat('b', 64), 'university' => 'UCU'],
             ['code' => 'PURGE-PSU-CREDENTIAL', 'hash' => str_repeat('c', 64), 'university' => 'PSU'],
@@ -152,7 +185,9 @@ class AdminSubadminManagementTest extends TestCase
             ->assertJsonPath('data.deleted_subadmin_count', 1)
             ->assertJsonPath('data.deleted_student_count', 2)
             ->assertJsonPath('data.deleted_certificate_count', 2)
-            ->assertJsonPath('data.deleted_university_count', 3);
+            ->assertJsonPath('data.deleted_university_count', 3)
+            ->assertJsonPath('data.deleted_junk_item_count', 1)
+            ->assertJsonPath('data.deleted_student_removal_request_count', 1);
 
         $this->assertDatabaseHas('users', ['id' => $superAdmin->id]);
         $this->assertDatabaseMissing('users', ['id' => $subadmin->id]);
@@ -163,6 +198,8 @@ class AdminSubadminManagementTest extends TestCase
         $this->assertDatabaseMissing('universities', ['code' => 'PSU']);
         $this->assertDatabaseMissing('universities', ['code' => 'PSUU']);
         $this->assertDatabaseMissing('university_access_controls', ['university_code' => 'UCU']);
+        $this->assertDatabaseCount('junk_items', 0);
+        $this->assertDatabaseCount('student_deletion_requests', 0);
         $this->getJson('/api/certificates/PURGE-UCU-CREDENTIAL')
             ->assertStatus(410)
             ->assertJsonPath('status', 'removed');
@@ -243,17 +280,34 @@ class AdminSubadminManagementTest extends TestCase
 
         $this->actingAs($ucuAdmin, 'sanctum')
             ->deleteJson('/api/admin/students/' . $student->id)
+            ->assertStatus(202)
+            ->assertJsonPath('data.status', 'pending');
+
+        $requestId = DB::table('student_deletion_requests')
+            ->where('student_user_id', $student->id)
+            ->value('id');
+        $this->assertDatabaseHas('users', ['id' => $student->id]);
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->patchJson('/api/admin/student-deletion-requests/' . $requestId, [
+                'decision' => 'approved',
+            ])
             ->assertOk()
-            ->assertJsonPath(
-                'data.deleted_certificate_count',
-                1,
-            )
-            ->assertJsonPath('data.university_code', 'UCU');
+            ->assertJsonPath('data.status', 'approved');
 
         $this->assertDatabaseMissing('users', ['id' => $student->id]);
         $this->assertDatabaseMissing('certificates', [
             'cert_hash' => str_repeat('e', 64),
         ]);
+        $junkItem = DB::table('junk_items')
+            ->where('record_type', 'student_account')
+            ->where('student_user_id', $student->id)
+            ->first();
+        $this->assertNotNull($junkItem);
+        $this->assertSame(
+            'CERT-REVOKE-AFTER-STUDENT-DELETE',
+            json_decode($junkItem->payload, true)['certificates'][0]['certificate_code'],
+        );
         $this->getJson('/api/certificates/CERT-REVOKE-AFTER-STUDENT-DELETE')
             ->assertStatus(410)
             ->assertJsonPath('status', 'removed');
@@ -263,7 +317,7 @@ class AdminSubadminManagementTest extends TestCase
             ->assertJsonCount(0, 'data.0.frozen_students');
     }
 
-    public function test_deleted_subadmin_universities_are_added_to_junk_for_permanent_student_cleanup(): void
+    public function test_removing_subadmins_moves_their_accounts_and_students_into_the_shared_junk_bin(): void
     {
         $superAdmin = User::create([
             'name' => 'CertiTrust Super Admin',
@@ -325,20 +379,36 @@ class AdminSubadminManagementTest extends TestCase
         $junkResponse = $this->actingAs($superAdmin, 'sanctum')
             ->getJson('/api/admin/junk')
             ->assertOk()
-            ->assertJsonCount(2, 'data');
+            ->assertJsonCount(4, 'data');
         $this->assertEqualsCanonicalizing(
-            ['PSU', 'UCU'],
-            collect($junkResponse->json('data'))->pluck('university_code')->all(),
+            ['student_account', 'student_account', 'subadmin_account', 'subadmin_account'],
+            collect($junkResponse->json('data'))->pluck('record_type')->all(),
         );
 
         foreach ($students as $record) {
+            $this->assertDatabaseMissing('users', ['id' => $record['student']->id]);
+            $this->assertDatabaseMissing('certificates', [
+                'certificate_code' => $record['certificate_code'],
+            ]);
+            $this->getJson('/api/certificates/' . $record['certificate_code'])
+                ->assertStatus(410)
+                ->assertJsonPath('status', 'removed');
+            $junkItem = collect($junkResponse->json('data'))
+                ->firstWhere('student_user_id', $record['student']->id);
+            $this->assertSame(
+                $record['certificate_code'],
+                $junkItem['payload']['certificates'][0]['certificate_code'],
+            );
             $this->actingAs($superAdmin, 'sanctum')
-                ->deleteJson('/api/admin/junk/' . $record['code'] . '/students/' . $record['student']->id)
+                ->deleteJson('/api/admin/junk/' . $junkItem['id'])
                 ->assertOk()
-                ->assertJsonPath('deleted_certificate_count', 1);
+                ->assertJsonPath('message', 'The item was permanently deleted from Junk.');
 
             $this->assertDatabaseMissing('users', ['id' => $record['student']->id]);
             $this->assertDatabaseMissing('certificates', [
+                'certificate_code' => $record['certificate_code'],
+            ]);
+            $this->assertDatabaseHas('revoked_credentials', [
                 'certificate_code' => $record['certificate_code'],
             ]);
         }
@@ -347,7 +417,7 @@ class AdminSubadminManagementTest extends TestCase
         $this->assertDatabaseHas('universities', ['code' => 'PSU']);
     }
 
-    public function test_superadmin_can_permanently_clear_student_records_without_deleting_university_registration(): void
+    public function test_permanently_deleting_junk_item_does_not_delete_university_registration(): void
     {
         $superAdmin = User::create([
             'name' => 'CertiTrust Super Admin',
@@ -383,18 +453,65 @@ class AdminSubadminManagementTest extends TestCase
             'cert_hash' => str_repeat('c', 64),
         ]);
 
+        $this->actingAs($universityAdmin, 'sanctum')
+            ->deleteJson('/api/admin/students/' . $student->id)
+            ->assertStatus(202);
+        $requestId = DB::table('student_deletion_requests')
+            ->where('student_user_id', $student->id)
+            ->value('id');
         $this->actingAs($superAdmin, 'sanctum')
-            ->deleteJson('/api/admin/junk/UCU')
+            ->patchJson('/api/admin/student-deletion-requests/' . $requestId, [
+                'decision' => 'approved',
+            ])
+            ->assertOk();
+        $junkItemId = DB::table('junk_items')
+            ->where('student_user_id', $student->id)
+            ->value('id');
+        $this->actingAs($superAdmin, 'sanctum')
+            ->deleteJson('/api/admin/junk/' . $junkItemId)
             ->assertOk()
-            ->assertJsonPath('deleted_student_count', 1)
-            ->assertJsonPath('deleted_certificate_count', 1);
+            ->assertJsonPath('message', 'The item was permanently deleted from Junk.');
 
         $this->assertDatabaseMissing('users', ['id' => $student->id]);
         $this->assertDatabaseHas('users', ['id' => $universityAdmin->id]);
         $this->assertDatabaseMissing('certificates', [
             'certificate_code' => 'UCU-JUNK-BULK-CERTIFICATE',
         ]);
+        $this->assertDatabaseMissing('junk_items', ['id' => $junkItemId]);
         $this->assertDatabaseHas('universities', ['code' => 'UCU']);
+    }
+
+    public function test_superadmin_can_permanently_delete_an_unknown_junk_record(): void
+    {
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+        $junkItemId = DB::table('junk_items')->insertGetId([
+            'record_type' => 'unknown_record',
+            'source' => 'legacy_cleanup',
+            'payload' => json_encode([
+                'certificates' => ['legacy certificate snapshot'],
+            ], JSON_THROW_ON_ERROR),
+            'deleted_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->getJson('/api/admin/junk')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $junkItemId)
+            ->assertJsonPath('data.0.record_type', 'unknown_record');
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->deleteJson('/api/admin/junk/' . $junkItemId)
+            ->assertOk()
+            ->assertJsonPath('message', 'The item was permanently deleted from Junk.');
+
+        $this->assertDatabaseMissing('junk_items', ['id' => $junkItemId]);
     }
 
     public function test_student_access_lists_degrees_with_types_and_ordinals(): void
@@ -1880,16 +1997,26 @@ class AdminSubadminManagementTest extends TestCase
             'student_id' => '20260077',
             'status' => 'approved',
         ]);
+        $junkItem = DB::table('junk_items')
+            ->where('record_type', 'credential_record')
+            ->where('student_email', $student->email)
+            ->first();
+        $this->assertNotNull($junkItem);
+        $this->assertDatabaseHas('junk_items', ['id' => $junkItem->id]);
+        Http::assertNothingSent();
         $this->assertTrue(ChatMessage::where('user_id', $superAdmin->id)
             ->where('recipient_user_id', $admin->id)
             ->where('message', 'like', '%Deletion request%approved%')
             ->exists());
+        $this->actingAs($superAdmin, 'sanctum')
+            ->deleteJson('/api/admin/junk/' . $junkItem->id)
+            ->assertOk();
         Http::assertSent(fn (HttpRequest $request) => $request->method() === 'DELETE'
             && $request->url() === 'https://test-project.supabase.co/storage/v1/object/diplomas/2026/diploma%20test.jpg'
             && $request->hasHeader('apikey', 'test-service-role-key'));
     }
 
-    public function test_deletion_with_a_diploma_is_blocked_when_supabase_storage_is_not_configured(): void
+    public function test_permanent_junk_deletion_with_a_diploma_is_blocked_when_storage_is_unconfigured(): void
     {
         config([
             'services.supabase.url' => null,
@@ -1934,13 +2061,21 @@ class AdminSubadminManagementTest extends TestCase
         $this->actingAs($superAdmin, 'sanctum')
             ->patchJson('/api/admin/certificate-deletion-requests/' . $deletionRequest->json('data.id'), [
                 'decision' => 'approved',
-            ])->assertServiceUnavailable()
+            ])->assertOk();
+
+        $junkItemId = DB::table('junk_items')
+            ->where('record_type', 'credential_record')
+            ->value('id');
+        $this->actingAs($superAdmin, 'sanctum')
+            ->deleteJson('/api/admin/junk/' . $junkItemId)
+            ->assertServiceUnavailable()
             ->assertJsonPath('message', 'Supabase Storage is not configured on the backend. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
 
-        $this->assertDatabaseHas('certificates', ['id' => $certificate->id]);
+        $this->assertDatabaseMissing('certificates', ['id' => $certificate->id]);
+        $this->assertDatabaseHas('junk_items', ['id' => $junkItemId]);
         $this->assertDatabaseHas('certificate_deletion_requests', [
             'id' => $deletionRequest->json('data.id'),
-            'status' => 'pending',
+            'status' => 'approved',
         ]);
         Http::assertNothingSent();
     }

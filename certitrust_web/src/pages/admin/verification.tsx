@@ -57,12 +57,12 @@ export default function Verification() {
   }, [initialCode, handleVerify]);
 
   return (
-    <div className="min-h-screen flex bg-[#F5F8FC]">
+    <div className="flex min-h-screen min-w-0 bg-[#F5F8FC]">
 
       <Sidebar />
 
       {/* MAIN CONTENT */}
-      <main className="min-w-0 mx-auto overflow-y-auto h-screen p-8">
+      <main className="h-screen w-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-6 md:p-8">
 
         {/* HEADER */}
         <div className="mb-8">
@@ -84,7 +84,7 @@ export default function Verification() {
             onVerifyAnother={handleVerifyAnother}
           />
         ) : (
-        <div className="max-w-2xl">
+        <div className="w-full max-w-2xl">
 
           {/* INFO BANNER */}
           <div className="flex items-center gap-6 bg-[#EAEFF7] border border-[#C9D5E6] rounded-3xl px-8 py-7 mb-10">

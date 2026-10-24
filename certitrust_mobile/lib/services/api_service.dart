@@ -435,9 +435,9 @@ class ApiService {
             }),
           )
           .timeout(
-            const Duration(seconds: 15),
-            onTimeout: () => throw Exception(
-              'Authentication request timed out. Check that Laravel is running and reachable at $baseUrl.',
+            const Duration(seconds: 90),
+            onTimeout: () => throw TimeoutException(
+              'The authentication server took too long to respond. This can happen while the service is waking up; please try again shortly.',
             ),
           );
 
@@ -703,7 +703,7 @@ class ApiService {
       headers: _getHeaders,
     );
     final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
-    if (response.statusCode != 200) {
+    if (response.statusCode != 202) {
       throw ApiRequestException(
         response.statusCode,
         body['message']?.toString() ?? 'Unable to remove student account.',
@@ -1296,5 +1296,104 @@ class ApiService {
         body['message']?.toString() ?? 'Unable to review deletion request.',
       );
     }
+    _recordConnectionSuccess();
+  }
+
+  static Future<List<Map<String, dynamic>>> getStudentDeletionRequests() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/admin/student-deletion-requests'),
+      headers: _getHeaders,
+    );
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ??
+            'Unable to load student removal requests.',
+      );
+    }
+    _recordConnectionSuccess();
+    return List<Map<String, dynamic>>.from(body['data'] ?? const []);
+  }
+
+  static Future<void> reviewStudentDeletionRequest({
+    required String requestId,
+    required String decision,
+    String? reviewerNote,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/admin/student-deletion-requests/$requestId'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        'decision': decision,
+        'reviewer_note': reviewerNote?.trim(),
+      }),
+    );
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ??
+            'Unable to review student removal request.',
+      );
+    }
+    _recordConnectionSuccess();
+  }
+
+  static Future<List<Map<String, dynamic>>> getJunkItems() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/admin/junk'),
+      headers: _getHeaders,
+    );
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Unable to load the recycle bin.',
+      );
+    }
+    _recordConnectionSuccess();
+    final data = body['data'];
+    if (data is! List) {
+      throw const ApiRequestException(
+        502,
+        'The recycle bin returned an invalid item list.',
+      );
+    }
+    return data
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .where(_isDeletableJunkItem)
+        .toList();
+  }
+
+  static bool _isDeletableJunkItem(Map<String, dynamic> item) {
+    final id = int.tryParse(item['id']?.toString() ?? '');
+    const supportedTypes = {
+      'student_account',
+      'subadmin_account',
+      'credential_record',
+    };
+    return id != null &&
+        id > 0 &&
+        supportedTypes.contains(item['record_type']?.toString());
+  }
+
+  static Future<void> permanentlyDeleteJunkItem({
+    required String junkItemId,
+  }) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/admin/junk/$junkItemId'),
+      headers: _getHeaders,
+    );
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ??
+            'Unable to permanently delete this item.',
+      );
+    }
+    _recordConnectionSuccess();
   }
 }

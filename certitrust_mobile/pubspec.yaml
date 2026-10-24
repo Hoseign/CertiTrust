@@ -31,5 +31,6 @@ flutter:
   uses-material-design: true
   assets:
     - web/assets/images/certitrustlogo.png
+    - web/assets/images/certitrustlogo-loading.png
     - web/assets/images/PSU_LOGO.png
     - web/assets/images/UCU_LOGO.png

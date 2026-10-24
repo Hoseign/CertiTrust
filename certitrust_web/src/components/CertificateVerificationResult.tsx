@@ -23,12 +23,29 @@ export default function CertificateVerificationResult({
     const isVerified = result.multi_degree
         ? certificates.length > 0 && certificates.every(isCredentialVerified)
         : isCredentialVerified(result);
+    const databaseStatuses = result.multi_degree
+        ? certificates.map((certificate) => String(certificate.status ?? "unknown"))
+        : [String(result.status ?? "unknown")];
+    const blockchainStatuses = result.multi_degree
+        ? certificates.map((certificate) => String(certificate.blockchain_verification?.status ?? "unknown"))
+        : [String(result.blockchain_verification?.status ?? "unknown")];
+    const databaseStatus = [...new Set(databaseStatuses)].join(", ") || "unknown";
+    const blockchainStatus = [...new Set(blockchainStatuses)].join(", ") || "unknown";
+    const hasValidDatabaseStatus = databaseStatuses.length > 0
+        && databaseStatuses.every((status) => ["verified", "valid"].includes(status.toLowerCase()));
     const statusLabel = isVerified
         ? "Legitimate Credential"
-        : ["verified", "valid"].includes(String(result.status ?? "").toLowerCase())
-            ? "Record Found · Chain Verification Incomplete"
-            : "Credential Not Verified";
+        : "Credential Not Fully Verified";
     const institution = result.university_name || result.university_code || "Not available";
+    const incompleteMessage = !hasValidDatabaseStatus
+        ? `The database marks this record as "${databaseStatus}". It cannot be considered a valid credential.`
+        : blockchainStatuses.some((status) => status.toLowerCase() === "not_configured")
+            ? "The database record exists, but blockchain verification is not configured. This result does not confirm the credential on-chain. Configure the Polygon Amoy RPC and contract settings, then anchor the credential before relying on it."
+            : blockchainStatuses.some((status) => status.toLowerCase() === "pending")
+                ? "The database record exists, but its blockchain transaction is still pending. Verify again after the transaction is confirmed."
+                : blockchainStatuses.some((status) => status.toLowerCase() === "failed")
+                    ? "The database record exists, but the blockchain verification check failed. Do not treat it as on-chain verified until the transaction and network configuration are checked."
+                    : `The database record exists, but the blockchain check returned "${blockchainStatus}". The credential cannot be confirmed on-chain yet.`;
 
     const details: [string, string | undefined][] = [
         ["Certificate ID", result.certificate_code],
@@ -56,12 +73,12 @@ export default function CertificateVerificationResult({
                 <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-600">
                     {isVerified
                         ? `This credential was verified on Polygon Amoy and is recorded as issued by ${institution}.`
-                        : `The credential record has database status "${result.status || "unknown"}"; Polygon Amoy reports ${result.blockchain_verification?.status || "unknown"}.`}
+                        : incompleteMessage}
                 </p>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-7">
-                <h2 className="mb-5 text-lg font-extrabold text-[#0A192F]">Credential Details</h2>
+                <h2 className="mb-5 break-words text-lg font-extrabold text-[#0A192F]">Credential Details</h2>
 
                 {result.multi_degree && certificates.length > 0 ? (
                     <div className="space-y-3">
@@ -101,6 +118,20 @@ export default function CertificateVerificationResult({
                             </div>
                         ))}
                     </dl>
+                )}
+
+                {!isVerified && (
+                    <div role="status" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+                        <p className="font-bold">Verification is incomplete</p>
+                        <p className="mt-1">
+                            Database status: <strong>{databaseStatus}</strong>
+                            {" · "}
+                            Blockchain status: <strong>{blockchainStatus}</strong>
+                        </p>
+                        <p className="mt-1">
+                            A database record alone does not prove on-chain authenticity.
+                        </p>
+                    </div>
                 )}
 
                 {result.blockchain_tx_hash && (

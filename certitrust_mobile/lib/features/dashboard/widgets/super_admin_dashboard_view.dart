@@ -120,7 +120,7 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
         final data = result['data'] as Map<String, dynamic>? ?? {};
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
-            'Removed ${data['deleted_subadmin_count'] ?? 0} subadmin(s), ${data['deleted_student_count'] ?? 0} student/user(s), and ${data['deleted_certificate_count'] ?? 0} credential(s).',
+            'Removed ${data['deleted_university_count'] ?? 0} university registration(s), ${data['deleted_subadmin_count'] ?? 0} subadmin(s), ${data['deleted_student_count'] ?? 0} student/user(s), ${data['deleted_certificate_count'] ?? 0} credential(s), and ${data['deleted_junk_item_count'] ?? 0} Junk item(s).',
           ),
           duration: const Duration(seconds: 8),
         ));
@@ -306,7 +306,16 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                   child: OutlinedButton.icon(
                     onPressed: () => context.push('/deletion-requests'),
                     icon: const Icon(Icons.pending_actions),
-                    label: const Text('Credential deletion requests'),
+                    label: const Text('Deletion requests'),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => context.push('/super-admin/junk'),
+                    icon: const Icon(Icons.delete_sweep_outlined),
+                    label: const Text('Junk / recycle bin'),
                   ),
                 ),
                 const SizedBox(height: 12),
