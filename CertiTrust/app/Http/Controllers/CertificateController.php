@@ -118,7 +118,6 @@ class CertificateController extends Controller
             $degrees = $degrees->map(function (Certificate $degree) use ($blockchain) {
                 $data = $this->publicCertificateData($degree);
                 $data['blockchain_verification'] = $blockchain->verifyCertificate(
-                    (string) $degree->certificate_code,
                     (string) $degree->cert_hash,
                 );
                 return $data;
@@ -170,7 +169,6 @@ class CertificateController extends Controller
 
         $data = $this->publicCertificateData($certificate);
         $data['blockchain_verification'] = $blockchain->verifyCertificate(
-            (string) $certificate->certificate_code,
             (string) $certificate->cert_hash,
         );
 
@@ -625,12 +623,13 @@ class CertificateController extends Controller
     {
         try {
             $result = $blockchain->issueCertificate(
-                (string) $certificate->certificate_code,
-                (string) $certificate->student_id,
                 (string) $certificate->cert_hash,
+                (string) ($certificate->student_name ?: $certificate->recipient_name),
+                (string) $certificate->degree,
+                (string) $certificate->issue_date,
             );
         } catch (\Throwable $exception) {
-            Log::warning('Polygon credential submission failed.', [
+            Log::warning('Blockchain credential submission failed.', [
                 'certificate_id' => $certificate->id,
                 'exception' => $exception->getMessage(),
             ]);

@@ -43,15 +43,15 @@ return [
 
     'certitrust' => [
         'enabled' => env('CERTITRUST_CHAIN_ENABLED', false),
-        'rpc_url' => env('POLYGON_AMOY_RPC_URL', 'https://polygon-amoy-bor-rpc.publicnode.com'),
+        'rpc_url' => env('CERTITRUST_RPC_URL', 'https://rpc.sepolia.org'),
         'rpc_fallback_urls' => array_filter(array_map('trim', explode(',', (string) env(
-            'POLYGON_AMOY_RPC_FALLBACK_URLS',
-            'https://rpc-amoy.polygon.technology/'
+            'CERTITRUST_RPC_FALLBACK_URLS',
+            'https://ethereum-sepolia-rpc.publicnode.com,https://sepolia.drpc.org,https://1rpc.io/sepolia'
         )))),
-        'chain_id' => env('POLYGON_AMOY_CHAIN_ID', 80002),
+        'chain_id' => env('CERTITRUST_CHAIN_ID', 11155111),
+        'network' => env('CERTITRUST_NETWORK', 'ethereum-sepolia'),
         'contract_address' => env('CERTITRUST_CONTRACT_ADDRESS'),
         'private_key' => env('CERTITRUST_SIGNER_PRIVATE_KEY'),
-        'abi_path' => env('CERTITRUST_CONTRACT_ABI_PATH', 'contracts/build/contracts_CertiTrustRegistry_sol_CertiTrustRegistry.abi'),
     ],
 
 ];

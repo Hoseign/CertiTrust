@@ -225,7 +225,7 @@ export default function Certificates() {
             document.getElementById("issueModal")?.classList.remove("show");
             const blockchainStatus = result.data?.[0]?.blockchain_status;
             showToast(blockchainStatus === "submitted"
-                ? "Certificate issued and submitted to Polygon Amoy."
+                ? "Certificate issued and submitted to Ethereum Sepolia."
                 : "Certificate issued; blockchain anchoring is not configured or failed.");
         } catch (requestError) {
             const message = (requestError as { response?: { data?: { message?: string } } })
@@ -549,7 +549,7 @@ export default function Certificates() {
                                                                     rel="noreferrer"
                                                                     className="break-all text-sm font-semibold text-blue-700 underline"
                                                                 >
-                                                                    View Polygon Amoy transaction
+                                                                    View Ethereum Sepolia transaction
                                                                 </a>
                                                             )}
 

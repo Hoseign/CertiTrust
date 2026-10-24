@@ -56,7 +56,7 @@ export default function StudentPortal() {
         email: certificate.student_email,
         issueDate: certificate.issue_date,
         issuingInstitution: certificate.university_name || certificate.university_code || "CertiTrust institution",
-        blockchainAnchor: certificate.blockchain_network || "Polygon Amoy",
+        blockchainAnchor: certificate.blockchain_network || "Ethereum Sepolia",
         certificateHash: certificate.cert_hash,
         status: certificate.status,
         diplomaUrl: certificate.diploma_url || undefined,

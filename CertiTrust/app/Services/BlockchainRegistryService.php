@@ -11,53 +11,44 @@ use kornrunner\Keccak;
 
 class BlockchainRegistryService
 {
-    public function issueCertificate(string $documentId, string $studentId, string $sha256): array
+    public function issueCertificate(
+        string $sha256,
+        string $studentName,
+        string $courseName,
+        string $issueDate,
+    ): array
     {
         $configuration = config('services.certitrust');
         if (!$configuration['enabled']) {
             return ['status' => 'not_configured'];
         }
 
-        $privateKey = preg_replace('/^0x/i', '', trim($configuration['private_key']));
-        if (!preg_match('/^[a-f0-9]{64}$/i', $privateKey)) {
-            throw new RuntimeException('The Polygon signer private key is not configured correctly.');
+        $privateKey = preg_replace('/^0x/i', '', trim((string) $configuration['private_key']));
+        if (!is_string($privateKey) || !preg_match('/^[a-f0-9]{64}$/i', $privateKey)) {
+            throw new RuntimeException('The blockchain signer private key is not configured correctly.');
         }
         $normalizedHash = strtolower(preg_replace('/^0x/i', '', trim($sha256)));
         if (!preg_match('/^[a-f0-9]{64}$/', $normalizedHash)) {
             throw new RuntimeException('The certificate hash must be a 32-byte SHA-256 hex digest.');
         }
         if (!preg_match('/^0x[a-f0-9]{40}$/i', (string) $configuration['contract_address'])) {
-            throw new RuntimeException('The Polygon contract address is not configured correctly.');
+            throw new RuntimeException('The blockchain contract address is not configured correctly.');
         }
 
-        $abiPath = base_path($configuration['abi_path']);
-        if (!is_file($abiPath)) {
-            throw new RuntimeException('The CertiTrust contract ABI file was not found.');
-        }
-        $abi = json_decode(file_get_contents($abiPath), true, flags: JSON_THROW_ON_ERROR);
-        $issueFunction = collect($abi)->first(
-            fn (array $item) => ($item['type'] ?? null) === 'function'
-                && ($item['name'] ?? null) === 'issueCertificate'
-        );
-        if (!$issueFunction || count($issueFunction['inputs'] ?? []) !== 3) {
-            throw new RuntimeException('The configured ABI does not contain issueCertificate(bytes32,bytes32,bytes32).');
-        }
-
-        $signature = $issueFunction['name'] . '('
-            . implode(',', array_column($issueFunction['inputs'], 'type'))
-            . ')';
-        $documentIdHash = Keccak::hash($documentId, 256);
-            $studentIdHash = hash_hmac('sha256', $studentId, (string) config('app.key'));
+        $signature = 'issueCertificate(string,string,string,string)';
         $callData = '0x' . substr(Keccak::hash($signature, 256), 0, 8)
-            . $documentIdHash
-            . $studentIdHash
-            . $normalizedHash;
+            . $this->encodeStringArguments([
+                $normalizedHash,
+                $studentName,
+                $courseName,
+                $issueDate,
+            ]);
 
         $sender = $this->addressFromPrivateKey($privateKey);
         $chainId = (int) $configuration['chain_id'];
         $rpcChainId = hexdec($this->rpc($configuration['rpc_url'], 'eth_chainId', []));
         if ((int) $rpcChainId !== $chainId) {
-            throw new RuntimeException('The configured Polygon RPC is not on the expected chain ID.');
+            throw new RuntimeException('The configured blockchain RPC is not on the expected chain ID.');
         }
         $ownerCall = '0x' . substr(Keccak::hash('owner()', 256), 0, 8);
         $ownerOutput = $this->rpc($configuration['rpc_url'], 'eth_call', [[
@@ -102,11 +93,11 @@ class BlockchainRegistryService
         return [
             'status' => 'submitted',
             'transaction_hash' => $transactionHash,
-            'network' => 'polygon-amoy',
+            'network' => $configuration['network'],
         ];
     }
 
-    public function verifyCertificate(string $documentId, string $sha256): array
+    public function verifyCertificate(string $sha256): array
     {
         $configuration = config('services.certitrust');
         if (!$configuration['enabled']) {
@@ -119,29 +110,58 @@ class BlockchainRegistryService
         }
 
         try {
-            $signature = 'verifyCertificate(bytes32,bytes32)';
+            $rpcChainId = hexdec($this->rpc($configuration['rpc_url'], 'eth_chainId', []));
+            if ((int) $rpcChainId !== (int) $configuration['chain_id']) {
+                throw new RuntimeException('The configured blockchain RPC is not on the expected chain ID.');
+            }
+
+            $signature = 'certificates(string)';
             $callData = '0x' . substr(Keccak::hash($signature, 256), 0, 8)
-                . Keccak::hash($documentId, 256)
-                . $normalizedHash;
+                . $this->encodeStringArguments([$normalizedHash]);
             $encodedResult = $this->rpc($configuration['rpc_url'], 'eth_call', [[
                 'to' => $configuration['contract_address'],
                 'data' => $callData,
             ], 'latest']);
-            $verified = hexdec(substr($encodedResult, -2)) === 1;
+            $resultData = strtolower(preg_replace('/^0x/i', '', $encodedResult));
+            if (!preg_match('/^(?:[a-f0-9]{64})+$/', $resultData)) {
+                throw new RuntimeException('The CertiTrust contract returned an invalid certificates(string) result.');
+            }
+            $validWord = substr($resultData, -64);
+            if (!preg_match('/^0{63}[01]$/', $validWord)) {
+                throw new RuntimeException('The CertiTrust contract returned an invalid credential validity flag.');
+            }
+            $verified = hexdec($validWord) === 1;
 
             return [
                 'status' => $verified ? 'verified' : 'not_found',
                 'verified' => $verified,
-                'network' => 'polygon-amoy',
+                'is_valid' => $verified,
+                'network' => $configuration['network'],
             ];
         } catch (\Throwable $exception) {
-            Log::warning('Polygon credential verification failed.', [
-                'document_id' => $documentId,
+            Log::warning('Blockchain credential verification failed.', [
+                'certificate_hash' => $normalizedHash,
                 'exception' => $exception->getMessage(),
             ]);
 
             return ['status' => 'unavailable', 'verified' => false];
         }
+    }
+
+    private function encodeStringArguments(array $values): string
+    {
+        $headSize = count($values) * 32;
+        $head = '';
+        $tail = '';
+
+        foreach ($values as $value) {
+            $encodedValue = bin2hex($value);
+            $head .= str_pad(dechex($headSize + (int) (strlen($tail) / 2)), 64, '0', STR_PAD_LEFT);
+            $tail .= str_pad(dechex(strlen($value)), 64, '0', STR_PAD_LEFT)
+                . str_pad($encodedValue, (int) (ceil(strlen($encodedValue) / 64) * 64), '0', STR_PAD_RIGHT);
+        }
+
+        return $head . $tail;
     }
 
     private function rpc(string $url, string $method, array $params): string
@@ -163,7 +183,7 @@ class BlockchainRegistryService
             } catch (ConnectionException $exception) {
                 $lastFailure = $exception;
                 if ($index < count($urls) - 1) {
-                    Log::warning('Polygon Amoy RPC endpoint was unreachable; trying a fallback.', [
+                    Log::warning('Blockchain RPC endpoint was unreachable; trying a fallback.', [
                         'method' => $method,
                         'endpoint_index' => $index,
                     ]);
@@ -191,7 +211,7 @@ class BlockchainRegistryService
         }
 
         throw new RuntimeException(
-            'All configured Polygon Amoy RPC endpoints failed: '
+            'All configured blockchain RPC endpoints failed: '
                 . ($lastFailure?->getMessage() ?? 'no RPC endpoints are configured.'),
             previous: $lastFailure,
         );

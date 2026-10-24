@@ -42,7 +42,7 @@ export default function CertificateVerificationResult({
     const incompleteMessage = !hasValidDatabaseStatus
         ? `The database marks this record as "${databaseStatus}". It cannot be considered a valid credential.`
         : blockchainStatuses.some((status) => status.toLowerCase() === "not_configured")
-            ? "The database marks this credential as verified, but the Polygon Amoy check is not configured. Its on-chain authenticity cannot be confirmed."
+            ? "The database marks this credential as verified, but the Ethereum Sepolia check is not configured. Its on-chain authenticity cannot be confirmed."
             : blockchainStatuses.some((status) => status.toLowerCase() === "pending")
                 ? "The database record exists, but its blockchain transaction is still pending. Verify again after the transaction is confirmed."
                 : blockchainStatuses.some((status) => status.toLowerCase() === "failed")
@@ -57,7 +57,7 @@ export default function CertificateVerificationResult({
         ["Issuing Institution", institution],
         ["Issue Date", result.issue_date],
         ["Database Status", result.status],
-        ["Polygon Amoy", result.blockchain_verification?.status || "unknown"],
+        ["Ethereum Sepolia", result.blockchain_verification?.status || "unknown"],
     ];
 
     return (
@@ -74,7 +74,7 @@ export default function CertificateVerificationResult({
                 </h1>
                 <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-600">
                     {isVerified
-                        ? `This credential was verified on Polygon Amoy and is recorded as issued by ${institution}.`
+                        ? `This credential was verified on Ethereum Sepolia and is recorded as issued by ${institution}.`
                         : incompleteMessage}
                 </p>
             </div>
@@ -99,7 +99,7 @@ export default function CertificateVerificationResult({
                                     {[
                                         ["Certificate ID", certificate.certificate_code],
                                         ["Status", certificate.status],
-                                        ["Polygon Amoy", certificate.blockchain_verification?.status || "unknown"],
+                                        ["Ethereum Sepolia", certificate.blockchain_verification?.status || "unknown"],
                                         ["SHA-256 Hash", certificate.cert_hash],
                                     ].map(([label, value]) => (
                                         <div key={label}>
@@ -143,7 +143,7 @@ export default function CertificateVerificationResult({
                         target="_blank"
                         rel="noreferrer"
                     >
-                        View Polygon Amoy transaction
+                        View Ethereum Sepolia transaction
                     </a>
                 )}
 

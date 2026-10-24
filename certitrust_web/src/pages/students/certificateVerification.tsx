@@ -131,7 +131,7 @@ export default function CertificateVerification({ publicAccess = false }: { publ
                             <div className="rounded-xl border border-[#BFDBFE] bg-[#EAF2FF] p-4 text-sm leading-6 text-[#1D4ED8]">
                                 <p className="font-bold">Credential verification</p>
                                 <p className="mt-1">
-                                    Enter a certificate code or SHA-256 hash to check the Laravel record and Polygon Amoy anchor.
+                                    Enter a certificate code or SHA-256 hash to check the Laravel record and Ethereum Sepolia anchor.
                                 </p>
                             </div>
 

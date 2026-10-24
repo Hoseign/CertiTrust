@@ -369,7 +369,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Text(
-                  'The database record is marked verified, but Polygon Amoy '
+                  'The database record is marked verified, but Ethereum Sepolia '
                   'verification is not configured. On-chain authenticity '
                   'cannot be confirmed.',
                 ),
@@ -381,7 +381,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
             _buildDetailRow('Issue Date', _certResult!['issue_date'] ?? 'N/A'),
             _buildDetailRow(
                 'Verification Status', _certResult!['status'] ?? 'Verified'),
-            _buildDetailRow('Polygon Amoy', chainStatus),
+            _buildDetailRow('Ethereum Sepolia', chainStatus),
             if (imageUrl != null && imageUrl.toString().isNotEmpty) ...[
               const SizedBox(height: 20),
               const Text(

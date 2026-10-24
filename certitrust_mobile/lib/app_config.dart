@@ -11,12 +11,14 @@ class AppConfig {
   static const String supabasePublishableKey =
       'sb_publishable_8CWcmw0xfJch5y-TwTfz3w_PcMPXaMh';
 
-  // Polygon Amoy Testnet RPC
-  static const String polygonRpcUrl = 'https://rpc-amoy.polygon.technology/';
-  static const int polygonChainId = 80002;
+  // Ethereum Sepolia testnet configuration; blockchain requests use the Laravel API.
+  static const String ethereumSepoliaRpcUrl =
+      'https://rpc.sepolia.org';
+  static const int ethereumSepoliaChainId = 11155111;
 
   // Smart Contract Configuration
-  static const String contractAddress = 'YOUR_DEPLOYED_CONTRACT_ADDRESS';
+  static const String contractAddress =
+      '0xE19411e7df13f0b11d86d629b044c534b453af15';
 
   // Domain Configuration
   static const String liveDemoDomain = 'https://certitrust-verify.vercel.app';
