@@ -72,13 +72,13 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Wipe all accounts and credentials?'),
+          title: const Text('Wipe all university data?'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'This permanently removes all university subadmin and student/user accounts and database credentials. Old QR codes will report removed. The Super Admin, university registrations, and blockchain history remain. Student IDs and emails can be registered again.',
+                'This permanently removes all university registrations, access controls, subadmin and student/user accounts, and database credentials. Old QR codes will report removed. The Super Admin account and blockchain history remain. Universities, student IDs, and emails can be registered again.',
               ),
               const SizedBox(height: 16),
               TextField(
@@ -103,7 +103,7 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
               style: FilledButton.styleFrom(
                 backgroundColor: Colors.red.shade700,
               ),
-              child: const Text('Wipe accounts and credentials'),
+              child: const Text('Wipe all university data'),
             ),
           ],
         ),
@@ -129,7 +129,7 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
       if (mounted) {
         final message = error is ApiRequestException ? error.message : '$error';
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Could not wipe accounts and credentials: $message'),
+          content: Text('Could not wipe university data: $message'),
           backgroundColor: Colors.red.shade700,
           duration: const Duration(seconds: 8),
         ));
@@ -284,8 +284,8 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                           )
                         : const Icon(Icons.delete_forever_outlined),
                     label: Text(_isPurging
-                        ? 'Wiping accounts and credentials...'
-                        : 'Wipe all accounts and credentials'),
+                        ? 'Wiping university data...'
+                        : 'Wipe all university data'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.red.shade700,
                     ),

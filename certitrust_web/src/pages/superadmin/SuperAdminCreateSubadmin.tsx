@@ -221,7 +221,7 @@ export default function SuperAdminCreateSubadmin() {
 
     const purgeAllAccounts = async () => {
         const confirmation = window.prompt(
-            "This removes all subadmin accounts, student/user accounts, and database credentials across every university. Old QR codes will report removed. The Super Admin, university registrations, and blockchain history remain. Type WIPE ALL to continue.",
+            "This permanently removes all university registrations, subadmin accounts, student/user accounts, database credentials, and access controls. Old QR codes will report removed. The Super Admin account and blockchain history remain. Universities, student IDs, and emails can be registered again. Type WIPE ALL to continue.",
         );
         if (confirmation !== "WIPE ALL") return;
 
@@ -338,9 +338,9 @@ export default function SuperAdminCreateSubadmin() {
                     </div>
 
                     <section className="mt-8 rounded-2xl border border-red-200 bg-red-50 p-6">
-                        <h2 className="text-lg font-bold text-red-900">Clear accounts and credentials</h2>
+                        <h2 className="text-lg font-bold text-red-900">Wipe all university data</h2>
                         <p className="mt-2 text-sm text-red-800">
-                            Remove all university subadmin and student/user accounts and database credentials across the shared system. The Super Admin and university registrations are preserved; blockchain transactions cannot be erased. Student IDs and emails can be registered again.
+                            Remove all university registrations, access controls, subadmin and student/user accounts, and database credentials across the shared system. The Super Admin account remains; blockchain transactions cannot be erased. Universities, student IDs, and emails can be registered again.
                         </p>
                         {purgeError && <p role="alert" className="mt-3 text-sm font-semibold text-red-800">{purgeError}</p>}
                         {purgeMessage && <p role="status" className="mt-3 text-sm font-semibold text-emerald-800">{purgeMessage}</p>}
@@ -350,7 +350,7 @@ export default function SuperAdminCreateSubadmin() {
                             disabled={isPurging}
                             className="mt-4 rounded-xl bg-red-700 px-5 py-3 font-bold text-white hover:bg-red-800 disabled:cursor-wait disabled:opacity-60"
                         >
-                            {isPurging ? "Removing accounts and credentials..." : "Wipe all accounts and credentials"}
+                            {isPurging ? "Wiping university data..." : "Wipe all university data"}
                         </button>
                     </section>
 

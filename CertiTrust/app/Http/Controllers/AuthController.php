@@ -868,28 +868,32 @@ class AuthController extends Controller
             $accountCount = $accountIds === []
                 ? 0
                 : User::whereIn('id', $accountIds)->delete();
+            UniversityAccessControl::query()->delete();
+            $universityCount = University::query()->count();
+            University::query()->delete();
 
             return [
                 'deleted_subadmin_count' => $subadminCount,
                 'deleted_student_count' => $studentCount,
                 'deleted_account_count' => $accountCount,
                 'deleted_certificate_count' => $certificateCount,
+                'deleted_university_count' => $universityCount,
             ];
         });
 
         $this->logAdminAction(
-            'purged_all_accounts_and_credentials',
+            'purged_all_university_data',
             null,
             null,
             $deleted + [
-                'university_registrations_retained' => true,
+                'university_registrations_deleted' => true,
                 'super_admin_retained' => true,
                 'blockchain_transactions_retained' => true,
             ],
         );
 
         return response()->json([
-            'message' => 'All university subadmin and student/user accounts and database credentials were removed. Old credential QR codes are marked removed. The Super Admin, university registrations, and blockchain transactions remain.',
+            'message' => 'All university registrations, subadmin and student/user accounts, and database credentials were removed. Old credential QR codes are marked removed. The Super Admin and immutable blockchain transactions remain.',
             'data' => $deleted,
         ]);
     }

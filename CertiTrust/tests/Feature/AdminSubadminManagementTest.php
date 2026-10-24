@@ -78,8 +78,16 @@ class AdminSubadminManagementTest extends TestCase
             ->assertOk();
     }
 
-    public function test_superadmin_can_purge_accounts_and_database_credentials_without_deleting_universities(): void
+    public function test_superadmin_can_purge_accounts_credentials_and_universities(): void
     {
+        DB::table('universities')->insert([
+            'code' => 'PSUU',
+            'university_name' => 'Duplicate PSU Registration',
+            'branch_campus' => null,
+            'display_name' => 'PSUU',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         $superAdmin = User::create([
             'name' => 'CertiTrust Super Admin',
             'email' => 'certitrust256@gmail.com',
@@ -106,6 +114,13 @@ class AdminSubadminManagementTest extends TestCase
             'password' => bcrypt('secret'),
             'role' => 'user',
             'university_code' => 'UCU',
+        ]);
+        DB::table('university_access_controls')->insert([
+            'university_code' => 'UCU',
+            'students_frozen' => false,
+            'updated_by' => $superAdmin->id,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
         foreach ([
             ['code' => 'PURGE-UCU-CREDENTIAL', 'hash' => str_repeat('b', 64), 'university' => 'UCU'],
@@ -136,15 +151,18 @@ class AdminSubadminManagementTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.deleted_subadmin_count', 1)
             ->assertJsonPath('data.deleted_student_count', 2)
-            ->assertJsonPath('data.deleted_certificate_count', 2);
+            ->assertJsonPath('data.deleted_certificate_count', 2)
+            ->assertJsonPath('data.deleted_university_count', 3);
 
         $this->assertDatabaseHas('users', ['id' => $superAdmin->id]);
         $this->assertDatabaseMissing('users', ['id' => $subadmin->id]);
         $this->assertDatabaseMissing('users', ['id' => $student->id]);
         $this->assertDatabaseMissing('users', ['id' => $legacyUser->id]);
         $this->assertDatabaseMissing('certificates', ['certificate_code' => 'PURGE-UCU-CREDENTIAL']);
-        $this->assertDatabaseHas('universities', ['code' => 'UCU']);
-        $this->assertDatabaseHas('universities', ['code' => 'PSU']);
+        $this->assertDatabaseMissing('universities', ['code' => 'UCU']);
+        $this->assertDatabaseMissing('universities', ['code' => 'PSU']);
+        $this->assertDatabaseMissing('universities', ['code' => 'PSUU']);
+        $this->assertDatabaseMissing('university_access_controls', ['university_code' => 'UCU']);
         $this->getJson('/api/certificates/PURGE-UCU-CREDENTIAL')
             ->assertStatus(410)
             ->assertJsonPath('status', 'removed');
@@ -152,6 +170,14 @@ class AdminSubadminManagementTest extends TestCase
             ->assertStatus(410)
             ->assertJsonPath('status', 'removed');
 
+        DB::table('universities')->insert([
+            'code' => 'PSU',
+            'university_name' => 'Pangasinan State University',
+            'branch_campus' => null,
+            'display_name' => 'PSU',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         User::create([
             'name' => 'Replacement student',
             'email' => 'purge-student@example.edu',
