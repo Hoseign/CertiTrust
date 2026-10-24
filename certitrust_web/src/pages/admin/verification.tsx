@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import Sidebar from "../../components/Sidebar";
 import QrScanner from "../../components/QrScanner";
+import CertificateVerificationResult from "../../components/CertificateVerificationResult";
 import { getCertificateByCode } from "../../services/certitrustApi";
 
 export default function Verification() {
@@ -11,9 +12,6 @@ export default function Verification() {
   const [result, setResult] = useState<Awaited<ReturnType<typeof getCertificateByCode>> | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
-  const isVerified = !!result
-    && ["verified", "valid"].includes(result.status.toLowerCase())
-    && result.blockchain_verification?.verified === true;
 
   const handleVerify = useCallback(async (codeValue: string) => {
     const value = codeValue.trim();
@@ -23,6 +21,7 @@ export default function Verification() {
       return;
     }
 
+    setCode(value);
     setError("");
     setResult(null);
     setIsVerifying(true);
@@ -42,6 +41,12 @@ export default function Verification() {
       setIsVerifying(false);
     }
   }, []);
+
+  const handleVerifyAnother = () => {
+    setResult(null);
+    setCode("");
+    setError("");
+  };
 
   const initialCode = searchParams.get("hash") || searchParams.get("certificateId");
   useEffect(() => {
@@ -72,6 +77,13 @@ export default function Verification() {
 
         </div>
 
+        {result ? (
+          <CertificateVerificationResult
+            result={result}
+            searchedCode={code}
+            onVerifyAnother={handleVerifyAnother}
+          />
+        ) : (
         <div className="max-w-2xl">
 
           {/* INFO BANNER */}
@@ -213,36 +225,8 @@ export default function Verification() {
             {isVerifying ? "Verifying..." : "Verify Record"}
           </button>
 
-          {result && (
-            <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-xl font-extrabold text-[#0A192F]">{result.student_name}</h2>
-              <p className={`mt-2 text-sm font-bold ${isVerified ? "text-emerald-700" : "text-amber-700"}`}>
-                {isVerified ? "On-chain credential verified" : "Database record found; chain verification incomplete"}
-              </p>
-              <dl className="mt-5 grid gap-3 sm:grid-cols-2">
-                {[
-                  ["Certificate code", result.certificate_code],
-                  ["Student ID", result.student_id],
-                  ["Program", result.degree],
-                  ["Institution", result.university_name || result.university_code],
-                  ["Database status", result.status],
-                  ["Polygon Amoy", result.blockchain_verification?.status || "unknown"],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-lg bg-slate-50 p-3">
-                    <dt className="text-xs font-bold uppercase text-slate-500">{label}</dt>
-                    <dd className="mt-1 break-words text-sm font-semibold text-[#0A192F]">{value}</dd>
-                  </div>
-                ))}
-              </dl>
-              {result.blockchain_verification?.verified && result.blockchain_tx_hash && (
-                <a className="mt-5 inline-block break-all text-sm font-semibold text-blue-700 underline" href={`https://amoy.polygonscan.com/tx/${result.blockchain_tx_hash}`} target="_blank" rel="noreferrer">
-                  View Polygon Amoy transaction
-                </a>
-              )}
-            </section>
-          )}
-
         </div>
+        )}
 
       </main>
       {scannerOpen && (

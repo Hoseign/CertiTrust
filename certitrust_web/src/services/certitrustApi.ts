@@ -22,6 +22,7 @@ export type CertificateRecord = {
 
 export type PublicCertificateResult = Partial<CertificateRecord> & {
     status: string;
+    course_or_event?: string;
     university_name?: string;
     blockchain_verification?: { status: string; verified: boolean; network?: string };
     multi_degree?: boolean;
