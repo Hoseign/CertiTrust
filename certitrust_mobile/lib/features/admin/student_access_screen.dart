@@ -43,7 +43,7 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
     _studentsFuture = ApiService.getUniversityStudents(
       universityCode: widget.universityCode,
     );
-    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_isAppActive && !_isUpdating) _refreshAutomatically();
     });
   }
@@ -201,7 +201,7 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
       builder: (dialogContext) => AlertDialog(
         title: const Text('Remove student account?'),
         content: Text(
-          'Remove sign-in and frozen-access data for $label? Issued credentials will remain available for verification.',
+          'Permanently remove the sign-in account and issued database credentials for $label? Their QR codes will no longer verify. Blockchain transactions cannot be erased.',
         ),
         actions: [
           TextButton(
@@ -219,11 +219,14 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
 
     setState(() => _isUpdating = true);
     try {
-      await ApiService.deleteStudentAccount(userId: studentId);
+      final result = await ApiService.deleteStudentAccount(userId: studentId);
       await _reload();
       if (mounted) {
+        final deletedCount = result['data']?['deleted_certificate_count'] ?? 0;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('$label’s account was removed. Credentials were kept.'),
+          content: Text(
+            '$label’s account and $deletedCount database credential(s) were removed. Blockchain transactions remain on-chain.',
+          ),
         ));
       }
     } catch (error) {

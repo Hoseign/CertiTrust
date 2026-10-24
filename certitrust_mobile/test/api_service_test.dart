@@ -44,14 +44,18 @@ void main() {
     );
   });
 
-  test('rejects localhost and loopback API overrides for mobile clients', () {
+  test('supports local and production API overrides', () {
     expect(
       ApiService.normalizeBaseUrl('http://127.0.0.1:8000/api'),
-      'https://certitrust-yhzl.onrender.com/api',
+      'http://127.0.0.1:8000/api',
     );
     expect(
       ApiService.normalizeBaseUrl('http://localhost:8000/api'),
-      'https://certitrust-yhzl.onrender.com/api',
+      'http://localhost:8000/api',
+    );
+    expect(
+      ApiService.normalizeBaseUrl('http://10.0.2.2:8000/api'),
+      'http://10.0.2.2:8000/api',
     );
     expect(
       ApiService.normalizeBaseUrl('https://certitrust-yhzl.onrender.com/api'),
@@ -106,5 +110,60 @@ void main() {
 
     expect(requestedUri?.path, endsWith('/admin/recent-verifications'));
     expect(requestedUri?.queryParameters['limit'], '5');
+  });
+
+  test('removed credential lookups preserve the backend removed status',
+      () async {
+    await http.runWithClient(
+      () async {
+        await expectLater(
+          ApiService.getCertificateByCode('OLD-CREDENTIAL-CODE'),
+          throwsA(
+            isA<ApiRequestException>()
+                .having((error) => error.statusCode, 'statusCode', 410)
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains('removed from the database'),
+                ),
+          ),
+        );
+      },
+      () => MockClient((_) async => http.Response(
+            jsonEncode({
+              'status': 'removed',
+              'message':
+                  'This credential was removed from the database and is no longer valid.',
+            }),
+            410,
+          )),
+    );
+  });
+
+  test('global account and credential cleanup uses the shared admin API',
+      () async {
+    Uri? requestedUri;
+    String? requestMethod;
+
+    await http.runWithClient(
+      () async {
+        final result = await ApiService.purgeAccountsAndCredentials();
+        expect(result['data']['deleted_certificate_count'], 3);
+      },
+      () => MockClient((request) async {
+        requestedUri = request.url;
+        requestMethod = request.method;
+        return http.Response(
+          jsonEncode({
+            'message': 'Cleanup complete.',
+            'data': {'deleted_certificate_count': 3},
+          }),
+          200,
+        );
+      }),
+    );
+
+    expect(requestMethod, 'DELETE');
+    expect(requestedUri?.path, endsWith('/admin/accounts-and-credentials'));
   });
 }

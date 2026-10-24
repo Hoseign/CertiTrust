@@ -39,7 +39,7 @@ class _AdminManagementScreenState extends State<AdminManagementScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadAdmins();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_isAppActive) _loadAdmins(showLoading: false);
     });
   }

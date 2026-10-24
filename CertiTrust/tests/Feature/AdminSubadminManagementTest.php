@@ -16,7 +16,156 @@ class AdminSubadminManagementTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_only_the_university_subadmin_can_remove_a_frozen_student_account(): void
+    public function test_only_superadmin_can_revoke_a_certificate_and_make_its_qr_unresolvable(): void
+    {
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+        $universityAdmin = User::create([
+            'name' => 'PSU Admin',
+            'email' => 'psu-revoke-admin@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'PSU',
+        ]);
+        $certificate = Certificate::create([
+            'certificate_code' => 'PSU-QR-REVOKE-TEST',
+            'student_name' => 'Revoked Student',
+            'recipient_name' => 'Revoked Student',
+            'student_id' => 'PSU-REVOKE-1001',
+            'student_email' => 'revoked-student@example.edu',
+            'degree' => 'BSIT',
+            'course_or_event' => 'BSIT',
+            'university_code' => 'PSU',
+            'issue_date' => '2026-06-01',
+            'status' => 'Verified',
+            'cert_hash' => str_repeat('f', 64),
+        ]);
+
+        $this->getJson('/api/certificates/PSU-QR-REVOKE-TEST')
+            ->assertOk();
+        $this->actingAs($universityAdmin, 'sanctum')
+            ->deleteJson('/api/admin/certificates/' . $certificate->id)
+            ->assertForbidden();
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->deleteJson('/api/admin/certificates/' . $certificate->id)
+            ->assertOk()
+            ->assertJsonPath('data.certificate_code', 'PSU-QR-REVOKE-TEST');
+
+        $this->assertDatabaseMissing('certificates', ['id' => $certificate->id]);
+        $this->getJson('/api/certificates/PSU-QR-REVOKE-TEST')
+            ->assertStatus(410)
+            ->assertJsonPath('status', 'removed')
+            ->assertJsonPath('message', 'This credential was removed from the database and is no longer valid.');
+
+        $replacement = $this->actingAs($universityAdmin, 'sanctum')
+            ->postJson('/api/certificates', [
+                'student_id' => 'PSU-REVOKE-1001',
+                'student_name' => 'Revoked Student',
+                'student_email' => 'revoked-student@example.edu',
+                'degree' => 'BSIT',
+                'issue_date' => '2026-10-24',
+                'cert_hash' => str_repeat('a', 64),
+            ])
+            ->assertCreated();
+        $this->getJson('/api/certificates/' . $replacement->json('data.certificate_code'))
+            ->assertOk();
+        $this->getJson('/api/certificates/' . str_repeat('a', 64))
+            ->assertOk();
+    }
+
+    public function test_superadmin_can_purge_accounts_and_database_credentials_without_deleting_universities(): void
+    {
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+        $subadmin = User::create([
+            'name' => 'UCU Admin',
+            'email' => 'purge-ucu-admin@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        $student = User::create([
+            'name' => 'Student to purge',
+            'email' => 'purge-student@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'PSU',
+        ]);
+        $legacyUser = User::create([
+            'name' => 'Legacy user to purge',
+            'email' => 'purge-legacy-user@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'user',
+            'university_code' => 'UCU',
+        ]);
+        foreach ([
+            ['code' => 'PURGE-UCU-CREDENTIAL', 'hash' => str_repeat('b', 64), 'university' => 'UCU'],
+            ['code' => 'PURGE-PSU-CREDENTIAL', 'hash' => str_repeat('c', 64), 'university' => 'PSU'],
+        ] as $credential) {
+            Certificate::create([
+                'certificate_code' => $credential['code'],
+                'student_name' => 'Credential to purge',
+                'recipient_name' => 'Credential to purge',
+                'student_id' => 'REUSABLE-STUDENT-ID',
+                'student_email' => 'purge-student@example.edu',
+                'degree' => 'BSIT',
+                'course_or_event' => 'BSIT',
+                'university_code' => $credential['university'],
+                'issue_date' => '2026-06-01',
+                'status' => 'Verified',
+                'cert_hash' => $credential['hash'],
+            ]);
+        }
+
+        $this->actingAs($subadmin, 'sanctum')
+            ->deleteJson('/api/admin/accounts-and-credentials')
+            ->assertForbidden();
+        $this->assertDatabaseHas('users', ['id' => $student->id]);
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->deleteJson('/api/admin/accounts-and-credentials')
+            ->assertOk()
+            ->assertJsonPath('data.deleted_subadmin_count', 1)
+            ->assertJsonPath('data.deleted_student_count', 2)
+            ->assertJsonPath('data.deleted_certificate_count', 2);
+
+        $this->assertDatabaseHas('users', ['id' => $superAdmin->id]);
+        $this->assertDatabaseMissing('users', ['id' => $subadmin->id]);
+        $this->assertDatabaseMissing('users', ['id' => $student->id]);
+        $this->assertDatabaseMissing('users', ['id' => $legacyUser->id]);
+        $this->assertDatabaseMissing('certificates', ['certificate_code' => 'PURGE-UCU-CREDENTIAL']);
+        $this->assertDatabaseHas('universities', ['code' => 'UCU']);
+        $this->assertDatabaseHas('universities', ['code' => 'PSU']);
+        $this->getJson('/api/certificates/PURGE-UCU-CREDENTIAL')
+            ->assertStatus(410)
+            ->assertJsonPath('status', 'removed');
+        $this->getJson('/api/certificates/' . str_repeat('c', 64))
+            ->assertStatus(410)
+            ->assertJsonPath('status', 'removed');
+
+        User::create([
+            'name' => 'Replacement student',
+            'email' => 'purge-student@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'PSU',
+        ]);
+        $this->assertDatabaseHas('users', [
+            'email' => 'purge-student@example.edu',
+            'role' => 'student',
+        ]);
+    }
+
+    public function test_only_the_university_subadmin_can_remove_a_frozen_student_and_revoke_credentials(): void
     {
         $superAdmin = User::create([
             'name' => 'CertiTrust Super Admin',
@@ -41,7 +190,7 @@ class AdminSubadminManagementTest extends TestCase
             'access_frozen_by' => $superAdmin->id,
         ]);
         Certificate::create([
-            'certificate_code' => 'CERT-KEEP-AFTER-STUDENT-DELETE',
+            'certificate_code' => 'CERT-REVOKE-AFTER-STUDENT-DELETE',
             'student_name' => 'Frozen UCU Student',
             'recipient_name' => 'Frozen UCU Student',
             'student_id' => 'UCU-DELETE-1001',
@@ -53,6 +202,9 @@ class AdminSubadminManagementTest extends TestCase
             'status' => 'Verified',
             'cert_hash' => str_repeat('e', 64),
         ]);
+        $this->getJson('/api/certificates/CERT-REVOKE-AFTER-STUDENT-DELETE')
+            ->assertOk()
+            ->assertJsonPath('data.student_id', 'UCU-DELETE-1001');
 
         $this->actingAs($superAdmin, 'sanctum')
             ->getJson('/api/admin/subadmins')
@@ -67,18 +219,156 @@ class AdminSubadminManagementTest extends TestCase
             ->deleteJson('/api/admin/students/' . $student->id)
             ->assertOk()
             ->assertJsonPath(
-                'message',
-                'Student account removed. Issued credentials were kept.',
-            );
+                'data.deleted_certificate_count',
+                1,
+            )
+            ->assertJsonPath('data.university_code', 'UCU');
 
         $this->assertDatabaseMissing('users', ['id' => $student->id]);
-        $this->assertDatabaseHas('certificates', [
+        $this->assertDatabaseMissing('certificates', [
             'cert_hash' => str_repeat('e', 64),
         ]);
+        $this->getJson('/api/certificates/CERT-REVOKE-AFTER-STUDENT-DELETE')
+            ->assertStatus(410)
+            ->assertJsonPath('status', 'removed');
         $this->actingAs($superAdmin, 'sanctum')
             ->getJson('/api/admin/subadmins')
             ->assertOk()
             ->assertJsonCount(0, 'data.0.frozen_students');
+    }
+
+    public function test_deleted_subadmin_universities_are_added_to_junk_for_permanent_student_cleanup(): void
+    {
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+        $students = [];
+        foreach ([
+            ['code' => 'UCU', 'prefix' => 'UcuUser'],
+            ['code' => 'PSU', 'prefix' => 'PsuUser'],
+        ] as $university) {
+            $admin = User::create([
+                'name' => $university['code'] . ' Admin',
+                'email' => strtolower($university['code']) . '-junk-admin@example.edu',
+                'password' => bcrypt('secret'),
+                'role' => 'admin',
+                'university_code' => $university['code'],
+            ]);
+            $student = User::create([
+                'name' => $university['prefix'] . ' T. Student',
+                'email' => strtolower($university['code']) . '-junk-student@example.edu',
+                'password' => bcrypt('secret'),
+                'role' => 'student',
+                'university_code' => $university['code'],
+            ]);
+            $certificateCode = $university['code'] . '-JUNK-CERTIFICATE';
+            Certificate::create([
+                'certificate_code' => $certificateCode,
+                'student_name' => $student->name,
+                'recipient_name' => $student->name,
+                'student_id' => $university['code'] . '-JUNK-1001',
+                'student_email' => $student->email,
+                'degree' => 'BSIT',
+                'course_or_event' => 'BSIT',
+                'university_code' => $university['code'],
+                'issue_date' => '2026-06-01',
+                'status' => 'Verified',
+                'cert_hash' => str_repeat($university['code'] === 'UCU' ? 'a' : 'b', 64),
+            ]);
+            DB::table('certificates')
+                ->where('certificate_code', $certificateCode)
+                ->update(['email' => $student->email]);
+
+            $students[] = [
+                'admin' => $admin,
+                'student' => $student,
+                'code' => $university['code'],
+                'certificate_code' => $certificateCode,
+            ];
+        }
+
+        foreach ($students as $record) {
+            $this->actingAs($superAdmin, 'sanctum')
+                ->deleteJson('/api/admin/subadmins/' . $record['admin']->id)
+                ->assertOk();
+        }
+
+        $junkResponse = $this->actingAs($superAdmin, 'sanctum')
+            ->getJson('/api/admin/junk')
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+        $this->assertEqualsCanonicalizing(
+            ['PSU', 'UCU'],
+            collect($junkResponse->json('data'))->pluck('university_code')->all(),
+        );
+
+        foreach ($students as $record) {
+            $this->actingAs($superAdmin, 'sanctum')
+                ->deleteJson('/api/admin/junk/' . $record['code'] . '/students/' . $record['student']->id)
+                ->assertOk()
+                ->assertJsonPath('deleted_certificate_count', 1);
+
+            $this->assertDatabaseMissing('users', ['id' => $record['student']->id]);
+            $this->assertDatabaseMissing('certificates', [
+                'certificate_code' => $record['certificate_code'],
+            ]);
+        }
+
+        $this->assertDatabaseHas('universities', ['code' => 'UCU']);
+        $this->assertDatabaseHas('universities', ['code' => 'PSU']);
+    }
+
+    public function test_superadmin_can_permanently_clear_student_records_without_deleting_university_registration(): void
+    {
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+        $universityAdmin = User::create([
+            'name' => 'UCU Admin',
+            'email' => 'ucu-junk-bulk-admin@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        $student = User::create([
+            'name' => 'Bulk Cleanup Student',
+            'email' => 'ucu-junk-bulk-student@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'UCU',
+        ]);
+        Certificate::create([
+            'certificate_code' => 'UCU-JUNK-BULK-CERTIFICATE',
+            'student_name' => $student->name,
+            'recipient_name' => $student->name,
+            'student_id' => 'UCU-JUNK-BULK-1001',
+            'student_email' => $student->email,
+            'degree' => 'BSIT',
+            'course_or_event' => 'BSIT',
+            'university_code' => 'UCU',
+            'issue_date' => '2026-06-01',
+            'status' => 'Verified',
+            'cert_hash' => str_repeat('c', 64),
+        ]);
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->deleteJson('/api/admin/junk/UCU')
+            ->assertOk()
+            ->assertJsonPath('deleted_student_count', 1)
+            ->assertJsonPath('deleted_certificate_count', 1);
+
+        $this->assertDatabaseMissing('users', ['id' => $student->id]);
+        $this->assertDatabaseHas('users', ['id' => $universityAdmin->id]);
+        $this->assertDatabaseMissing('certificates', [
+            'certificate_code' => 'UCU-JUNK-BULK-CERTIFICATE',
+        ]);
+        $this->assertDatabaseHas('universities', ['code' => 'UCU']);
     }
 
     public function test_student_access_lists_degrees_with_types_and_ordinals(): void
@@ -869,7 +1159,7 @@ class AdminSubadminManagementTest extends TestCase
         ]);
 
         $response->assertStatus(403)
-            ->assertJsonPath('message', 'This Google account is not registered in CertiTrust yet. Only the Super Admin is seeded by default; all other accounts must be created by the system admin.');
+            ->assertJsonPath('message', 'This Google account is not registered in CertiTrust yet. Please ask the system admin to create your account.');
 
         $this->assertDatabaseMissing('users', [
             'email' => 'demo.user@gmail.com',
@@ -1556,6 +1846,9 @@ class AdminSubadminManagementTest extends TestCase
             ->assertJsonPath('data.status', 'approved');
 
         $this->assertDatabaseMissing('certificates', ['id' => $certificate->id]);
+        $this->getJson('/api/certificates/' . $certificate->certificate_code)
+            ->assertStatus(410)
+            ->assertJsonPath('status', 'removed');
         $this->assertDatabaseHas('certificate_deletion_requests', [
             'id' => $requestId,
             'student_id' => '20260077',

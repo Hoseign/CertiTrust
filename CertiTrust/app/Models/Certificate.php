@@ -24,5 +24,9 @@ class Certificate extends Model
         'diploma_file_name',
         'cert_hash',
         'status',
+        'blockchain_status',
+        'blockchain_tx_hash',
+        'blockchain_network',
+        'blockchain_error',
     ];
 }

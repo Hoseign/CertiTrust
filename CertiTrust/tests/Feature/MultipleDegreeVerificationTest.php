@@ -127,7 +127,9 @@ class MultipleDegreeVerificationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.university_name', 'University of Cebu')
             ->assertJsonPath('data.branch_campus', 'Main Campus')
-            ->assertJsonPath('data.display_name', 'UOCM');
+            ->assertJsonPath('data.display_name', 'UOCM')
+            ->assertJsonMissingPath('data.student_email')
+            ->assertJsonMissingPath('data.email');
     }
 
     public function test_replacement_student_email_can_access_credentials_by_student_id(): void

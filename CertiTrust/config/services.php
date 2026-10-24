@@ -41,4 +41,13 @@ return [
         'diploma_bucket' => env('SUPABASE_DIPLOMA_BUCKET', 'diplomas'),
     ],
 
+    'certitrust' => [
+        'enabled' => env('CERTITRUST_CHAIN_ENABLED', false),
+        'rpc_url' => env('POLYGON_AMOY_RPC_URL', 'https://rpc-amoy.polygon.technology/'),
+        'chain_id' => env('POLYGON_AMOY_CHAIN_ID', 80002),
+        'contract_address' => env('CERTITRUST_CONTRACT_ADDRESS'),
+        'private_key' => env('CERTITRUST_SIGNER_PRIVATE_KEY'),
+        'abi_path' => env('CERTITRUST_CONTRACT_ABI_PATH', 'contracts/build/contracts_CertiTrustRegistry_sol_CertiTrustRegistry.abi'),
+    ],
+
 ];

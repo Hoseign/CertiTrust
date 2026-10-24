@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:certitrust_mobile/app_config.dart';
 
 class ApiRequestException implements Exception {
   const ApiRequestException(
@@ -52,36 +53,19 @@ class ConnectionSnapshot {
 }
 
 class ApiService {
-  static const String productionApiUrl =
-      'https://certitrust-yhzl.onrender.com/api';
+  static const String productionApiUrl = AppConfig.productionApiUrl;
   static const String _productionApiUrl = productionApiUrl;
 
-  // Production builds must always target the live Render backend. Local IPs and
-  // loopback hosts are explicitly rejected to prevent accidental offline or
-  // private-network requests when the app is running over Wi‑Fi, hotspot, or LTE.
-  static String get baseUrl {
-    const override = String.fromEnvironment('CERTITRUST_API_URL');
-    if (override.isNotEmpty) {
-      final normalized = normalizeBaseUrl(override);
-      return normalized.contains('certitrust-yhzl.onrender.com')
-          ? normalized
-          : _productionApiUrl;
-    }
-
-    return _productionApiUrl;
-  }
+  static String get baseUrl => normalizeBaseUrl(AppConfig.apiBaseUrl);
 
   static String normalizeBaseUrl(String value) {
     final trimmed = value.trim();
     if (trimmed.isEmpty) return _productionApiUrl;
 
-    final lower = trimmed.toLowerCase();
-    if (lower.contains('localhost') ||
-        lower.contains('127.0.0.1') ||
-        lower.contains('::1') ||
-        lower.contains('192.168.') ||
-        lower.contains('10.0.2.2') ||
-        lower.contains('172.')) {
+    final parsed = Uri.tryParse(trimmed);
+    if (parsed == null ||
+        !const ['http', 'https'].contains(parsed.scheme.toLowerCase()) ||
+        parsed.host.isEmpty) {
       return _productionApiUrl;
     }
 
@@ -233,6 +217,21 @@ class ApiService {
 
   /// Clear token on logout
   static Future<void> logout() async {
+    final token = authToken;
+    if (token != null && token.isNotEmpty) {
+      try {
+        await http.post(
+          Uri.parse('$baseUrl/logout'),
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+        ).timeout(const Duration(seconds: 5));
+      } catch (error) {
+        debugPrint('Server logout could not be reached: $error');
+      }
+    }
+
     authToken = null;
     authEmail = null;
     authRole = null;
@@ -398,9 +397,20 @@ class ApiService {
       } else if (response.statusCode == 404) {
         return null;
       }
+      final errorBody = jsonDecode(response.body);
+      final message = errorBody is Map<String, dynamic>
+          ? errorBody['message']?.toString()
+          : null;
       throw ApiRequestException(
-          response.statusCode, 'Certificate lookup failed.');
+        response.statusCode,
+        message ?? 'Certificate lookup failed.',
+        details: errorBody is Map<String, dynamic> ? errorBody : const {},
+      );
     } catch (e) {
+      if (e is ApiRequestException && e.statusCode == 410) {
+        _recordConnectionSuccess();
+        rethrow;
+      }
       _recordConnectionFailure(_connectionMessage(e));
       rethrow;
     }
@@ -703,6 +713,41 @@ class ApiService {
     return body;
   }
 
+  static Future<Map<String, dynamic>> revokeCertificateRecord({
+    required int certificateId,
+  }) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/admin/certificates/$certificateId'),
+      headers: _getHeaders,
+    );
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Unable to remove this credential.',
+      );
+    }
+    _recordConnectionSuccess();
+    return body;
+  }
+
+  static Future<Map<String, dynamic>> purgeAccountsAndCredentials() async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/admin/accounts-and-credentials'),
+      headers: _getHeaders,
+    );
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ??
+            'Unable to remove accounts and credentials.',
+      );
+    }
+    _recordConnectionSuccess();
+    return body;
+  }
+
   static Future<Map<String, dynamic>> updateAllStudentAccess({
     required bool frozen,
   }) =>
@@ -940,6 +985,7 @@ class ApiService {
   static Future<Map<String, dynamic>> uploadDiploma({
     required List<int> fileBytes,
     required String fileName,
+    String? universityCode,
   }) async {
     try {
       final request = http.MultipartRequest(
@@ -952,6 +998,9 @@ class ApiService {
           fileBytes,
           filename: fileName,
         ));
+      if (universityCode != null && universityCode.isNotEmpty) {
+        request.fields['university_code'] = universityCode;
+      }
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
@@ -981,6 +1030,9 @@ class ApiService {
         headers: _jsonHeaders,
         body: jsonEncode({
           'certificates': certificates,
+          if (certificates.isNotEmpty &&
+              certificates.first['university_code'] != null)
+            'university_code': certificates.first['university_code'],
         }),
       );
 
@@ -1003,12 +1055,17 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> validateBatchIssuance(
-    List<Map<String, dynamic>> certificates,
-  ) async {
+    List<Map<String, dynamic>> certificates, {
+    String? universityCode,
+  }) async {
     final response = await http.post(
       Uri.parse('$baseUrl/certificates/validate-batch'),
       headers: _jsonHeaders,
-      body: jsonEncode({'certificates': certificates}),
+      body: jsonEncode({
+        'certificates': certificates,
+        if (universityCode != null && universityCode.isNotEmpty)
+          'university_code': universityCode,
+      }),
     );
     final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
     if (response.statusCode != 200) {
@@ -1044,10 +1101,9 @@ class ApiService {
       {int limit = 5}) async {
     final uri = Uri.parse('$baseUrl/admin/recent-verifications')
         .replace(queryParameters: {'limit': '$limit'});
-    final response =
-        await http.get(uri, headers: _getHeaders).timeout(
-              const Duration(seconds: 8),
-            );
+    final response = await http.get(uri, headers: _getHeaders).timeout(
+          const Duration(seconds: 8),
+        );
     if (response.statusCode != 200) {
       final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
       throw ApiRequestException(

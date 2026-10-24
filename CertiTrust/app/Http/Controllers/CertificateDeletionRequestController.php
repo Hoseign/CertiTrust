@@ -8,6 +8,7 @@ use App\Models\ChatMessage;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use App\Services\SupabaseDiplomaStorage;
 
 class CertificateDeletionRequestController extends Controller
@@ -94,6 +95,11 @@ class CertificateDeletionRequestController extends Controller
             }
 
             if ($validated['decision'] === 'approved') {
+                if (!Schema::hasTable('revoked_credentials')) {
+                    return response()->json([
+                        'message' => 'Credential removal tracking is unavailable. Apply pending database migrations before approving deletion.',
+                    ], 503);
+                }
                 $certificate = Certificate::lockForUpdate()->find($deletionRequest->certificate_id);
                 if (!$certificate) {
                     return response()->json(['message' => 'The credential no longer exists.'], 404);
@@ -108,6 +114,15 @@ class CertificateDeletionRequestController extends Controller
                     }
                 }
 
+                DB::table('revoked_credentials')->insert([
+                    'certificate_code' => $certificate->certificate_code,
+                    'cert_hash' => $certificate->cert_hash,
+                    'university_code' => $certificate->university_code,
+                    'revoked_by_email' => $reviewer->email,
+                    'revoked_at' => now(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
                 $certificate->delete();
             }
 

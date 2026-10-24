@@ -21,6 +21,7 @@ class _RecordsScreenState extends State<RecordsScreen>
   late Future<List<Map<String, dynamic>>> _records;
   Timer? _refreshTimer;
   bool _isRefreshing = false;
+  bool _isRevoking = false;
   bool _isAppActive = true;
   String _selectedRecordFilter = 'all';
   String? _selectedBatchYear;
@@ -32,7 +33,7 @@ class _RecordsScreenState extends State<RecordsScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _records = ApiService.getCertificatesForCurrentUser();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_isAppActive) _refreshRecords();
     });
   }
@@ -64,6 +65,57 @@ class _RecordsScreenState extends State<RecordsScreen>
       debugPrint('Error refreshing certificate records: $error');
     } finally {
       if (mounted) setState(() => _isRefreshing = false);
+    }
+  }
+
+  Future<void> _revokeCredential(Map<String, dynamic> record) async {
+    final certificateId = int.tryParse(record['id']?.toString() ?? '');
+    if (certificateId == null || _isRevoking) return;
+    final certificateCode =
+        record['certificate_code']?.toString() ?? 'this credential';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove credential?'),
+        content: Text(
+          'Permanently remove $certificateCode from the database? Its old QR code will report that it was removed. Blockchain transactions cannot be erased. Student IDs and email addresses can be used for a new registration.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove credential'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isRevoking = true);
+    try {
+      await ApiService.revokeCertificateRecord(certificateId: certificateId);
+      await _refreshRecords();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            '$certificateCode was removed. Its QR code will show the removed status.',
+          ),
+        ));
+      }
+    } catch (error) {
+      if (mounted) {
+        final message = error is ApiRequestException ? error.message : '$error';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Could not remove credential: $message'),
+          backgroundColor: Colors.red.shade700,
+          duration: const Duration(seconds: 6),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _isRevoking = false);
     }
   }
 
@@ -373,6 +425,15 @@ class _RecordsScreenState extends State<RecordsScreen>
                   onPressed: () => _requestDeletion(record),
                   icon: const Icon(Icons.delete_outline),
                   label: const Text('Request deletion'),
+                ),
+              if (ApiService.isSuperAdmin)
+                TextButton.icon(
+                  onPressed:
+                      _isRevoking ? null : () => _revokeCredential(record),
+                  icon: const Icon(Icons.delete_forever_outlined),
+                  label: Text(_isRevoking
+                      ? 'Removing credential...'
+                      : 'Remove credential'),
                 ),
             ],
           ),
@@ -2070,12 +2131,12 @@ class RoleBottomNavigationBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final isSuperAdmin = isAdmin && ApiService.isSuperAdmin;
     final routes = isSuperAdmin
-        ? const ['/dashboard', '/records', '/verify', '/ansq']
+        ? const ['/dashboard', '/records', '/issue', '/verify', '/ansq']
         : isAdmin
             ? const ['/dashboard', '/records', '/issue', '/verify', '/ansq']
             : const ['/dashboard', '/records', '/verify', '/profile', '/askq'];
     final branchIndexes = isSuperAdmin
-        ? const [0, 1, 3, 5]
+        ? const [0, 1, 2, 3, 5]
         : isAdmin
             ? const [0, 1, 2, 3, 5]
             : const [0, 1, 3, 4, 6];
@@ -2092,6 +2153,8 @@ class RoleBottomNavigationBar extends StatelessWidget {
               BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
               BottomNavigationBarItem(
                   icon: Icon(Icons.folder), label: 'Records'),
+              BottomNavigationBarItem(
+                  icon: Icon(Icons.upload), label: 'Upload'),
               BottomNavigationBarItem(
                   icon: Icon(Icons.verified), label: 'Verify'),
               BottomNavigationBarItem(icon: Icon(Icons.help), label: 'AnsQ'),

@@ -22,6 +22,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
   bool _isVerifying = false;
   bool _isDownloading = false;
   Map<String, dynamic>? _certResult;
+  String? _verificationMessage;
   bool _hasSearched = false;
   int _verificationAttempt = 0;
 
@@ -40,6 +41,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
       _verificationAttempt++;
       _hashController.text = widget.certHash ?? '';
       _certResult = null;
+      _verificationMessage = null;
       _hasSearched = false;
       _isVerifying = false;
     }
@@ -61,6 +63,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
       _isVerifying = true;
       _hasSearched = true;
       _certResult = null;
+      _verificationMessage = null;
     });
 
     try {
@@ -84,15 +87,17 @@ class _VerifyScreenState extends State<VerifyScreen> {
     } catch (e) {
       debugPrint('Error verifying hash: $e');
       if (mounted && attempt == _verificationAttempt) {
+        final wasRemoved = e is ApiRequestException && e.statusCode == 410;
+        final notFound = e is ApiRequestException && e.statusCode == 404;
         setState(() {
           _certResult = null;
+          _verificationMessage = wasRemoved
+              ? e.message
+              : notFound
+                  ? 'No record found matching this code or hash.'
+                  : 'Verification could not be completed: $e';
           _isVerifying = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Verification failed: $e'),
-              backgroundColor: Colors.red),
-        );
       }
     }
   }
@@ -110,7 +115,10 @@ class _VerifyScreenState extends State<VerifyScreen> {
 
   bool _isSingleCertificateVerified(Map<String, dynamic> certificate) {
     final status = certificate['status']?.toString().trim().toLowerCase();
-    return status == 'verified' || status == 'valid';
+    final chainResult = certificate['blockchain_verification'];
+    final isChainVerified =
+        chainResult is Map && chainResult['verified'] == true;
+    return (status == 'verified' || status == 'valid') && isChainVerified;
   }
 
   Future<void> _downloadDiploma(String imageUrl) async {
@@ -219,6 +227,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
                               _hashController.text = scanned;
                               setState(() {
                                 _certResult = null;
+                                _verificationMessage = null;
                                 _hasSearched = false;
                               });
                             }
@@ -263,6 +272,21 @@ class _VerifyScreenState extends State<VerifyScreen> {
                   )
                 else if (_hasSearched && _certResult != null)
                   _buildResultCard(theme)
+                else if (_hasSearched && _verificationMessage != null)
+                  Card(
+                    color: Colors.red.shade50,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        _verificationMessage!,
+                        style: TextStyle(
+                          color: Colors.red.shade900,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
                 else if (_hasSearched && _certResult == null)
                   const Card(
                     color: Colors.redAccent,
@@ -296,6 +320,10 @@ class _VerifyScreenState extends State<VerifyScreen> {
         'Student';
 
     final isVerified = _isCertificateVerified(_certResult!);
+    final chainResult = _certResult!['blockchain_verification'];
+    final chainStatus = chainResult is Map
+        ? chainResult['status']?.toString() ?? 'unknown'
+        : 'unknown';
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -333,6 +361,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
             _buildDetailRow('Issue Date', _certResult!['issue_date'] ?? 'N/A'),
             _buildDetailRow(
                 'Verification Status', _certResult!['status'] ?? 'Verified'),
+            _buildDetailRow('Polygon Amoy', chainStatus),
             if (imageUrl != null && imageUrl.toString().isNotEmpty) ...[
               const SizedBox(height: 20),
               const Text(

@@ -7,12 +7,15 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use App\Models\User;
 use App\Models\Certificate;
 use App\Models\CertificateVerification;
 use App\Models\University;
+use App\Models\AdminActionLog;
 use App\Services\SupabaseDiplomaStorage;
+use App\Services\BlockchainRegistryService;
 
 class CertificateController extends Controller
 {
@@ -59,7 +62,7 @@ class CertificateController extends Controller
         return response()->json(['data' => $query->get()]);
     }
 
-    public function show(string $code)
+    public function show(string $code, BlockchainRegistryService $blockchain)
     {
         $normalizedCode = trim($code);
         $multipleDegreePrefix = 'CERTITRUST-MULTI:';
@@ -112,10 +115,14 @@ class CertificateController extends Controller
                     true,
                 ),
             );
-            $degrees = $degrees->map(fn (Certificate $degree) => array_merge(
-                $degree->toArray(),
-                $this->universityDetails($degree->university_code),
-            ));
+            $degrees = $degrees->map(function (Certificate $degree) use ($blockchain) {
+                $data = $this->publicCertificateData($degree);
+                $data['blockchain_verification'] = $blockchain->verifyCertificate(
+                    (string) $degree->certificate_code,
+                    (string) $degree->cert_hash,
+                );
+                return $data;
+            });
 
             if ($allVerified) {
                 CertificateVerification::create([
@@ -137,6 +144,20 @@ class CertificateController extends Controller
         }
 
         if (!$certificate) {
+            $revoked = Schema::hasTable('revoked_credentials')
+                && DB::table('revoked_credentials')
+                    ->where(function ($query) use ($normalizedCode) {
+                        $query->whereRaw('LOWER(certificate_code) = ?', [strtolower($normalizedCode)])
+                            ->orWhereRaw('LOWER(cert_hash) = ?', [strtolower($normalizedCode)]);
+                    })
+                    ->exists();
+            if ($revoked) {
+                return response()->json([
+                    'status' => 'removed',
+                    'message' => 'This credential was removed from the database and is no longer valid.',
+                ], 410);
+            }
+
             return response()->json(['message' => 'Certificate not found.'], 404);
         }
 
@@ -147,12 +168,88 @@ class CertificateController extends Controller
             ]);
         }
 
-        return response()->json([
-                'data' => array_merge(
-                    $certificate->toArray(),
-                    $this->universityDetails($certificate->university_code),
-                ),
+        $data = $this->publicCertificateData($certificate);
+        $data['blockchain_verification'] = $blockchain->verifyCertificate(
+            (string) $certificate->certificate_code,
+            (string) $certificate->cert_hash,
+        );
+
+        return response()->json(['data' => $data]);
+    }
+
+    public function revoke(Request $request, Certificate $certificate, SupabaseDiplomaStorage $storage)
+    {
+        $actor = $request->user();
+        if (
+            $actor?->role !== 'admin'
+            || strtolower(trim((string) $actor->email)) !== 'certitrust256@gmail.com'
+        ) {
+            return response()->json([
+                'message' => 'Only the Super Admin can revoke a credential record.',
+            ], 403);
+        }
+        if (!Schema::hasTable('revoked_credentials')) {
+            return response()->json([
+                'message' => 'Credential removal tracking is unavailable. Apply pending database migrations before removing credentials.',
+            ], 503);
+        }
+
+        if ($certificate->diploma_url) {
+            $storageError = $storage->delete($certificate->diploma_url);
+            if ($storageError) {
+                return response()->json([
+                    'message' => $storageError['message'],
+                ], $storageError['status']);
+            }
+        }
+
+        $certificateCode = $certificate->certificate_code;
+        $targetEmail = $certificate->student_email ?: $certificate->email;
+        $universityCode = $certificate->university_code;
+        $certificateId = $certificate->id;
+        $certificateHash = $certificate->cert_hash;
+
+        DB::transaction(function () use (
+            $certificate,
+            $actor,
+            $certificateCode,
+            $certificateHash,
+            $targetEmail,
+            $universityCode,
+            $certificateId,
+        ): void {
+            DB::table('revoked_credentials')->insert([
+                'certificate_code' => $certificateCode,
+                'cert_hash' => $certificateHash,
+                'university_code' => $universityCode,
+                'revoked_by_email' => $actor->email,
+                'revoked_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
+            $certificate->delete();
+            if (Schema::hasTable('admin_action_logs')) {
+                AdminActionLog::create([
+                    'actor_email' => $actor->email,
+                    'action' => 'revoked_certificate_record',
+                    'target_email' => $targetEmail,
+                    'university_code' => $universityCode,
+                    'details' => [
+                        'certificate_id' => $certificateId,
+                        'certificate_code' => $certificateCode,
+                    ],
+                ]);
+            }
+        });
+
+        return response()->json([
+            'message' => 'The database credential was revoked. Its QR code will no longer resolve; immutable blockchain transactions remain on-chain.',
+            'data' => [
+                'certificate_id' => $certificateId,
+                'certificate_code' => $certificateCode,
+                'university_code' => $universityCode,
+            ],
+        ]);
     }
 
     public function recentVerifications(Request $request)
@@ -203,16 +300,48 @@ class CertificateController extends Controller
         ];
     }
 
+    private function publicCertificateData(Certificate $certificate): array
+    {
+        return array_merge(
+            $certificate->only([
+                'id',
+                'certificate_code',
+                'recipient_name',
+                'student_name',
+                'student_id',
+                'degree',
+                'degree_number',
+                'course_or_event',
+                'university_code',
+                'issue_date',
+                'status',
+                'cert_hash',
+                'diploma_url',
+                'diploma_file_name',
+                'blockchain_status',
+                'blockchain_tx_hash',
+                'blockchain_network',
+                'created_at',
+            ]),
+            $this->universityDetails($certificate->university_code),
+        );
+    }
+
     public function uploadDiploma(Request $request, SupabaseDiplomaStorage $storage)
     {
         $user = $request->user();
-        if ($user?->role !== 'admin' || !$user->university_code) {
-            return response()->json(['message' => 'A school administrator is required to upload diploma files.'], 403);
-        }
-
         $validated = $request->validate([
             'diploma_file' => ['required', 'file', 'mimes:pdf,png,jpg,jpeg', 'min:1', 'max:20480'],
+            'university_code' => ['nullable', 'string', 'exists:universities,code'],
         ]);
+        $isSuperAdmin = strtolower((string) $user?->email) === 'certitrust256@gmail.com';
+        $universityCode = $isSuperAdmin
+            ? ($validated['university_code'] ?? null)
+            : $user?->university_code;
+        if ($user?->role !== 'admin' || !$universityCode) {
+            return response()->json(['message' => 'A registered administrator and university are required to upload diploma files.'], 403);
+        }
+
         $result = $storage->upload($validated['diploma_file']);
         if (!isset($result['url'])) {
             return response()->json(['message' => $result['message']], $result['status']);
@@ -226,7 +355,7 @@ class CertificateController extends Controller
         ], 201);
     }
 
-    public function store(Request $request)
+    public function store(Request $request, BlockchainRegistryService $blockchain)
     {
         $validated = $request->validate([
             'student_id' => ['required', 'string', 'max:255'],
@@ -240,8 +369,16 @@ class CertificateController extends Controller
             'university_code' => ['nullable', 'string', 'exists:universities,code'],
         ]);
 
-        $universityCode = $request->user()?->university_code;
-        if (!$universityCode || ($validated['university_code'] ?? $universityCode) !== $universityCode) {
+        $user = $request->user();
+        $isSuperAdmin = strtolower((string) $user?->email) === 'certitrust256@gmail.com';
+        $universityCode = $isSuperAdmin
+            ? ($validated['university_code'] ?? null)
+            : $user?->university_code;
+        if (
+            $user?->role !== 'admin'
+            || !$universityCode
+            || (!$isSuperAdmin && ($validated['university_code'] ?? $universityCode) !== $universityCode)
+        ) {
             return response()->json(['message' => 'This admin is not authorized to issue for that school.'], 403);
         }
         $studentId = strtolower(trim($validated['student_id']));
@@ -289,13 +426,20 @@ class CertificateController extends Controller
         $validated['university_code'] = $universityCode;
         $validated['status'] = 'Verified';
 
-        return response()->json(['data' => Certificate::create($validated)], 201);
+        $certificate = Certificate::create($validated);
+        $blockchainResult = $this->anchorCertificate($blockchain, $certificate);
+
+        return response()->json([
+            'data' => $certificate->fresh(),
+            'blockchain' => $blockchainResult,
+        ], 201);
     }
 
-    public function storeBatch(Request $request)
+    public function storeBatch(Request $request, BlockchainRegistryService $blockchain)
     {
         $validated = $request->validate([
             'certificates' => ['required', 'array', 'min:1'],
+            'university_code' => ['nullable', 'string', 'exists:universities,code'],
             'certificates.*.student_id' => ['required', 'string', 'max:255'],
             'certificates.*.student_name' => ['required', 'string', 'max:255'],
             'certificates.*.student_email' => ['required', 'email'],
@@ -309,9 +453,13 @@ class CertificateController extends Controller
             'certificates.*.university_code' => ['nullable', 'string', 'exists:universities,code'],
         ]);
 
-        $universityCode = $request->user()?->university_code;
-        if (!$universityCode) {
-            return response()->json(['message' => 'A registered school admin is required to issue credentials.'], 403);
+        $user = $request->user();
+        $isSuperAdmin = strtolower((string) $user?->email) === 'certitrust256@gmail.com';
+        $universityCode = $isSuperAdmin
+            ? ($validated['university_code'] ?? null)
+            : $user?->university_code;
+        if ($user?->role !== 'admin' || !$universityCode) {
+            return response()->json(['message' => 'A registered administrator and university are required to issue credentials.'], 403);
         }
         $certificates = collect($validated['certificates']);
         if ($certificates->contains(fn (array $certificate) => ($certificate['university_code'] ?? $universityCode) !== $universityCode)) {
@@ -453,20 +601,64 @@ class CertificateController extends Controller
 
         DB::transaction(fn () => Certificate::insert($records));
 
-        return response()->json(['message' => 'Certificates issued.', 'count' => count($records)], 201);
+        $issuedCertificates = Certificate::query()
+            ->whereIn('certificate_code', array_column($records, 'certificate_code'))
+            ->get();
+        foreach ($issuedCertificates as $certificate) {
+            $this->anchorCertificate($blockchain, $certificate);
+        }
+
+        return response()->json([
+            'message' => 'Certificates issued.',
+            'count' => count($records),
+            'data' => $issuedCertificates->fresh(),
+        ], 201);
+    }
+
+    private function anchorCertificate(BlockchainRegistryService $blockchain, Certificate $certificate): array
+    {
+        try {
+            $result = $blockchain->issueCertificate(
+                (string) $certificate->certificate_code,
+                (string) $certificate->student_id,
+                (string) $certificate->cert_hash,
+            );
+        } catch (\Throwable $exception) {
+            Log::warning('Polygon credential submission failed.', [
+                'certificate_id' => $certificate->id,
+                'exception' => $exception->getMessage(),
+            ]);
+            $result = [
+                'status' => 'failed',
+                'error' => 'Blockchain submission failed. The certificate remains in the application database.',
+            ];
+        }
+
+        $certificate->forceFill([
+            'blockchain_status' => $result['status'],
+            'blockchain_tx_hash' => $result['transaction_hash'] ?? null,
+            'blockchain_network' => $result['network'] ?? null,
+            'blockchain_error' => $result['error'] ?? null,
+        ])->save();
+
+        return $result;
     }
 
     public function checkDiplomaFileNames(Request $request)
     {
         $user = $request->user();
-        if ($user->role !== 'admin' || !$user->university_code) {
-            return response()->json(['message' => 'Only a school administrator can validate diploma image names.'], 403);
-        }
-
         $validated = $request->validate([
             'file_names' => ['required', 'array', 'min:1'],
             'file_names.*' => ['required', 'string', 'max:255'],
+            'university_code' => ['nullable', 'string', 'exists:universities,code'],
         ]);
+        $isSuperAdmin = strtolower((string) $user?->email) === 'certitrust256@gmail.com';
+        $universityCode = $isSuperAdmin
+            ? ($validated['university_code'] ?? null)
+            : $user?->university_code;
+        if ($user?->role !== 'admin' || !$universityCode) {
+            return response()->json(['message' => 'An authorized administrator and university are required to validate diploma image names.'], 403);
+        }
 
         $requestedNames = [];
         foreach ($validated['file_names'] as $fileName) {
@@ -479,7 +671,7 @@ class CertificateController extends Controller
             $requestedNames[$normalizedName] = true;
         }
 
-        $existingDiplomas = Certificate::where('university_code', $user->university_code)
+        $existingDiplomas = Certificate::where('university_code', $universityCode)
             ->where(function ($query) {
             $query->whereNotNull('diploma_file_name')
                 ->orWhereNotNull('diploma_url');
@@ -502,12 +694,9 @@ class CertificateController extends Controller
     public function validateBatchIssuance(Request $request)
     {
         $user = $request->user();
-        if ($user->role !== 'admin' || !$user->university_code) {
-            return response()->json(['message' => 'Only a school administrator can validate credential issuance.'], 403);
-        }
-
         $validated = $request->validate([
             'certificates' => ['required', 'array', 'min:1'],
+            'university_code' => ['nullable', 'string', 'exists:universities,code'],
             'certificates.*.student_id' => ['required', 'string', 'max:255'],
             'certificates.*.student_name' => ['required', 'string', 'max:255'],
             'certificates.*.student_email' => ['required', 'email'],
@@ -515,6 +704,14 @@ class CertificateController extends Controller
             'certificates.*.additional_degree' => ['nullable', 'boolean'],
             'certificates.*.degree_number' => ['nullable', 'integer', 'min:1', 'max:65535'],
         ]);
+        $isSuperAdmin = strtolower((string) $user?->email) === 'certitrust256@gmail.com';
+        $universityCode = $isSuperAdmin
+            ? ($validated['university_code'] ?? null)
+            : $user?->university_code;
+        if ($user?->role !== 'admin' || !$universityCode) {
+            return response()->json(['message' => 'An authorized administrator and university are required to validate credential issuance.'], 403);
+        }
+
         $certificates = collect($validated['certificates']);
         $batchStudentOwners = [];
         foreach ($certificates as $certificate) {
@@ -532,10 +729,10 @@ class CertificateController extends Controller
         foreach ($certificates as $index => $certificate) {
             $existingStudent = $this->findStudentByIds([
                 strtolower(trim($certificate['student_id'])),
-            ], $user->university_code);
+            ], $universityCode);
             $isAdditionalDegree = (bool) ($certificate['additional_degree'] ?? false);
             if ($existingStudent && !$isAdditionalDegree) {
-                $degreeRecords = Certificate::where('university_code', $user->university_code)
+                $degreeRecords = Certificate::where('university_code', $universityCode)
                     ->whereRaw('LOWER(TRIM(student_id)) = ?', [strtolower(trim($certificate['student_id']))])
                     ->orderBy('degree_number')
                     ->get(['degree', 'degree_number']);
@@ -548,13 +745,13 @@ class CertificateController extends Controller
                         'degree_number' => $degree->degree_number,
                     ])->values(),
                     'next_degree_number' => $this->nextDegreeNumber(
-                        $user->university_code,
+                        $universityCode,
                         $certificate['student_id'],
                     ),
                 ];
             } elseif ($existingStudent && $isAdditionalDegree) {
                 if ((int) ($certificate['degree_number'] ?? 0) !== $this->nextDegreeNumber(
-                    $user->university_code,
+                    $universityCode,
                     $certificate['student_id'],
                 )) {
                     return response()->json([
@@ -589,12 +786,12 @@ class CertificateController extends Controller
                     && $emailCertificate
                     && strtolower(trim((string) $emailCertificate->student_id))
                         === strtolower(trim($batchCredential['student_id']))
-                    && $emailCertificate->university_code === $user->university_code
+                    && $emailCertificate->university_code === $universityCode
                 ) {
                     continue;
                 }
                 return response()->json([
-                    'message' => $this->emailConflictMessage($email, $emailOwner, $user->university_code),
+                    'message' => $this->emailConflictMessage($email, $emailOwner, $universityCode),
                 ], 422);
             }
         }
@@ -613,7 +810,7 @@ class CertificateController extends Controller
             $requestedFileNames[$fileName] = true;
         }
         if ($requestedFileNames !== []) {
-            $existingDiplomas = Certificate::where('university_code', $user->university_code)
+            $existingDiplomas = Certificate::where('university_code', $universityCode)
                 ->where(function ($query) {
                     $query->whereNotNull('diploma_file_name')
                         ->orWhereNotNull('diploma_url');
@@ -638,7 +835,7 @@ class CertificateController extends Controller
             ->unique();
         foreach ($normalizedNames as $name) {
             $otherUniversities = Certificate::whereRaw('LOWER(TRIM(student_name)) = ?', [$name])
-                ->where('university_code', '!=', $user->university_code)
+                ->where('university_code', '!=', $universityCode)
                 ->distinct()
                 ->pluck('university_code')
                 ->filter()

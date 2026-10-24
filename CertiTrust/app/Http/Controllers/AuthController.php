@@ -29,6 +29,13 @@ class AuthController extends Controller
                 'password' => ['required'],
             ]);
 
+            if (strtolower(trim($credentials['email'])) === 'certitrust256@gmail.com') {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'This account must sign in with Google.',
+                ], 403);
+            }
+
             if (!Auth::attempt($credentials)) {
                 return response()->json([
                     'status' => 'error',
@@ -112,17 +119,11 @@ class AuthController extends Controller
             $certificate = (clone $certificateQuery)->latest('id')->first();
             $hasCertificate = $certificate !== null;
 
-            if (!$existingUser && !$certificate && $normalizedEmail !== 'certitrust256@gmail.com') {
+            $isSuperAdmin = $normalizedEmail === 'certitrust256@gmail.com';
+            if (!$existingUser && !$certificate && !$isSuperAdmin) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'This Google account is not registered in CertiTrust yet. Only the Super Admin is seeded by default; all other accounts must be created by the system admin.',
-                ], 403);
-            }
-
-            if (!$existingUser && $normalizedEmail === 'certitrust256@gmail.com') {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'The Super Admin account has not been created in the system yet.',
+                    'message' => 'This Google account is not registered in CertiTrust yet. Please ask the system admin to create your account.',
                 ], 403);
             }
 
@@ -130,7 +131,16 @@ class AuthController extends Controller
             if ($user?->isAccessFrozen()) {
                 return $this->frozenLoginResponse($user, $hasCertificate);
             }
-            if (!$user && $certificate) {
+            if (!$user && $isSuperAdmin) {
+                $user = User::create([
+                    'name' => $name,
+                    'email' => $normalizedEmail,
+                    'password' => Hash::make(Str::random(64)),
+                    'google_id' => $googleId,
+                    'role' => 'admin',
+                    'university_code' => null,
+                ]);
+            } elseif (!$user && $certificate) {
                 $user = User::create([
                     'name' => $certificate->student_name ?: $certificate->recipient_name ?: $name,
                     'email' => $normalizedEmail,
@@ -140,7 +150,14 @@ class AuthController extends Controller
                 ]);
             }
 
-            if (!$user->google_id) {
+            if ($isSuperAdmin) {
+                $user->forceFill([
+                    'password' => Hash::make(Str::random(64)),
+                    'google_id' => $googleId,
+                    'role' => 'admin',
+                    'university_code' => null,
+                ])->save();
+            } elseif (!$user->google_id) {
                 $user->update(['google_id' => $googleId]);
             }
 
@@ -772,24 +789,251 @@ class AuthController extends Controller
         $targetEmail = $user->email;
         $universityCode = $user->university_code;
         $studentUserId = $user->id;
-        DB::transaction(function () use ($user): void {
+        $actorEmail = $admin->email;
+        $deletedCertificates = DB::transaction(function () use (
+            $user,
+            $targetEmail,
+            $universityCode,
+            $actorEmail,
+        ): int {
             $user->tokens()->delete();
+
+            $certificateQuery = DB::table('certificates')
+                ->where('university_code', $universityCode)
+                ->where(function ($query) use ($targetEmail) {
+                    $query->whereRaw('LOWER(TRIM(student_email)) = ?', [
+                        strtolower(trim($targetEmail)),
+                    ])->orWhereRaw('LOWER(TRIM(email)) = ?', [
+                        strtolower(trim($targetEmail)),
+                    ]);
+                });
+            $certificates = $certificateQuery->get([
+                'certificate_code',
+                'cert_hash',
+                'university_code',
+            ]);
+            $this->recordRevokedCredentialIdentifiers($certificates, $actorEmail);
+            $deletedCertificates = $certificateQuery->delete();
             $user->delete();
+
+            return $deletedCertificates;
         });
 
         $this->logAdminAction(
             'deleted_student_account',
             $targetEmail,
             $universityCode,
-            ['student_user_id' => $studentUserId],
+            [
+                'student_user_id' => $studentUserId,
+                'deleted_certificate_count' => $deletedCertificates,
+            ],
         );
 
         return response()->json([
-            'message' => 'Student account removed. Issued credentials were kept.',
+            'message' => 'Student account and issued database credentials were removed. Immutable blockchain transactions remain on-chain.',
             'data' => [
                 'deleted_user_id' => $studentUserId,
                 'university_code' => $universityCode,
+                'deleted_certificate_count' => $deletedCertificates,
             ],
+        ]);
+    }
+
+    public function purgeAccountsAndCredentials(Request $request)
+    {
+        $this->ensureSuperAdmin($request);
+        $actor = $request->user();
+        abort_unless($actor?->role === 'admin', 403);
+
+        $deleted = DB::transaction(function () use ($actor): array {
+            $accounts = User::query()
+                ->whereIn('role', ['admin', 'student', 'user'])
+                ->whereRaw('LOWER(TRIM(email)) != ?', ['certitrust256@gmail.com'])
+                ->get(['id', 'email', 'role']);
+            $accountIds = $accounts->pluck('id')->all();
+            $subadminCount = $accounts->where('role', 'admin')->count();
+            $studentCount = $accounts
+                ->whereIn('role', ['student', 'user'])
+                ->count();
+            $accounts->each(fn (User $account) => $account->tokens()->delete());
+
+            $certificateQuery = DB::table('certificates');
+            $certificates = $certificateQuery->get([
+                'certificate_code',
+                'cert_hash',
+                'university_code',
+            ]);
+            $this->recordRevokedCredentialIdentifiers($certificates, $actor->email);
+            $certificateCount = $certificateQuery->delete();
+            $accountCount = $accountIds === []
+                ? 0
+                : User::whereIn('id', $accountIds)->delete();
+
+            return [
+                'deleted_subadmin_count' => $subadminCount,
+                'deleted_student_count' => $studentCount,
+                'deleted_account_count' => $accountCount,
+                'deleted_certificate_count' => $certificateCount,
+            ];
+        });
+
+        $this->logAdminAction(
+            'purged_all_accounts_and_credentials',
+            null,
+            null,
+            $deleted + [
+                'university_registrations_retained' => true,
+                'super_admin_retained' => true,
+                'blockchain_transactions_retained' => true,
+            ],
+        );
+
+        return response()->json([
+            'message' => 'All university subadmin and student/user accounts and database credentials were removed. Old credential QR codes are marked removed. The Super Admin, university registrations, and blockchain transactions remain.',
+            'data' => $deleted,
+        ]);
+    }
+
+    public function listDeletedSubadminUniversities(Request $request)
+    {
+        $this->ensureSuperAdmin($request);
+
+        if (!Schema::hasTable('admin_action_logs')) {
+            return response()->json(['data' => []]);
+        }
+
+        $deletions = AdminActionLog::query()
+            ->where('action', 'deleted_subadmin')
+            ->whereNotNull('university_code')
+            ->latest('created_at')
+            ->get(['id', 'target_email', 'university_code', 'created_at']);
+
+        return response()->json([
+            'data' => $deletions
+                ->groupBy(fn (AdminActionLog $log) => strtoupper((string) $log->university_code))
+                ->map(function ($logs, string $code) {
+                    return [
+                        'university_code' => $code,
+                        'university_name' => University::find($code)?->university_name
+                            ?: $this->universityDisplayName($code),
+                        'deleted_subadmins' => $logs
+                            ->map(fn (AdminActionLog $log) => [
+                                'email' => $log->target_email,
+                                'deleted_at' => $log->created_at?->toISOString(),
+                            ])
+                            ->values(),
+                        'latest_deleted_at' => $logs->first()?->created_at?->toISOString(),
+                    ];
+                })
+                ->values(),
+        ]);
+    }
+
+    public function deleteJunkStudent(Request $request, string $universityCode, User $user)
+    {
+        $this->ensureSuperAdmin($request);
+        $universityCode = strtoupper($universityCode);
+        abort_unless(University::whereKey($universityCode)->exists(), 404);
+
+        if (
+            !in_array($user->role, ['student', 'user'], true)
+            || strtoupper((string) $user->university_code) !== $universityCode
+        ) {
+            return response()->json([
+                'message' => 'The selected account is not a student at this university.',
+            ], 422);
+        }
+
+        $studentEmail = strtolower(trim((string) $user->email));
+        $studentName = $user->name;
+        $studentId = $user->id;
+        $actorEmail = $request->user()?->email;
+
+        $deletedCertificates = DB::transaction(function () use (
+            $user,
+            $studentEmail,
+            $universityCode,
+            $actorEmail,
+        ): int {
+            $user->tokens()->delete();
+            $certificateQuery = DB::table('certificates')
+                ->where('university_code', $universityCode)
+                ->where(function ($query) use ($studentEmail) {
+                    $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$studentEmail])
+                        ->orWhereRaw('LOWER(TRIM(email)) = ?', [$studentEmail]);
+                });
+            $certificates = $certificateQuery->get([
+                'certificate_code',
+                'cert_hash',
+                'university_code',
+            ]);
+            $this->recordRevokedCredentialIdentifiers($certificates, $actorEmail);
+            $deletedCertificates = $certificateQuery->delete();
+            $user->delete();
+
+            return $deletedCertificates;
+        });
+
+        $this->logAdminAction(
+            'purged_student_record',
+            $studentEmail,
+            $universityCode,
+            [
+                'student_user_id' => $studentId,
+                'student_name' => $studentName,
+                'deleted_certificate_count' => $deletedCertificates,
+            ],
+        );
+
+        return response()->json([
+            'message' => 'Student account and its database certificate records were permanently deleted.',
+            'deleted_certificate_count' => $deletedCertificates,
+        ]);
+    }
+
+    public function deleteJunkUniversityRecords(Request $request, string $universityCode)
+    {
+        $this->ensureSuperAdmin($request);
+        $universityCode = strtoupper($universityCode);
+        abort_unless(University::whereKey($universityCode)->exists(), 404);
+
+        $actorEmail = $request->user()?->email;
+        [$deletedStudents, $deletedCertificates] = DB::transaction(function () use ($universityCode, $actorEmail): array {
+            $students = User::whereIn('role', ['student', 'user'])
+                ->where('university_code', $universityCode)
+                ->get();
+            $students->each(fn (User $student) => $student->tokens()->delete());
+            $certificateQuery = DB::table('certificates')
+                ->where('university_code', $universityCode);
+            $certificates = $certificateQuery->get([
+                'certificate_code',
+                'cert_hash',
+                'university_code',
+            ]);
+            $this->recordRevokedCredentialIdentifiers($certificates, $actorEmail);
+            $deletedCertificates = $certificateQuery->delete();
+            $deletedStudents = User::whereIn('role', ['student', 'user'])
+                ->where('university_code', $universityCode)
+                ->delete();
+
+            return [$deletedStudents, $deletedCertificates];
+        });
+
+        $this->logAdminAction(
+            'purged_university_student_records',
+            null,
+            $universityCode,
+            [
+                'deleted_student_count' => $deletedStudents,
+                'deleted_certificate_count' => $deletedCertificates,
+                'university_registration_retained' => true,
+            ],
+        );
+
+        return response()->json([
+            'message' => 'All student accounts and database certificate records for this university were permanently deleted. University registration and immutable blockchain transactions were retained.',
+            'deleted_student_count' => $deletedStudents,
+            'deleted_certificate_count' => $deletedCertificates,
         ]);
     }
 
@@ -1092,7 +1336,7 @@ class AuthController extends Controller
     {
         $this->ensureSuperAdmin($request);
 
-        if ($user->role !== 'admin') {
+        if ($user->role !== 'admin' || $this->isSuperAdmin($user) || !$user->university_code) {
             return response()->json(['message' => 'Only university admin records can be deleted here.'], 422);
         }
 
@@ -1297,6 +1541,30 @@ class AuthController extends Controller
         ]);
     }
 
+    private function recordRevokedCredentialIdentifiers(iterable $certificates, ?string $actorEmail): void
+    {
+        if (!Schema::hasTable('revoked_credentials')) {
+            abort(503, 'Credential removal tracking is unavailable. Apply the pending database migrations before removing accounts or credentials.');
+        }
+
+        $now = now();
+        $revoked = [];
+        foreach ($certificates as $certificate) {
+            $revoked[] = [
+                'certificate_code' => $certificate->certificate_code,
+                'cert_hash' => $certificate->cert_hash,
+                'university_code' => $certificate->university_code,
+                'revoked_by_email' => $actorEmail,
+                'revoked_at' => $now,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+        if ($revoked !== []) {
+            DB::table('revoked_credentials')->insert($revoked);
+        }
+    }
+
     private function universityDisplayName(?string $code): string
     {
         return University::find(strtoupper((string) $code))?->university_name
@@ -1361,7 +1629,7 @@ class AuthController extends Controller
 
                         if ($fallbackResponse->successful()) {
                             $fallbackData = $fallbackResponse->json();
-                            if (!empty($fallbackData['email'])) {
+                            if ($this->hasVerifiedGoogleEmail($fallbackData)) {
                                 return $fallbackData;
                             }
                         }
@@ -1370,7 +1638,7 @@ class AuthController extends Controller
                     }
                 }
 
-                if (($data['email_verified'] ?? 'false') !== 'true' && empty($data['email'])) {
+                if (!$this->hasVerifiedGoogleEmail($data)) {
                     throw new \InvalidArgumentException('Google email address is not verified.');
                 }
 
@@ -1406,11 +1674,17 @@ class AuthController extends Controller
         }
 
         $data = $response->json();
-        if (empty($data['email']) || (($data['email_verified'] ?? 'false') !== 'true' && ($data['email_verified'] ?? false) !== true)) {
+        if (!$this->hasVerifiedGoogleEmail($data)) {
             throw new \InvalidArgumentException('Google account email could not be verified.');
         }
 
         return $data;
+    }
+
+    private function hasVerifiedGoogleEmail(array $data): bool
+    {
+        return !empty($data['email'])
+            && filter_var($data['email_verified'] ?? false, FILTER_VALIDATE_BOOLEAN);
     }
 
     private function googleHttp()

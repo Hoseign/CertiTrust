@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/widgets/certitrust_loading_indicator.dart';
+import '../../../services/api_service.dart';
 
 class SuperAdminDashboardView extends StatefulWidget {
   final Future<Map<String, dynamic>> Function() fetchOverview;
@@ -23,6 +24,7 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
   late Future<Map<String, dynamic>> _overview;
   Timer? _refreshTimer;
   bool _isRefreshing = false;
+  bool _isPurging = false;
   bool _isAppActive = true;
 
   @override
@@ -30,7 +32,7 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _overview = widget.fetchOverview();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_isAppActive) _refresh();
     });
   }
@@ -61,6 +63,79 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
       debugPrint('Unable to refresh super admin dashboard: $error');
     } finally {
       if (mounted) setState(() => _isRefreshing = false);
+    }
+  }
+
+  Future<void> _purgeAccountsAndCredentials() async {
+    final confirmationController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Wipe all accounts and credentials?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'This permanently removes all university subadmin and student/user accounts and database credentials. Old QR codes will report removed. The Super Admin, university registrations, and blockchain history remain. Student IDs and emails can be registered again.',
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: confirmationController,
+                onChanged: (_) => setDialogState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Type WIPE ALL to confirm',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: confirmationController.text == 'WIPE ALL'
+                  ? () => Navigator.pop(dialogContext, true)
+                  : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.red.shade700,
+              ),
+              child: const Text('Wipe accounts and credentials'),
+            ),
+          ],
+        ),
+      ),
+    );
+    confirmationController.dispose();
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isPurging = true);
+    try {
+      final result = await ApiService.purgeAccountsAndCredentials();
+      await _refresh();
+      if (mounted) {
+        final data = result['data'] as Map<String, dynamic>? ?? {};
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            'Removed ${data['deleted_subadmin_count'] ?? 0} subadmin(s), ${data['deleted_student_count'] ?? 0} student/user(s), and ${data['deleted_certificate_count'] ?? 0} credential(s).',
+          ),
+          duration: const Duration(seconds: 8),
+        ));
+      }
+    } catch (error) {
+      if (mounted) {
+        final message = error is ApiRequestException ? error.message : '$error';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Could not wipe accounts and credentials: $message'),
+          backgroundColor: Colors.red.shade700,
+          duration: const Duration(seconds: 8),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _isPurging = false);
     }
   }
 
@@ -194,6 +269,26 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                     onPressed: () => context.push('/admin-management'),
                     icon: const Icon(Icons.person_add_alt_1),
                     label: const Text('Create subadmin account'),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _isPurging ? null : _purgeAccountsAndCredentials,
+                    icon: _isPurging
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.delete_forever_outlined),
+                    label: Text(_isPurging
+                        ? 'Wiping accounts and credentials...'
+                        : 'Wipe all accounts and credentials'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red.shade700,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
