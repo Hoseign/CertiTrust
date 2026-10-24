@@ -33,6 +33,7 @@ class _AdminManagementScreenState extends State<AdminManagementScreen>
   bool _isAppActive = true;
   Timer? _refreshTimer;
   List<Map<String, dynamic>> _admins = [];
+  final Set<String> _expandedFrozenUniversities = {};
 
   @override
   void initState() {
@@ -681,6 +682,43 @@ class _AdminManagementScreenState extends State<AdminManagementScreen>
                           ),
                         ],
                       ),
+                      if (frozenStudents.isNotEmpty) ...[
+                        TextButton.icon(
+                          onPressed: () => setState(() {
+                            if (!_expandedFrozenUniversities
+                                .add(universityCode)) {
+                              _expandedFrozenUniversities
+                                  .remove(universityCode);
+                            }
+                          }),
+                          icon: Icon(
+                            _expandedFrozenUniversities.contains(universityCode)
+                                ? Icons.expand_less
+                                : Icons.expand_more,
+                          ),
+                          label: Text(
+                            _expandedFrozenUniversities.contains(universityCode)
+                                ? 'Hide frozen students'
+                                : 'View frozen students (${frozenStudents.length})',
+                          ),
+                        ),
+                        if (_expandedFrozenUniversities
+                            .contains(universityCode))
+                          ...frozenStudents.map((student) => Padding(
+                                padding:
+                                    const EdgeInsets.only(left: 8, bottom: 8),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(student['name']?.toString() ??
+                                        'Student'),
+                                    Text(
+                                      'Student ID: ${student['student_id']?.toString() ?? 'Not recorded'}',
+                                    ),
+                                  ],
+                                ),
+                              )),
+                      ],
                     ],
                   ),
                   trailing: Row(

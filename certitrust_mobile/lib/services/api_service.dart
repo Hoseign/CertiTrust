@@ -218,20 +218,6 @@ class ApiService {
   /// Clear token on logout
   static Future<void> logout() async {
     final token = authToken;
-    if (token != null && token.isNotEmpty) {
-      try {
-        await http.post(
-          Uri.parse('$baseUrl/logout'),
-          headers: {
-            'Accept': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
-        ).timeout(const Duration(seconds: 5));
-      } catch (error) {
-        debugPrint('Server logout could not be reached: $error');
-      }
-    }
-
     authToken = null;
     authEmail = null;
     authRole = null;
@@ -240,15 +226,37 @@ class ApiService {
     authProfileIcon = null;
     isAccessFrozen = false;
     frozenByContact = null;
+
+    if (token != null && token.isNotEmpty) {
+      unawaited(() async {
+        try {
+          final response = await http.post(
+            Uri.parse('$baseUrl/logout'),
+            headers: {
+              'Accept': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          ).timeout(const Duration(seconds: 5));
+          if (response.statusCode >= 500) {
+            debugPrint('Server logout returned HTTP ${response.statusCode}.');
+          }
+        } catch (error) {
+          debugPrint('Server logout could not be reached: $error');
+        }
+      }());
+    }
+
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('auth_token');
-    await prefs.remove('auth_email');
-    await prefs.remove('auth_role');
-    await prefs.remove('auth_university');
-    await prefs.remove('auth_profile_image_url');
-    await prefs.remove('auth_profile_icon');
-    await prefs.remove('auth_access_frozen');
-    await prefs.remove('auth_frozen_by_contact');
+    await Future.wait([
+      prefs.remove('auth_token'),
+      prefs.remove('auth_email'),
+      prefs.remove('auth_role'),
+      prefs.remove('auth_university'),
+      prefs.remove('auth_profile_image_url'),
+      prefs.remove('auth_profile_icon'),
+      prefs.remove('auth_access_frozen'),
+      prefs.remove('auth_frozen_by_contact'),
+    ]);
   }
 
   static Future<void> _saveAccessFreezeState(

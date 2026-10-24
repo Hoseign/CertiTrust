@@ -2,7 +2,6 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/widgets/certitrust_loading_indicator.dart';
 import '../../services/api_service.dart';
 
@@ -369,9 +368,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       icon: const Icon(Icons.logout),
       tooltip: 'Sign Out',
       onPressed: () async {
-        await Supabase.instance.client.auth.signOut();
-        await ApiService.logout();
-        if (context.mounted) context.go('/');
+        try {
+          await ApiService.logout();
+        } finally {
+          if (context.mounted) context.go('/');
+        }
       },
     );
   }

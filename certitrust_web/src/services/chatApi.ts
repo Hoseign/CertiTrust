@@ -9,6 +9,7 @@ export type ChatMessage = {
     attachment_url?: string | null;
     attachment_type?: string | null;
     created_at: string;
+    local_delivery_status?: "Sending" | "Sent" | "Delivered" | "Failed";
     [field: string]: unknown;
 };
 

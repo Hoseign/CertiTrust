@@ -340,20 +340,40 @@ class _VerifyScreenState extends State<VerifyScreen> {
                   size: 28,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  isVerified
-                      ? 'AUTHENTIC CREDENTIAL'
-                      : 'CREDENTIAL FOUND - NOT VERIFIED',
-                  style: TextStyle(
-                    color: isVerified
-                        ? Colors.green.shade800
-                        : Colors.orange.shade900,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.1,
+                Expanded(
+                  child: Text(
+                    isVerified
+                        ? 'AUTHENTIC CREDENTIAL'
+                        : chainStatus.toLowerCase() == 'not_configured'
+                            ? 'CREDENTIAL FOUND - BLOCKCHAIN NOT CONFIGURED'
+                            : 'CREDENTIAL FOUND - NOT VERIFIED',
+                    softWrap: true,
+                    style: TextStyle(
+                      color: isVerified
+                          ? Colors.green.shade800
+                          : Colors.orange.shade900,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.1,
+                    ),
                   ),
                 ),
               ],
             ),
+            if (!isVerified && chainStatus.toLowerCase() == 'not_configured')
+              Container(
+                margin: const EdgeInsets.only(top: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  border: Border.all(color: Colors.orange.shade200),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text(
+                  'The database record is marked verified, but Polygon Amoy '
+                  'verification is not configured. On-chain authenticity '
+                  'cannot be confirmed.',
+                ),
+              ),
             const Divider(height: 32),
             _buildDetailRow(
                 'Student Name', _certResult!['student_name'] ?? 'N/A'),
@@ -451,24 +471,29 @@ class _VerifyScreenState extends State<VerifyScreen> {
   Widget _buildDetailRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 140,
-            child: Text(
-              label,
-              style: const TextStyle(
-                  color: Colors.grey, fontWeight: FontWeight.w500),
+      child: LayoutBuilder(
+        builder: (context, constraints) => Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: constraints.maxWidth < 400
+                  ? constraints.maxWidth * 0.38
+                  : 140,
+              child: Text(
+                label,
+                style: const TextStyle(
+                    color: Colors.grey, fontWeight: FontWeight.w500),
+              ),
             ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontWeight: FontWeight.bold),
+            Expanded(
+              child: Text(
+                value,
+                softWrap: true,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

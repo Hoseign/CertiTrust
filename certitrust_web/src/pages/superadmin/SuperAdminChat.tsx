@@ -10,7 +10,7 @@ type Message = {
     id: string;
     from: "me" | "them";
     text: string;
-    status?: "Delivered" | "Sent";
+    status?: "Delivered" | "Sent" | "Sending" | "Failed";
 };
 
 type Chat = {
@@ -49,17 +49,24 @@ export default function SuperAdminChat() {
     const [text, setText] = useState("");
     const [menuMsgId, setMenuMsgId] = useState<string | null>(null);
     const [isSending, setIsSending] = useState(false);
+    const [pendingMessages, setPendingMessages] = useState<Message[]>([]);
     const bottomRef = useRef<HTMLDivElement | null>(null);
     const sessionUser = getSessionUser();
     const contactId = id ? Number(id) : undefined;
     const { messages: apiMessages, contacts, loading, error, refresh } = useChat(contactId);
     const contact = contacts.find((item) => String(item.id) === id);
-    const messages: Message[] = apiMessages.map((message) => ({
-        id: String(message.id),
-        from: message.user_id === sessionUser?.id ? "me" : "them",
-        text: message.message,
-        status: message.delivered_at ? "Delivered" : message.user_id === sessionUser?.id ? "Sent" : undefined,
-    }));
+    const serverIds = new Set(apiMessages.map((message) => String(message.id)));
+    const messages: Message[] = [
+        ...apiMessages.map((message) => ({
+            id: String(message.id),
+            from: message.user_id === sessionUser?.id ? "me" as const : "them" as const,
+            text: message.message,
+            status: message.delivered_at
+                ? "Delivered" as const
+                : message.user_id === sessionUser?.id ? "Sent" as const : undefined,
+        })),
+        ...pendingMessages.filter((message) => !serverIds.has(message.id)),
+    ];
     const chat: Chat | undefined = contact ? {
         name: String(contact.name || contact.email || "Contact"),
         lastActive: contact.last_seen_at ? new Date(String(contact.last_seen_at)).toLocaleString() : "",
@@ -73,12 +80,30 @@ export default function SuperAdminChat() {
     const send = async () => {
         const value = text.trim();
         if (!contactId || !chat || value === "" || isSending) return;
+        const localId = `local-${Date.now()}`;
+        setPendingMessages((current) => [
+            ...current,
+            { id: localId, from: "me", text: value, status: "Sending" },
+        ]);
         setIsSending(true);
         try {
-            await sendChatMessage({ message: value, recipientUserId: contactId });
+            const sentMessage = await sendChatMessage({ message: value, recipientUserId: contactId });
+            setPendingMessages((current) => current.map((message) =>
+                message.id === localId
+                    ? {
+                        id: String(sentMessage.id),
+                        from: "me",
+                        text: sentMessage.message,
+                        status: sentMessage.delivered_at ? "Delivered" : "Sent",
+                    }
+                    : message,
+            ));
             setText("");
             await refresh(true);
         } catch (sendError) {
+            setPendingMessages((current) => current.map((message) =>
+                message.id === localId ? { ...message, status: "Failed" } : message,
+            ));
             const message = (sendError as { response?: { data?: { message?: string } } })
                 .response?.data?.message;
             window.alert(message || "Message could not be sent.");
@@ -267,9 +292,10 @@ export default function SuperAdminChat() {
                                                 {m.text}
                                             </p>
 
-                                            {m.status && (
+                                            {mine && m.status && (
                                                 <p className="flex items-center justify-end gap-2 text-[15px] text-white/80 mt-2">
-                                                    <StatusIcon status={m.status} />
+                                                    {(m.status === "Sent" || m.status === "Delivered")
+                                                        && <StatusIcon status={m.status} />}
                                                     {m.status}
                                                 </p>
                                             )}

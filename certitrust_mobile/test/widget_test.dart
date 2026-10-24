@@ -22,6 +22,7 @@ import 'package:certitrust_mobile/features/dashboard/widgets/admin_dashboard_vie
 import 'package:certitrust_mobile/features/dashboard/widgets/all_certificates_modal.dart';
 import 'package:certitrust_mobile/features/issuance/issue_screen.dart';
 import 'package:certitrust_mobile/features/navigation/role_pages.dart';
+import 'package:certitrust_mobile/features/qr_scanner/verify_screen.dart';
 import 'package:certitrust_mobile/core/widgets/certitrust_loading_indicator.dart';
 import 'package:certitrust_mobile/services/api_service.dart';
 
@@ -488,6 +489,57 @@ void main() {
   });
 
   testWidgets(
+      'mobile verification result wraps long chain status without overflow',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await http.runWithClient(
+      () async {
+        await tester.pumpWidget(const MaterialApp(home: VerifyScreen()));
+        await tester.enterText(find.byType(TextField), 'CERT-B028GVD9EZ');
+        await tester.tap(find.text('Verify Record'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('CREDENTIAL FOUND - BLOCKCHAIN NOT CONFIGURED'),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      },
+      () => MockClient((request) async {
+        if (request.method == 'GET' &&
+            request.url.path.endsWith('/certificates/CERT-B028GVD9EZ')) {
+          return http.Response(
+            jsonEncode({
+              'data': {
+                'student_name': 'PsuUser T. Student',
+                'student_id': '20260002',
+                'degree':
+                    'Bachelor of Science in Information Technology (BSIT)',
+                'issue_date': '2026-10-24',
+                'status': 'Verified',
+                'cert_hash': 'a' * 64,
+                'blockchain_verification': {
+                  'status': 'not_configured',
+                  'verified': false,
+                },
+              },
+            }),
+            200,
+          );
+        }
+        return http.Response(
+          jsonEncode({'message': 'Unexpected request'}),
+          404,
+        );
+      }),
+    );
+  });
+
+  testWidgets(
       'superadmin gets a student name and ID warning when an owner freeze remains',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(400, 900);
@@ -505,7 +557,10 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.text('Frozen students: 1'), findsOneWidget);
-        await tester.tap(find.text('View frozen students (1)'));
+        final frozenStudentsButton = find.text('View frozen students (1)');
+        await tester.ensureVisible(frozenStudentsButton);
+        await tester.pumpAndSettle();
+        await tester.tap(frozenStudentsButton);
         await tester.pumpAndSettle();
         expect(find.text('UCU Student'), findsOneWidget);
         expect(find.text('Student ID: UCU-12345'), findsOneWidget);

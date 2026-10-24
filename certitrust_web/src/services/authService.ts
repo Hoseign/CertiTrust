@@ -97,11 +97,16 @@ export function isSuperAdminSession(user: AuthUser | null = getSessionUser()) {
 }
 
 export function logout() {
-    const hadToken = Boolean(getAuthToken());
+    const token = getAuthToken();
     clearAuthSession();
-    if (hadToken) {
-        void apiClient.post("/logout").catch((error: unknown) => {
-            console.error("Could not revoke the server session during logout.", error);
+    if (token) {
+        void apiClient.post("/logout", undefined, {
+            headers: { Authorization: `Bearer ${token}` },
+        }).catch((error: unknown) => {
+            const status = (error as { response?: { status?: number } }).response?.status;
+            if (status !== 401) {
+                console.error("Could not revoke the server session during logout.", error);
+            }
         });
     }
 }

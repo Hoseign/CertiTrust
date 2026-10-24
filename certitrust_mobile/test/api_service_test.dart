@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -5,8 +6,11 @@ import 'package:http/testing.dart';
 import 'package:certitrust_mobile/services/api_service.dart';
 import 'package:certitrust_mobile/core/utils/hash_util.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('credential hash fingerprints the exact attached document bytes', () {
     final hash = HashUtil.generateCredentialHash(
       studentId: '20260002',
@@ -41,6 +45,28 @@ void main() {
     expect(
       ApiService.baseUrl,
       'https://certitrust-yhzl.onrender.com/api',
+    );
+  });
+
+  test('logout clears local credentials without waiting for the API', () async {
+    SharedPreferences.setMockInitialValues({});
+    ApiService.authToken = 'session-token';
+    final pendingResponse = Completer<http.Response>();
+    final requestStarted = Completer<http.Request>();
+
+    await http.runWithClient(
+      () async {
+        await ApiService.logout();
+        expect(ApiService.authToken, isNull);
+        final request = await requestStarted.future;
+        expect(request.url.path, endsWith('/logout'));
+        expect(request.headers['authorization'], 'Bearer session-token');
+        pendingResponse.complete(http.Response('', 204));
+      },
+      () => MockClient((request) {
+        requestStarted.complete(request);
+        return pendingResponse.future;
+      }),
     );
   });
 

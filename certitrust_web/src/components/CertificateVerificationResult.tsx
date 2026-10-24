@@ -35,12 +35,14 @@ export default function CertificateVerificationResult({
         && databaseStatuses.every((status) => ["verified", "valid"].includes(status.toLowerCase()));
     const statusLabel = isVerified
         ? "Legitimate Credential"
-        : "Credential Not Fully Verified";
+        : hasValidDatabaseStatus && blockchainStatuses.some((status) => status.toLowerCase() === "not_configured")
+            ? "Credential Found · Blockchain Not Configured"
+            : "Credential Found · Not Verified";
     const institution = result.university_name || result.university_code || "Not available";
     const incompleteMessage = !hasValidDatabaseStatus
         ? `The database marks this record as "${databaseStatus}". It cannot be considered a valid credential.`
         : blockchainStatuses.some((status) => status.toLowerCase() === "not_configured")
-            ? "The database record exists, but blockchain verification is not configured. This result does not confirm the credential on-chain. Configure the Polygon Amoy RPC and contract settings, then anchor the credential before relying on it."
+            ? "The database marks this credential as verified, but the Polygon Amoy check is not configured. Its on-chain authenticity cannot be confirmed."
             : blockchainStatuses.some((status) => status.toLowerCase() === "pending")
                 ? "The database record exists, but its blockchain transaction is still pending. Verify again after the transaction is confirmed."
                 : blockchainStatuses.some((status) => status.toLowerCase() === "failed")

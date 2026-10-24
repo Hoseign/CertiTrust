@@ -22,6 +22,11 @@ export default function CertificateVerification({ publicAccess = false }: { publ
 
     useEffect(() => {
         if (!initialCode) return;
+        if (initialCode.trim().toLowerCase() === "preview") {
+            setHashInput("");
+            setErrorMessage("Enter a certificate code or SHA-256 hash to verify.");
+            return;
+        }
 
         let active = true;
         const attempt = ++verificationAttemptRef.current;
@@ -49,6 +54,10 @@ export default function CertificateVerification({ publicAccess = false }: { publ
     const handleVerify = async (value = hashInput) => {
         const code = value.trim();
         if (!code) return;
+        if (code.toLowerCase() === "preview") {
+            setErrorMessage("Enter a certificate code or SHA-256 hash to verify.");
+            return;
+        }
 
         const attempt = ++verificationAttemptRef.current;
         setHashInput(code);

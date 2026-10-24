@@ -49,6 +49,7 @@ export default function ChatWorkspace({ isAdmin }: ChatWorkspaceProps) {
     const [query, setQuery] = useState("");
     const [draft, setDraft] = useState("");
     const [attachment, setAttachment] = useState<File | undefined>();
+    const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
     const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
     const [isSending, setIsSending] = useState(false);
     const [actionError, setActionError] = useState("");
@@ -56,7 +57,24 @@ export default function ChatWorkspace({ isAdmin }: ChatWorkspaceProps) {
     const scrollRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const sessionUser = getSessionUser();
-    const { messages, contacts, loading, error, refresh } = useChat(selectedId);
+    const { messages: serverMessages, contacts, loading, error, refresh } = useChat(selectedId);
+    const messages = useMemo(() => {
+        const serverIds = new Set(serverMessages.map((message) => message.id));
+        return [
+            ...serverMessages,
+            ...localMessages.filter((message) =>
+                Number(message.recipient_user_id) === selectedId && !serverIds.has(message.id),
+            ),
+        ];
+    }, [localMessages, selectedId, serverMessages]);
+
+    useEffect(() => {
+        const serverIds = new Set(serverMessages.map((message) => message.id));
+        if (serverIds.size === 0) return;
+        setLocalMessages((current) => current.filter((message) =>
+            Number(message.recipient_user_id) !== selectedId || !serverIds.has(message.id),
+        ));
+    }, [selectedId, serverMessages]);
 
     useEffect(() => {
         const nextId = Number.isFinite(requestedId) && requestedId > 0
@@ -110,21 +128,48 @@ export default function ChatWorkspace({ isAdmin }: ChatWorkspaceProps) {
     const send = async () => {
         const text = draft.trim();
         if ((!text && !attachment) || !selectedId || isSending) return;
+        const localId = -Date.now();
+        const localMessage: ChatMessage = {
+            id: localId,
+            user_id: sessionUser?.id ?? 0,
+            recipient_user_id: selectedId,
+            sender_name: "You",
+            message: text,
+            attachment_type: attachment
+                ? (attachment.type.startsWith("video/") ? "video" : "image")
+                : null,
+            created_at: new Date().toISOString(),
+            local_delivery_status: "Sending",
+        };
+        setLocalMessages((current) => [...current, localMessage]);
         setIsSending(true);
         setActionError("");
         try {
-            await sendChatMessage({
+            const sentMessage = await sendChatMessage({
                 message: text,
                 recipientUserId: selectedId,
                 attachment,
                 replyToId: replyTo?.id,
             });
+            setLocalMessages((current) => current.map((message) =>
+                message.id === localId
+                    ? {
+                        ...sentMessage,
+                        local_delivery_status: sentMessage.delivered_at ? "Delivered" : "Sent",
+                    }
+                    : message,
+            ));
             setDraft("");
             setAttachment(undefined);
             setReplyTo(null);
             if (fileInputRef.current) fileInputRef.current.value = "";
             await refresh(true);
         } catch (sendError) {
+            setLocalMessages((current) => current.map((message) =>
+                message.id === localId
+                    ? { ...message, local_delivery_status: "Failed" }
+                    : message,
+            ));
             setActionError(
                 (sendError as { response?: { data?: { message?: string } } })
                     .response?.data?.message || "Message could not be sent.",
@@ -343,7 +388,12 @@ export default function ChatWorkspace({ isAdmin }: ChatWorkspaceProps) {
                                                     {message.is_report === true && <p className="mt-2 text-xs font-bold">Report</p>}
                                                     <div className="mt-1 flex justify-end gap-2 text-[10px] opacity-70">
                                                         <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString()}</time>
-                                                        {own && <span>{message.delivered_at ? "Delivered" : "Sent"}</span>}
+                                                        {own && (
+                                                            <span>
+                                                                {message.local_delivery_status
+                                                                    || (message.delivered_at ? "Delivered" : "Sent")}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </article>
                                             </div>
