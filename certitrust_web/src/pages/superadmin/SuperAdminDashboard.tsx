@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import SuperAdminSideBar from "../../components/SuperAdminSideBar";
 import CertiTrustLoadingIndicator from "../../components/CertiTrustLoadingIndicator";
-import { getSuperAdminOverview, getAdminHistory } from "../../services/adminApi";
+import {
+    getSuperAdminOverview,
+    getAdminHistory,
+    purgeAccountsAndCredentials,
+} from "../../services/adminApi";
 
 function StatIcon({ type }: { type: string }) {
     if (type === "university") {
@@ -87,6 +91,9 @@ export default function SuperAdminDashboard() {
     const [actionHistory, setActionHistory] = useState<Record<string, unknown>[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [isPurging, setIsPurging] = useState(false);
+    const [purgeMessage, setPurgeMessage] = useState("");
+    const [purgeError, setPurgeError] = useState("");
     const [selectedStat, setSelectedStat] = useState<{
         label: string;
         items: Record<string, unknown>[];
@@ -116,6 +123,28 @@ export default function SuperAdminDashboard() {
         const timer = window.setInterval(() => void refresh(true), 5000);
         return () => window.clearInterval(timer);
     }, []);
+
+    const purgeAllUniversityData = async () => {
+        const confirmation = window.prompt(
+            "This permanently removes all university registrations, access controls, subadmin accounts, student/user accounts, and database credentials. Old QR codes will report removed. The Super Admin account and blockchain history remain. Type WIPE ALL to continue.",
+        );
+        if (confirmation !== "WIPE ALL") return;
+
+        setIsPurging(true);
+        setPurgeError("");
+        setPurgeMessage("");
+        try {
+            const result = await purgeAccountsAndCredentials();
+            setPurgeMessage(result.message);
+            await refresh(true);
+        } catch (requestError) {
+            const message = (requestError as { response?: { data?: { message?: string } } })
+                .response?.data?.message;
+            setPurgeError(message || "Unable to wipe university data.");
+        } finally {
+            setIsPurging(false);
+        }
+    };
 
     const stats = [
         {
@@ -224,6 +253,8 @@ export default function SuperAdminDashboard() {
                     </p>
 
                     {error && <p role="alert" className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+                    {purgeError && <p role="alert" className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{purgeError}</p>}
+                    {purgeMessage && <p role="status" className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{purgeMessage}</p>}
 
                     {/* STAT CARDS */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-8">
@@ -339,6 +370,30 @@ export default function SuperAdminDashboard() {
                                 <polyline points="12 7 12 12 15.5 14" />
                             </svg>
                             Action history
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => void purgeAllUniversityData()}
+                            disabled={isPurging}
+                            className="flex items-center justify-center gap-3 py-4 rounded-full border-2 border-red-700 bg-red-700 text-white text-lg font-semibold shadow-lg shadow-red-900/20 transition-all hover:bg-red-800 disabled:cursor-wait disabled:opacity-60"
+                        >
+                            <svg
+                                width="26"
+                                height="26"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            >
+                                <path d="M3 6h18" />
+                                <path d="M8 6V4h8v2" />
+                                <path d="m19 6-1 14H6L5 6" />
+                                <path d="M10 11v5m4-5v5" />
+                            </svg>
+                            {isPurging ? "Wiping university data..." : "Wipe all university data"}
                         </button>
 
                     </div>

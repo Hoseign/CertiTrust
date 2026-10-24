@@ -6,7 +6,6 @@ import {
     bindSubadmin,
     deleteSubadmin,
     listSubadmins,
-    purgeAccountsAndCredentials,
     setUniversityAccess,
     unbindSubadminGoogle,
     updateSubadmin,
@@ -82,9 +81,6 @@ export default function SuperAdminCreateSubadmin() {
     const [subadmins, setSubadmins] = useState<Subadmin[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
-    const [isPurging, setIsPurging] = useState(false);
-    const [purgeMessage, setPurgeMessage] = useState("");
-    const [purgeError, setPurgeError] = useState("");
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
     const navigate = useNavigate();
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -219,28 +215,6 @@ export default function SuperAdminCreateSubadmin() {
             .catch((error) => window.alert(error?.response?.data?.message || "Unable to delete this subadmin."));
     };
 
-    const purgeAllAccounts = async () => {
-        const confirmation = window.prompt(
-            "This permanently removes all university registrations, subadmin accounts, student/user accounts, database credentials, and access controls. Old QR codes will report removed. The Super Admin account and blockchain history remain. Universities, student IDs, and emails can be registered again. Type WIPE ALL to continue.",
-        );
-        if (confirmation !== "WIPE ALL") return;
-
-        setIsPurging(true);
-        setPurgeError("");
-        setPurgeMessage("");
-        try {
-            const result = await purgeAccountsAndCredentials();
-            setPurgeMessage(result.message);
-            await refreshSubadmins(true);
-        } catch (error) {
-            const message = (error as { response?: { data?: { message?: string } } })
-                .response?.data?.message;
-            setPurgeError(message || "Unable to remove accounts and credentials.");
-        } finally {
-            setIsPurging(false);
-        }
-    };
-
     return (
         <div className="flex min-h-screen bg-[#F5F7FB]">
 
@@ -336,23 +310,6 @@ export default function SuperAdminCreateSubadmin() {
                         </button>
 
                     </div>
-
-                    <section className="mt-8 rounded-2xl border border-red-200 bg-red-50 p-6">
-                        <h2 className="text-lg font-bold text-red-900">Wipe all university data</h2>
-                        <p className="mt-2 text-sm text-red-800">
-                            Remove all university registrations, access controls, subadmin and student/user accounts, and database credentials across the shared system. The Super Admin account remains; blockchain transactions cannot be erased. Universities, student IDs, and emails can be registered again.
-                        </p>
-                        {purgeError && <p role="alert" className="mt-3 text-sm font-semibold text-red-800">{purgeError}</p>}
-                        {purgeMessage && <p role="status" className="mt-3 text-sm font-semibold text-emerald-800">{purgeMessage}</p>}
-                        <button
-                            type="button"
-                            onClick={() => void purgeAllAccounts()}
-                            disabled={isPurging}
-                            className="mt-4 rounded-xl bg-red-700 px-5 py-3 font-bold text-white hover:bg-red-800 disabled:cursor-wait disabled:opacity-60"
-                        >
-                            {isPurging ? "Wiping university data..." : "Wipe all university data"}
-                        </button>
-                    </section>
 
                     {/* REGISTERED SUBADMINS */}
                     <h2 className="text-2xl font-bold text-[#0A192F] mt-12 mb-5">
