@@ -601,6 +601,30 @@ void main() {
     );
   });
 
+  testWidgets('mobile verification hides raw connection failure details',
+      (WidgetTester tester) async {
+    await http.runWithClient(
+      () async {
+        await tester.pumpWidget(const MaterialApp(home: VerifyScreen()));
+        await tester.enterText(find.byType(TextField), 'CERT-TEST-CODE');
+        await tester.tap(find.text('Verify Record'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(
+            'The verification service could not be reached. Check your connection and try again.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('ClientException'), findsNothing);
+        expect(find.textContaining('onrender.com'), findsNothing);
+      },
+      () => MockClient((_) async {
+        throw http.ClientException('Software caused connection abort');
+      }),
+    );
+  });
+
   testWidgets(
       'superadmin gets a student name and ID warning when an owner freeze remains',
       (WidgetTester tester) async {

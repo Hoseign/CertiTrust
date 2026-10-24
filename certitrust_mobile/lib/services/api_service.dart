@@ -389,11 +389,13 @@ class ApiService {
   static Future<Map<String, dynamic>?> getCertificateByCode(String code) async {
     try {
       final normalizedCode = code.replaceAll(RegExp(r'\s+'), '').trim();
-      final response = await http.get(
-        Uri.parse(
-            '$baseUrl/certificates/${Uri.encodeComponent(normalizedCode)}'),
-        headers: _getHeaders,
-      );
+      final response = await http
+          .get(
+            Uri.parse(
+                '$baseUrl/certificates/${Uri.encodeComponent(normalizedCode)}'),
+            headers: _getHeaders,
+          )
+          .timeout(const Duration(seconds: 25));
 
       if (response.statusCode == 200) {
         _recordConnectionSuccess();

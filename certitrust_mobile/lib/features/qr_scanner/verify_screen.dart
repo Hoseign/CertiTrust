@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import '../../core/widgets/certitrust_loading_indicator.dart';
 
 // Fixed absolute package imports to resolve path errors (pointing directly to /services/)
@@ -95,7 +98,9 @@ class _VerifyScreenState extends State<VerifyScreen> {
               ? e.message
               : notFound
                   ? 'No record found matching this code or hash.'
-                  : 'Verification could not be completed: $e';
+                  : e is TimeoutException || e is http.ClientException
+                      ? 'The verification service could not be reached. Check your connection and try again.'
+                      : 'Verification could not be completed. Please try again.';
           _isVerifying = false;
         });
       }
@@ -198,8 +203,8 @@ class _VerifyScreenState extends State<VerifyScreen> {
                         Expanded(
                           child: Text(
                             ApiService.authUniversity == null
-                                ? 'Verify official academic credentials anchored on the Polygon blockchain.'
-                                : 'Verify official ${ApiService.authUniversity} academic credentials anchored on the Polygon blockchain.',
+                                ? 'Verify official academic credentials anchored on the Ethereum Sepolia blockchain.'
+                                : 'Verify official ${ApiService.authUniversity} academic credentials anchored on the Ethereum Sepolia blockchain.',
                             style: TextStyle(fontWeight: FontWeight.w500),
                           ),
                         ),

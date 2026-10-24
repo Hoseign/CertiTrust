@@ -11,6 +11,8 @@ use kornrunner\Keccak;
 
 class BlockchainRegistryService
 {
+    private const VERIFICATION_RPC_TIMEOUT_SECONDS = 3;
+
     public function issueCertificate(
         string $sha256,
         string $studentName,
@@ -110,7 +112,12 @@ class BlockchainRegistryService
         }
 
         try {
-            $rpcChainId = hexdec($this->rpc($configuration['rpc_url'], 'eth_chainId', []));
+            $rpcChainId = hexdec($this->rpc(
+                $configuration['rpc_url'],
+                'eth_chainId',
+                [],
+                timeoutSeconds: self::VERIFICATION_RPC_TIMEOUT_SECONDS,
+            ));
             if ((int) $rpcChainId !== (int) $configuration['chain_id']) {
                 throw new RuntimeException('The configured blockchain RPC is not on the expected chain ID.');
             }
@@ -118,10 +125,15 @@ class BlockchainRegistryService
             $signature = 'certificates(string)';
             $callData = '0x' . substr(Keccak::hash($signature, 256), 0, 8)
                 . $this->encodeStringArguments([$normalizedHash]);
-            $encodedResult = $this->rpc($configuration['rpc_url'], 'eth_call', [[
-                'to' => $configuration['contract_address'],
-                'data' => $callData,
-            ], 'latest']);
+            $encodedResult = $this->rpc(
+                $configuration['rpc_url'],
+                'eth_call',
+                [[
+                    'to' => $configuration['contract_address'],
+                    'data' => $callData,
+                ], 'latest'],
+                timeoutSeconds: self::VERIFICATION_RPC_TIMEOUT_SECONDS,
+            );
             $resultData = strtolower(preg_replace('/^0x/i', '', $encodedResult));
             if (!preg_match('/^(?:[a-f0-9]{64})+$/', $resultData)) {
                 throw new RuntimeException('The CertiTrust contract returned an invalid certificates(string) result.');
@@ -164,7 +176,12 @@ class BlockchainRegistryService
         return $head . $tail;
     }
 
-    private function rpc(string $url, string $method, array $params): string
+    private function rpc(
+        string $url,
+        string $method,
+        array $params,
+        int $timeoutSeconds = 25,
+    ): string
     {
         $urls = array_values(array_unique(array_filter(array_merge(
             [$url],
@@ -174,12 +191,15 @@ class BlockchainRegistryService
 
         foreach ($urls as $index => $endpoint) {
             try {
-                $response = Http::timeout(25)->acceptJson()->post($endpoint, [
-                    'jsonrpc' => '2.0',
-                    'id' => 1,
-                    'method' => $method,
-                    'params' => $params,
-                ]);
+                $response = Http::connectTimeout(min(2, $timeoutSeconds))
+                    ->timeout($timeoutSeconds)
+                    ->acceptJson()
+                    ->post($endpoint, [
+                        'jsonrpc' => '2.0',
+                        'id' => 1,
+                        'method' => $method,
+                        'params' => $params,
+                    ]);
             } catch (ConnectionException $exception) {
                 $lastFailure = $exception;
                 if ($index < count($urls) - 1) {
