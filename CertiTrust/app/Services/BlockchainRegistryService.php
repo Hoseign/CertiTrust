@@ -122,7 +122,7 @@ class BlockchainRegistryService
                 throw new RuntimeException('The configured blockchain RPC is not on the expected chain ID.');
             }
 
-            $signature = 'certificates(string)';
+            $signature = 'verifyCertificate(string)';
             $callData = '0x' . substr(Keccak::hash($signature, 256), 0, 8)
                 . $this->encodeStringArguments([$normalizedHash]);
             $encodedResult = $this->rpc(
@@ -135,10 +135,13 @@ class BlockchainRegistryService
                 timeoutSeconds: self::VERIFICATION_RPC_TIMEOUT_SECONDS,
             );
             $resultData = strtolower(preg_replace('/^0x/i', '', $encodedResult));
-            if (!preg_match('/^(?:[a-f0-9]{64})+$/', $resultData)) {
-                throw new RuntimeException('The CertiTrust contract returned an invalid certificates(string) result.');
+            if (
+                !preg_match('/^(?:[a-f0-9]{64})+$/', $resultData)
+                || strlen($resultData) < 7 * 64
+            ) {
+                throw new RuntimeException('The CertiTrust contract returned an invalid verifyCertificate(string) result.');
             }
-            $validWord = substr($resultData, -64);
+            $validWord = substr($resultData, 3 * 64, 64);
             if (!preg_match('/^0{63}[01]$/', $validWord)) {
                 throw new RuntimeException('The CertiTrust contract returned an invalid credential validity flag.');
             }

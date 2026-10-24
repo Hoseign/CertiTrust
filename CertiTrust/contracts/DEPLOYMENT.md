@@ -28,7 +28,7 @@ Keep `CERTITRUST_CHAIN_ENABLED=false` until the owner private key is configured 
 
 ## What The Integration Does
 
-The React and Flutter clients submit certificate issuance to the existing authenticated Laravel batch endpoint. Laravel stores the record in PostgreSQL, submits `issueCertificate(string,string,string,string)` to Ethereum Sepolia, then saves the transaction hash and `blockchain_status` on the certificate row. The public certificate/QR lookup calls `certificates(string)` using the normalized SHA-256 hash and includes its `isValid` field as `blockchain_verification` in the response.
+The React and Flutter clients submit certificate issuance to the existing authenticated Laravel batch endpoint. Laravel stores the record in PostgreSQL, submits `issueCertificate(string,string,string,string)` to Ethereum Sepolia, then saves the transaction hash and `blockchain_status` on the certificate row. The public certificate/QR lookup calls the deployed contract's `verifyCertificate(string)` method with the normalized SHA-256 hash and reads the method's fourth return value as the on-chain validity flag in `blockchain_verification`.
 
 `submitted` means the RPC accepted the transaction and returned a transaction hash; it does not by itself mean the transaction has been mined. Open the hash on Sepolia Etherscan to inspect confirmation. Database issuance remains available if chain anchoring is disabled or temporarily unavailable, and its response reports that state.
 

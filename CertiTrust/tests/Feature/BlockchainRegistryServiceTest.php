@@ -34,7 +34,7 @@ class BlockchainRegistryServiceTest extends TestCase
         $this->assertSame('0xaa36a7', $result);
     }
 
-    public function test_certificate_verification_uses_the_fallback_rpc(): void
+    public function test_certificate_verification_uses_the_deployed_method_and_fallback_rpc(): void
     {
         config([
             'services.certitrust.enabled' => true,
@@ -51,7 +51,7 @@ class BlockchainRegistryServiceTest extends TestCase
                     'id' => 1,
                     'result' => $request['method'] === 'eth_chainId'
                         ? '0xaa36a7'
-                        : '0x' . str_repeat('0', 63) . '1',
+                        : $this->encodedVerificationResult(true),
                 ]);
             },
         ]);
@@ -62,15 +62,42 @@ class BlockchainRegistryServiceTest extends TestCase
 
         Http::assertSent(fn ($request) => $request->url() === 'https://primary.example');
         Http::assertSent(fn ($request) => $request->url() === 'https://fallback.example');
-        $expectedMappingCall = '0x8f2b91ea'
+        $expectedVerificationCall = '0x8b23d875'
             . str_pad('20', 64, '0', STR_PAD_LEFT)
             . str_pad('40', 64, '0', STR_PAD_LEFT)
             . str_repeat('61', 64);
         Http::assertSent(fn ($request) => $request->url() === 'https://fallback.example'
             && $request['method'] === 'eth_call'
-            && $request['params'][0]['data'] === $expectedMappingCall);
+            && $request['params'][0]['data'] === $expectedVerificationCall);
         $this->assertSame('verified', $result['status']);
         $this->assertTrue($result['verified']);
+    }
+
+    public function test_certificate_verification_reads_the_boolean_before_dynamic_return_data(): void
+    {
+        config([
+            'services.certitrust.enabled' => true,
+            'services.certitrust.rpc_url' => 'https://sepolia.example',
+            'services.certitrust.rpc_fallback_urls' => [],
+            'services.certitrust.chain_id' => 11155111,
+            'services.certitrust.contract_address' => '0x1111111111111111111111111111111111111111',
+        ]);
+        Http::fake([
+            'https://sepolia.example' => fn ($request) => Http::response([
+                'jsonrpc' => '2.0',
+                'id' => 1,
+                'result' => $request['method'] === 'eth_chainId'
+                    ? '0xaa36a7'
+                    : $this->encodedVerificationResult(false),
+            ]),
+        ]);
+
+        $result = app(BlockchainRegistryService::class)->verifyCertificate(
+            str_repeat('a', 64),
+        );
+
+        $this->assertSame('not_found', $result['status']);
+        $this->assertFalse($result['verified']);
     }
 
     public function test_certificate_verification_rejects_an_unexpected_chain_id(): void
@@ -156,5 +183,24 @@ class BlockchainRegistryServiceTest extends TestCase
         $this->assertSame('submitted', $result['status']);
         $this->assertSame('0x' . str_repeat('b', 64), $result['transaction_hash']);
         $this->assertSame('ethereum-sepolia', $result['network']);
+    }
+
+    private function encodedVerificationResult(bool $isValid): string
+    {
+        $word = static fn (int $value): string => str_pad(
+            dechex($value),
+            64,
+            '0',
+            STR_PAD_LEFT,
+        );
+
+        return '0x'
+            . $word(128)
+            . $word(160)
+            . $word(192)
+            . $word($isValid ? 1 : 0)
+            . $word(0)
+            . $word(0)
+            . $word(0);
     }
 }
