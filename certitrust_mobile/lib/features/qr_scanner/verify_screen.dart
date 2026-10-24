@@ -374,6 +374,22 @@ class _VerifyScreenState extends State<VerifyScreen> {
                   'cannot be confirmed.',
                 ),
               ),
+            if (!isVerified && chainStatus.toLowerCase() == 'unavailable')
+              Container(
+                margin: const EdgeInsets.only(top: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  border: Border.all(color: Colors.orange.shade200),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text(
+                  'The credential was found in the database, but Ethereum '
+                  'Sepolia could not be reached to check its on-chain status. '
+                  'Try verification again later; this does not confirm '
+                  'blockchain authenticity.',
+                ),
+              ),
             const Divider(height: 32),
             _buildDetailRow(
                 'Student Name', _certResult!['student_name'] ?? 'N/A'),

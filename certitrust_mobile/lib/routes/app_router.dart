@@ -55,6 +55,10 @@ class AppRouter {
         return frozenChatLocation;
       }
 
+      if (isLoggedIn && ApiService.isSuperAdmin && state.uri.path == '/issue') {
+        return '/records';
+      }
+
       return null;
     },
     routes: [
@@ -137,6 +141,8 @@ class AppRouter {
             routes: [
               GoRoute(
                 path: '/issue',
+                redirect: (context, state) =>
+                    ApiService.isSuperAdmin ? '/records' : null,
                 builder: (context, state) => IssueScreen(
                   initialRecord: state.extra is Map<String, dynamic>
                       ? state.extra as Map<String, dynamic>

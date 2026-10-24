@@ -316,8 +316,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _superAdminDrawer(BuildContext context) {
     return Drawer(
       child: SafeArea(
-        child:
-            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        child: ListView(padding: EdgeInsets.zero, children: [
           const DrawerHeader(
             decoration: BoxDecoration(color: Color(0xFF003366)),
             child: Column(
@@ -339,8 +338,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
               context, Icons.dashboard_outlined, 'Dashboard', '/dashboard'),
           _drawerItem(context, Icons.person_add_alt_1,
               'Create Subadmin Account', '/admin-management'),
-          _drawerItem(context, Icons.manage_search, 'Global Credential Logs',
-              '/records'),
+          _drawerItem(context, Icons.lock_outline, 'University Access',
+              '/admin-management/access'),
+          _drawerItem(context, Icons.pending_actions, 'Deletion Requests',
+              '/deletion-requests'),
+          _drawerItem(context, Icons.delete_sweep_outlined,
+              'Junk / Recycle Bin', '/super-admin/junk'),
+          _drawerItem(context, Icons.folder_outlined, 'Records', '/records'),
+          _drawerItem(context, Icons.verified_outlined, 'Verify', '/verify'),
+          _drawerItem(context, Icons.help_outline, 'AnsQ', '/ansq'),
         ]),
       ),
     );

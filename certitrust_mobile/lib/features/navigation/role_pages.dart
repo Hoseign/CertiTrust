@@ -2131,7 +2131,13 @@ class RoleBottomNavigationBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final isSuperAdmin = isAdmin && ApiService.isSuperAdmin;
     final routes = isSuperAdmin
-        ? const ['/dashboard', '/records', '/issue', '/verify', '/ansq']
+        ? const [
+            '/dashboard',
+            '/records',
+            '/admin-management',
+            '/verify',
+            '/ansq',
+          ]
         : isAdmin
             ? const ['/dashboard', '/records', '/issue', '/verify', '/ansq']
             : const ['/dashboard', '/records', '/verify', '/profile', '/askq'];
@@ -2154,7 +2160,7 @@ class RoleBottomNavigationBar extends StatelessWidget {
               BottomNavigationBarItem(
                   icon: Icon(Icons.folder), label: 'Records'),
               BottomNavigationBarItem(
-                  icon: Icon(Icons.upload), label: 'Upload'),
+                  icon: Icon(Icons.person_add_alt_1), label: 'Create'),
               BottomNavigationBarItem(
                   icon: Icon(Icons.verified), label: 'Verify'),
               BottomNavigationBarItem(icon: Icon(Icons.help), label: 'AnsQ'),
@@ -2186,7 +2192,11 @@ class RoleBottomNavigationBar extends StatelessWidget {
                 ],
       onTap: (index) {
         if (index != currentIndex) {
-          StatefulNavigationShell.of(context).goBranch(branchIndexes[index]);
+          if (isSuperAdmin && index == 2) {
+            context.go('/admin-management');
+          } else {
+            StatefulNavigationShell.of(context).goBranch(branchIndexes[index]);
+          }
         }
       },
     );

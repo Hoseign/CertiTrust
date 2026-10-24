@@ -55,6 +55,68 @@ void main() {
     expect(find.byType(CertiTrustApp), findsOneWidget);
   });
 
+  testWidgets(
+      'superadmin Create tab opens subadmin management instead of credential upload',
+      (WidgetTester tester) async {
+    final previousEmail = ApiService.authEmail;
+    final previousRole = ApiService.authRole;
+    ApiService.authEmail = 'certitrust256@gmail.com';
+    ApiService.authRole = 'admin';
+    addTearDown(() {
+      ApiService.authEmail = previousEmail;
+      ApiService.authRole = previousRole;
+    });
+
+    final router = GoRouter(
+      initialLocation: '/dashboard',
+      routes: [
+        GoRoute(
+          path: '/admin-management',
+          builder: (context, state) => const Scaffold(
+            body: Text('Create Subadmin Account screen'),
+          ),
+        ),
+        StatefulShellRoute.indexedStack(
+          builder: (context, state, navigationShell) => Scaffold(
+            body: navigationShell,
+            bottomNavigationBar: const RoleBottomNavigationBar(isAdmin: true),
+          ),
+          branches: [
+            for (final path in [
+              '/dashboard',
+              '/records',
+              '/issue',
+              '/verify',
+              '/profile',
+              '/ansq',
+              '/askq',
+            ])
+              StatefulShellBranch(
+                routes: [
+                  GoRoute(
+                    path: path,
+                    builder: (context, state) => Scaffold(
+                      body: Text(path),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Upload'), findsNothing);
+    expect(find.text('Create'), findsOneWidget);
+    await tester.tap(find.text('Create'));
+    await tester.pumpAndSettle();
+    expect(find.text('Create Subadmin Account screen'), findsOneWidget);
+  });
+
   testWidgets('admin dashboard refreshes credentials and verification activity',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(400, 1200);
