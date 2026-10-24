@@ -26,6 +26,8 @@ The service tries `CERTITRUST_RPC_URL` first, then each comma-separated URL in `
 
 Keep `CERTITRUST_CHAIN_ENABLED=false` until the owner private key is configured securely in the backend environment and funded with Sepolia test ETH. Then set it to `true` locally and in Render. Never commit `.env`, paste a private key into chat, or put the signer key in a React `VITE_*` or Flutter `--dart-define` variable. After changing Render environment values, restart/redeploy the service.
 
+Chat attachments use the public Supabase Storage bucket named by `SUPABASE_CHAT_BUCKET` (default `chat-attachments`). The backend creates this bucket as public on first use when it does not exist. `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` must be configured on the Laravel backend; do not add the service-role key to web or mobile clients.
+
 ## What The Integration Does
 
 The React and Flutter clients submit certificate issuance to the existing authenticated Laravel batch endpoint. Laravel stores the record in PostgreSQL, submits `issueCertificate(string,string,string,string)` to Ethereum Sepolia, then saves the transaction hash and `blockchain_status` on the certificate row. The public certificate/QR lookup calls the deployed contract's `verifyCertificate(string)` method with the normalized SHA-256 hash and reads the method's fourth return value as the on-chain validity flag in `blockchain_verification`.

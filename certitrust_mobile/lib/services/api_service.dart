@@ -561,8 +561,9 @@ class ApiService {
         filename: imageName,
       ));
     }
-    final streamed = await request.send();
-    final response = await http.Response.fromStream(streamed);
+    final streamed = await request.send().timeout(const Duration(seconds: 60));
+    final response = await http.Response.fromStream(streamed)
+        .timeout(const Duration(seconds: 10));
     final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
     if (response.statusCode != 200) {
       throw ApiRequestException(
@@ -1219,8 +1220,9 @@ class ApiService {
       request.files.add(http.MultipartFile.fromBytes('attachment', fileBytes,
           filename: fileName));
     }
-    final streamed = await request.send();
-    final response = await http.Response.fromStream(streamed);
+    final streamed = await request.send().timeout(const Duration(seconds: 30));
+    final response = await http.Response.fromStream(streamed)
+        .timeout(const Duration(seconds: 30));
     final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
     if (response.statusCode != 201) {
       throw ApiRequestException(

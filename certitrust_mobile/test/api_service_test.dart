@@ -166,6 +166,48 @@ void main() {
     );
   });
 
+  test('chat image uploads use multipart content and retain reply metadata',
+      () async {
+    http.Request? capturedRequest;
+
+    await http.runWithClient(
+      () async {
+        await ApiService.sendChatMessage(
+          'See this image',
+          recipientUserId: '42',
+          fileBytes: [0xff, 0xd8, 0xff],
+          fileName: 'photo.jpg',
+          replyToId: '7',
+        );
+      },
+      () => MockClient((request) async {
+        capturedRequest = request;
+        return http.Response(
+          jsonEncode({
+            'data': {
+              'id': 1,
+              'user_id': 3,
+              'recipient_user_id': 42,
+              'message': 'See this image',
+            },
+          }),
+          201,
+        );
+      }),
+    );
+
+    expect(capturedRequest?.url.path, endsWith('/chat/messages'));
+    expect(
+      capturedRequest?.headers['content-type'],
+      startsWith('multipart/form-data; boundary='),
+    );
+    final body = latin1.decode((capturedRequest as http.Request).bodyBytes);
+    expect(body, contains('recipient_user_id'));
+    expect(body, contains('reply_to_id'));
+    expect(body, contains('photo.jpg'));
+    expect(body, contains('See this image'));
+  });
+
   test('global account and credential cleanup uses the shared admin API',
       () async {
     Uri? requestedUri;

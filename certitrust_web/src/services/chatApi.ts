@@ -45,7 +45,9 @@ export async function sendChatMessage(payload: {
     if (payload.replyToId) form.append("reply_to_id", String(payload.replyToId));
     if (payload.isReport) form.append("is_report", "1");
     if (payload.attachment) form.append("attachment", payload.attachment);
-    const { data } = await apiClient.post<{ data: ChatMessage }>("/chat/messages", form);
+    const { data } = await apiClient.post<{ data: ChatMessage }>("/chat/messages", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+    });
     return data.data;
 }
 

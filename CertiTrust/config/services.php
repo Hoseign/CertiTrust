@@ -39,6 +39,7 @@ return [
         'url' => env('SUPABASE_URL'),
         'service_role_key' => env('SUPABASE_SERVICE_ROLE_KEY'),
         'diploma_bucket' => env('SUPABASE_DIPLOMA_BUCKET', 'diplomas'),
+        'chat_bucket' => env('SUPABASE_CHAT_BUCKET', 'chat-attachments'),
     ],
 
     'certitrust' => [

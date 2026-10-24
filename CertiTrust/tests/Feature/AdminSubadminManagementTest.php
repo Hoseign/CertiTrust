@@ -1740,6 +1740,7 @@ class AdminSubadminManagementTest extends TestCase
 
         $deleteResponse = $this->deleteJson('/api/chat/messages/' . $message->id . '?mode=me');
         $deleteResponse->assertOk();
+        $this->assertSame([$admin->id], $message->fresh()->deleted_by);
 
         $conversationResponse = $this->getJson('/api/chat/messages?student_id=' . $student->id);
         $conversationResponse->assertOk();
@@ -1777,6 +1778,67 @@ class AdminSubadminManagementTest extends TestCase
         $this->getJson('/api/chat/messages?student_id=' . $student->id)
             ->assertOk()
             ->assertJsonPath('data', []);
+    }
+
+    public function test_chat_attachment_is_saved_to_public_supabase_storage(): void
+    {
+        config([
+            'services.supabase.url' => 'https://chat-test.supabase.co',
+            'services.supabase.service_role_key' => 'test-service-role-key',
+            'services.supabase.chat_bucket' => 'chat-attachments',
+        ]);
+        Http::fake([
+            'https://chat-test.supabase.co/storage/v1/bucket/chat-attachments' =>
+                Http::response(['id' => 'chat-attachments', 'public' => true]),
+            'https://chat-test.supabase.co/storage/v1/object/chat-attachments/*' =>
+                Http::response(['Key' => 'chat/test.jpg'], 200),
+        ]);
+        $admin = User::create([
+            'name' => 'UCU Attachment Admin',
+            'email' => 'ucu-chat-attachment-admin@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        $student = User::create([
+            'name' => 'UCU Attachment Student',
+            'email' => 'ucu-chat-attachment-student@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'UCU',
+        ]);
+        Certificate::create([
+            'certificate_code' => 'CERT-CHAT-ATTACHMENT',
+            'recipient_name' => $student->name,
+            'student_name' => $student->name,
+            'student_id' => 'UCU-CHAT-ATTACHMENT',
+            'student_email' => $student->email,
+            'email' => $student->email,
+            'degree' => 'BSIT',
+            'course_or_event' => 'BSIT',
+            'university_code' => 'UCU',
+            'issue_date' => '2026-06-01',
+            'status' => 'Verified',
+            'cert_hash' => str_repeat('d', 64),
+        ]);
+
+        $response = $this->actingAs($admin, 'sanctum')
+            ->post('/api/chat/messages', [
+                'recipient_user_id' => $student->id,
+                'message' => 'See attached image.',
+                'attachment' => UploadedFile::fake()->image('chat.jpg'),
+            ], ['Accept' => 'application/json']);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.attachment_type', 'image');
+        $this->assertStringStartsWith(
+            'https://chat-test.supabase.co/storage/v1/object/public/chat-attachments/chat/',
+            $response->json('data.attachment_url'),
+        );
+        Http::assertSent(fn (HttpRequest $request) =>
+            $request->method() === 'POST'
+            && str_contains($request->url(), '/storage/v1/object/chat-attachments/chat/')
+        );
     }
 
     public function test_chat_messages_and_unread_previews_are_shared_between_participants(): void
@@ -1846,6 +1908,28 @@ class AdminSubadminManagementTest extends TestCase
         $this->actingAs($admin, 'sanctum')
             ->getJson('/api/chat/messages?with_user_id=' . $student->id)
             ->assertOk()
+            ->assertJsonFragment(['message' => 'Received, thank you.']);
+
+        $this->deleteJson('/api/chat/conversation/' . $student->id . '?mode=me')
+            ->assertOk()
+            ->assertJsonPath('message', 'Conversation deleted for you.');
+        $this->assertDatabaseHas('chat_messages', [
+            'user_id' => $admin->id,
+            'message' => 'Please check your updated credential.',
+        ]);
+        $this->assertSame(
+            [$admin->id],
+            ChatMessage::where('message', 'Please check your updated credential.')
+                ->firstOrFail()
+                ->deleted_by,
+        );
+        $this->getJson('/api/chat/messages?with_user_id=' . $student->id)
+            ->assertOk()
+            ->assertJsonPath('data', []);
+        $this->actingAs($student, 'sanctum')
+            ->getJson('/api/chat/messages?with_user_id=' . $admin->id)
+            ->assertOk()
+            ->assertJsonFragment(['message' => 'Please check your updated credential.'])
             ->assertJsonFragment(['message' => 'Received, thank you.']);
     }
 

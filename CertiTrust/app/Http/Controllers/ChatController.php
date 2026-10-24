@@ -8,8 +8,8 @@ use App\Models\UniversityAccessControl;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Carbon;
+use App\Services\SupabaseChatStorage;
 
 class ChatController extends Controller
 {
@@ -37,8 +37,8 @@ class ChatController extends Controller
 
         $query = ChatMessage::query()
             ->with('replyTo:id,user_id,sender_name,message')
-            ->orderBy('created_at')
-            ->orderBy('id');
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
         if (!$isSuperAdmin && !$user->isAccessFrozen()) {
             $query->where('university_code', $universityCode);
         }
@@ -66,7 +66,7 @@ class ChatController extends Controller
             });
         }
 
-        $visibleMessages = $query->get()->filter(function (ChatMessage $message) use ($user) {
+        $visibleMessages = $query->limit(200)->get()->reverse()->filter(function (ChatMessage $message) use ($user) {
             if ($message->deleted_for_everyone_at) {
                 return false;
             }
@@ -357,7 +357,7 @@ class ChatController extends Controller
         return response()->json(['data' => $contacts]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request, SupabaseChatStorage $chatStorage)
     {
         $user = $request->user();
         $user->forceFill(['last_seen_at' => now()])->save();
@@ -410,7 +410,13 @@ class ChatController extends Controller
         $attachmentType = null;
         if ($request->hasFile('attachment')) {
             $file = $request->file('attachment');
-            $attachmentUrl = Storage::disk('public')->url($file->store('chat', 'public'));
+            $upload = $chatStorage->upload($file);
+            if (!isset($upload['url'])) {
+                return response()->json([
+                    'message' => $upload['message'] ?? 'Chat attachment could not be uploaded.',
+                ], $upload['status'] ?? 502);
+            }
+            $attachmentUrl = $upload['url'];
             $attachmentType = str_starts_with($file->getMimeType() ?? '', 'video/') ? 'video' : 'image';
         }
 
@@ -615,11 +621,10 @@ class ChatController extends Controller
             return response()->json(['message' => 'Message deleted for everyone.']);
         }
 
-        $deletedBy = is_array($chatMessage->deleted_by) ? $chatMessage->deleted_by : [];
-        if (!in_array((int) $user->id, $deletedBy, true)) {
-            $deletedBy[] = (int) $user->id;
-            $chatMessage->forceFill(['deleted_by' => $deletedBy])->save();
-        }
+        $this->markDeletedForUser(
+            ChatMessage::query()->whereKey($chatMessage->getKey()),
+            (int) $user->id,
+        );
 
         return response()->json(['message' => 'Message deleted for you.']);
     }
@@ -650,16 +655,29 @@ class ChatController extends Controller
             })->orWhere(function ($thread) use ($user, $userId) {
                 $thread->where('user_id', $userId)->where('recipient_user_id', $user->id);
             });
-        })->get();
-
-        foreach ($messages as $message) {
-            $deletedBy = is_array($message->deleted_by) ? $message->deleted_by : [];
-            if (!in_array((int) $user->id, $deletedBy, true)) {
-                $deletedBy[] = (int) $user->id;
-                $message->forceFill(['deleted_by' => $deletedBy])->save();
-            }
-        }
+        });
+        $this->markDeletedForUser($messages, (int) $user->id);
 
         return response()->json(['message' => 'Conversation deleted for you.']);
+    }
+
+    private function markDeletedForUser($messages, int $userId): void
+    {
+        $messages->where(function ($query) use ($userId) {
+            $query->whereNull('deleted_by')
+                ->orWhereJsonDoesntContain('deleted_by', $userId);
+        })->update([
+            'deleted_by' => DB::raw($this->deletedByAppendExpression($userId)),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function deletedByAppendExpression(int $userId): string
+    {
+        return match (DB::connection()->getDriverName()) {
+            'mysql', 'mariadb' => "JSON_ARRAY_APPEND(COALESCE(deleted_by, JSON_ARRAY()), '$', {$userId})",
+            'pgsql' => "(COALESCE(deleted_by::jsonb, '[]'::jsonb) || '[{$userId}]'::jsonb)::json",
+            default => "json_insert(COALESCE(deleted_by, '[]'), '$[#]', {$userId})",
+        };
     }
 }
