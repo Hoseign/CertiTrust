@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import Sidebar from "./Sidebar";
-import StudentSidebar from "./StudentSidebar";
-import SuperAdminSideBar from "./SuperAdminSideBar";
-import CertiTrustLoadingIndicator from "./CertiTrustLoadingIndicator";
-import { useChat } from "../hooks/useChat";
+import Sidebar from "@/Components/Organisms/Sidebar";
+import StudentSidebar from "@/Components/Organisms/StudentSidebar";
+import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
+import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
+import { useChat } from "@/hooks/useChat";
 import {
     clearChatConversation,
     deleteChatMessage,
     sendChatMessage,
     type ChatMessage,
-} from "../services/chatApi";
-import { getSessionUser } from "../services/authService";
+} from "@/services/chatApi";
+import { getSessionUser } from "@/services/authService";
 
 type ChatWorkspaceProps = {
     isAdmin: boolean;

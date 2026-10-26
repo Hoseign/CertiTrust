@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import Sidebar from "../../components/Sidebar";
-import CertiTrustLoadingIndicator from "../../components/CertiTrustLoadingIndicator";
+import Sidebar from "@/Components/Organisms/Sidebar";
+import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 import { useNavigate } from "react-router-dom";
 import { useCertificates } from "../../hooks/useCertificates";
 import { useCertificateBatch } from "../../hooks/useCertificateBatch";
 import { getSessionUser, isSuperAdminSession } from "../../services/authService";
 import { listUniversities, type UniversityRecord } from "../../services/adminApi";
-import SuperAdminSideBar from "../../components/SuperAdminSideBar";
+import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
 import {
     requestCertificateDeletion,
     type CertificateRecord,

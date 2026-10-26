@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import Sidebar from "../../components/Sidebar";
+import Sidebar from "@/Components/Organisms/Sidebar";
 import { getSessionUser } from "../../services/authService";
 import { listCertificates, listRecentVerifications, type CertificateRecord } from "../../services/certitrustApi";
 

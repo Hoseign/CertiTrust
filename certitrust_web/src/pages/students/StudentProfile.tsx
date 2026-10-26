@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import StudentSidebar from "../../components/StudentSidebar";
+import StudentSidebar from "@/Components/Organisms/StudentSidebar";
 import { getSessionUser, updateProfile } from "../../services/authService";
 
 type AvatarType = "girl" | "boy";

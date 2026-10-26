@@ -1,6 +1,6 @@
 import { JSX, useEffect, useRef, useState } from "react";
-import Sidebar from "../../components/Sidebar";
-import CertiTrustLoadingIndicator from "../../components/CertiTrustLoadingIndicator";
+import Sidebar from "@/Components/Organisms/Sidebar";
+import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 import { useCertificates } from "../../hooks/useCertificates";
 import { useCertificateBatch } from "../../hooks/useCertificateBatch";
 import { validateCertificateBatch } from "../../services/certitrustApi";

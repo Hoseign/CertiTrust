@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import SuperAdminSideBar from "../../components/SuperAdminSideBar";
-import CertiTrustLoadingIndicator from "../../components/CertiTrustLoadingIndicator";
+import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
+import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 import { listUniversityStudents, listUniversities, setUniversityAccess } from "../../services/adminApi";
 import { updateStudentAccess as updateStudentAccessApi } from "../../services/certitrustApi";
 

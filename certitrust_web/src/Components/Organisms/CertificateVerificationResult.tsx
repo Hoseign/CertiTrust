@@ -1,4 +1,4 @@
-import type { PublicCertificateResult } from "../services/certitrustApi";
+import type { PublicCertificateResult } from "@/services/certitrustApi";
 
 type CertificateVerificationResultProps = {
     result: PublicCertificateResult;

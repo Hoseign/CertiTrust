@@ -1,8 +1,8 @@
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import StudentSidebar from "../../components/StudentSidebar";
-import CertiTrustLoadingIndicator from "../../components/CertiTrustLoadingIndicator";
+import StudentSidebar from "@/Components/Organisms/StudentSidebar";
+import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 import { useCertificates } from "../../hooks/useCertificates";
 
 export default function StudentRecords() {

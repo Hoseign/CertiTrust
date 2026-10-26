@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
-import Sidebar from "../../components/Sidebar";
+import Sidebar from "@/Components/Organisms/Sidebar";
 import { Link, useNavigate } from "react-router-dom";
 import {
     listCertificates,

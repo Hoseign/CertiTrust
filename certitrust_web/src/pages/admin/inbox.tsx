@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import Sidebar from "../../components/Sidebar";
-import CertiTrustLoadingIndicator from "../../components/CertiTrustLoadingIndicator";
+import Sidebar from "@/Components/Organisms/Sidebar";
+import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 import { useNavigate } from "react-router-dom";
 import { useChat } from "../../hooks/useChat";
 

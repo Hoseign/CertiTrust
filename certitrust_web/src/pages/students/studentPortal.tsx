@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import StudentSidebar from "../../components/StudentSidebar";
+import StudentSidebar from "@/Components/Organisms/StudentSidebar";
 import { useUserVerification } from "../../context/studentContext";
 import { useCertificates } from "../../hooks/useCertificates";
 import { getSessionUser } from "../../services/authService";

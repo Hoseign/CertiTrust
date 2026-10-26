@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { verifyStudentId } from "../../services/authService";
-import CertiTrustLoadingIndicator from "../../components/CertiTrustLoadingIndicator";
+import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 
 type GoogleTokenResponse = {
     access_token?: string;

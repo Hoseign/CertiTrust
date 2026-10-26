@@ -1,9 +1,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import StudentSidebar from "../../components/StudentSidebar";
-import QrScanner from "../../components/QrScanner";
-import CertificateVerificationResult from "../../components/CertificateVerificationResult";
+import StudentSidebar from "@/Components/Organisms/StudentSidebar";
+import QrScanner from "@/Components/Organisms/QrScanner";
+import CertificateVerificationResult from "@/Components/Organisms/CertificateVerificationResult";
 import {
     getCertificateByCode,
     getPublicCertificateByCode,

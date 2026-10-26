@@ -3,7 +3,7 @@ import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './context/AuthContext.jsx'
 import { isSuperAdminSession } from './services/authService'
-import CertiTrustLoadingIndicator from './components/CertiTrustLoadingIndicator'
+import CertiTrustLoadingIndicator from '@/Components/Atoms/CertiTrustLoadingIndicator'
 
 const Dashboard = lazy(() => import('./pages/admin/dashboard'))
 const StudentAccess = lazy(() => import('./pages/admin/StudentAccess'))

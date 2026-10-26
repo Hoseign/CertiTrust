@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import Sidebar from "../../components/Sidebar";
-import CertiTrustLoadingIndicator from "../../components/CertiTrustLoadingIndicator";
+import Sidebar from "@/Components/Organisms/Sidebar";
+import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 import { deleteStudent, listUniversityStudents } from "../../services/adminApi";
 
 type Student = {

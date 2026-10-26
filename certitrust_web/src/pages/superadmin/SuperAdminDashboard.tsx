@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import SuperAdminSideBar from "../../components/SuperAdminSideBar";
-import CertiTrustLoadingIndicator from "../../components/CertiTrustLoadingIndicator";
+import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
+import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 import {
     getSuperAdminOverview,
     getAdminHistory,

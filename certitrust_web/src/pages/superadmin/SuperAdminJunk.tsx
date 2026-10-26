@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import SuperAdminSideBar from "../../components/SuperAdminSideBar";
-import CertiTrustLoadingIndicator from "../../components/CertiTrustLoadingIndicator";
+import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
+import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 import {
     listJunkItems,
     permanentlyDeleteJunkItem,

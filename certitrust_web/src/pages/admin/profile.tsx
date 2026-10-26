@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import Sidebar from "../../components/Sidebar";
-import CertiTrustLoadingIndicator from "../../components/CertiTrustLoadingIndicator";
+import Sidebar from "@/Components/Organisms/Sidebar";
+import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 import { getCurrentUser, getSessionUser, updateProfile } from "../../services/authService";
 import type { AuthUser } from "../../services/authService";
 

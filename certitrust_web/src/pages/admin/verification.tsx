@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import Sidebar from "../../components/Sidebar";
-import QrScanner from "../../components/QrScanner";
-import CertificateVerificationResult from "../../components/CertificateVerificationResult";
+import Sidebar from "@/Components/Organisms/Sidebar";
+import QrScanner from "@/Components/Organisms/QrScanner";
+import CertificateVerificationResult from "@/Components/Organisms/CertificateVerificationResult";
 import { getCertificateByCode } from "../../services/certitrustApi";
 
 export default function Verification() {

@@ -1,4 +1,4 @@
-import Sidebar from "../../components/Sidebar";
+import Sidebar from "@/Components/Organisms/Sidebar";
 
 export default function Notifications() {
     return (

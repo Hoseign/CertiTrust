@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
-import SuperAdminSideBar from "../../components/SuperAdminSideBar";
-import QrScanner from "../../components/QrScanner";
-import CertificateVerificationResult from "../../components/CertificateVerificationResult";
+import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
+import QrScanner from "@/Components/Organisms/QrScanner";
+import CertificateVerificationResult from "@/Components/Organisms/CertificateVerificationResult";
 import { getCertificateByCode } from "../../services/certitrustApi";
 
 export default function SuperAdminVerify() {
