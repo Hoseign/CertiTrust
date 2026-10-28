@@ -70,7 +70,15 @@ class _VerifyScreenState extends State<VerifyScreen> {
     });
 
     try {
-      final result = await ApiService.getCertificateByCode(hash.trim());
+      final scannedUri = Uri.tryParse(hash.trim());
+      final portfolioToken = scannedUri?.queryParameters['portfolio'];
+      final result = portfolioToken == null
+          ? await ApiService.getCertificateByCode(hash.trim())
+          : await ApiService.getPublicPortfolio(portfolioToken).then((portfolio) => {
+                ...portfolio,
+                'multi_degree': true,
+                'certificates': portfolio['certificates'] ?? const [],
+              });
 
       if (mounted && attempt == _verificationAttempt) {
         setState(() {

@@ -35,6 +35,32 @@ export type PublicCertificateResult = Partial<CertificateRecord> & {
     })[];
 };
 
+export type StudentPortfolio = {
+    master_hash: string;
+    portfolio_token: string;
+    student_name: string | null;
+    degree_count: number;
+    status: string;
+    groups: {
+        university_code: string;
+        university_name: string;
+        certificates: (Partial<CertificateRecord> & Record<string, unknown>)[];
+    }[];
+    certificates: (Partial<CertificateRecord> & Record<string, unknown>)[];
+};
+
+export async function getStudentPortfolio() {
+    const { data } = await apiClient.get<{ data: StudentPortfolio }>("/v1/student/portfolio");
+    return data.data;
+}
+
+export async function getPublicPortfolio(token: string) {
+    const { data } = await publicApiClient.get<{ data: StudentPortfolio }>(
+        `/v1/student/portfolio/${encodeURIComponent(token)}`,
+    );
+    return data.data;
+}
+
 export type CertificateDraft = {
     student_id: string;
     student_name: string;
@@ -48,7 +74,7 @@ export type CertificateDraft = {
 };
 
 export async function listCertificates(limit?: number) {
-    const { data } = await apiClient.get<{ data: CertificateRecord[] }>("/certificates", {
+    const { data } = await apiClient.get<{ data: CertificateRecord[] }>("/v1/records", {
         params: limit ? { limit } : undefined,
     });
     return data.data;
@@ -162,6 +188,14 @@ export async function validateCertificateBatch(
         university_code: universityCode || undefined,
     });
     return data as Record<string, unknown>;
+}
+
+export async function lookupStudentCredentials(studentId?: string, studentEmail?: string) {
+    const { data } = await apiClient.get<{ data: CertificateRecord[]; degree_count: number; next_degree_number: number }>(
+        "/v1/students/credential-lookup",
+        { params: { student_id: studentId || undefined, student_email: studentEmail || undefined } },
+    );
+    return data;
 }
 
 export async function checkDiplomaFileNames(fileNames: string[]) {

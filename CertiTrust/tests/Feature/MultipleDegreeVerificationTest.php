@@ -74,6 +74,41 @@ class MultipleDegreeVerificationTest extends TestCase
             ->assertJsonPath('data.certificates.1.student_id', 'PSU-2026-009');
     }
 
+    public function test_master_portfolio_groups_credentials_across_universities_by_student_email(): void
+    {
+        $email = 'portfolio-student@example.edu';
+        foreach ([
+            ['UCU', 'UCU-2020-001', 'Portfolio Bachelor', str_repeat('a', 64)],
+            ['PSU', 'PSU-2026-009', 'Portfolio Master', str_repeat('b', 64)],
+        ] as [$university, $studentId, $degree, $hash]) {
+            Certificate::create([
+                'certificate_code' => 'PORTFOLIO-' . $university,
+                'recipient_name' => 'Portfolio Student',
+                'student_name' => 'Portfolio Student',
+                'student_id' => $studentId,
+                'student_email' => $email,
+                'email' => $email,
+                'degree' => $degree,
+                'course_or_event' => $degree,
+                'university_code' => $university,
+                'issue_date' => '2026-06-01',
+                'degree_number' => 1,
+                'status' => 'Verified',
+                'cert_hash' => $hash,
+            ]);
+        }
+
+        $token = hash_hmac('sha256', $email, (string) config('app.key'));
+        $this->getJson('/api/v1/student/portfolio/' . $token)
+            ->assertOk()
+            ->assertJsonPath('data.degree_count', 2)
+            ->assertJsonPath('data.status', 'verified')
+            ->assertJsonPath('data.groups.0.university_code', 'PSU')
+            ->assertJsonPath('data.groups.1.university_code', 'UCU')
+            ->assertJsonPath('data.certificates.0.student_id', 'PSU-2026-009')
+            ->assertJsonPath('data.certificates.1.student_id', 'UCU-2020-001');
+    }
+
     public function test_multiple_degree_code_returns_all_degrees_for_one_student_and_school(): void
     {
         $firstDegree = Certificate::create([

@@ -1,6 +1,7 @@
 import { JSX, useEffect, useRef, useState } from "react";
 import Sidebar from "@/Components/Organisms/Sidebar";
 import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
+import StudentCredentialGroups from "@/Components/Organisms/StudentCredentialGroups";
 import { useCertificates } from "../../hooks/useCertificates";
 import { useCertificateBatch } from "../../hooks/useCertificateBatch";
 import { validateCertificateBatch } from "../../services/certitrustApi";
@@ -598,33 +599,7 @@ export default function Records() {
                                     Uploaded academic records will appear here.
                                 </p>
                             ) : (
-                                <div className="grid gap-3">
-                                    {records.map((record) => (
-                                        <div
-                                            key={record.credential}
-                                            className="flex items-center gap-4 p-4 md:p-5 rounded-2xl bg-[#F1F3F9] shadow-[0_4px_14px_rgba(15,23,42,0.1)]"
-                                        >
-                                            <span className="text-[#0A192F] shrink-0">
-                                                <CapIcon />
-                                            </span>
-
-                                            <div className="min-w-0 flex-1">
-                                                <p className="m-0 font-extrabold text-[#0A192F] truncate">
-                                                    {record.studentName}
-                                                </p>
-                                                <p className="mt-1 mb-0 text-sm text-slate-600 truncate">
-                                                    {record.studentId} · {record.program} · {record.credential}
-                                                </p>
-                                            </div>
-
-                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#DCFCE7] text-[#15803D] text-[11px] font-extrabold capitalize">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                                                {record.status}
-                                            </span>
-                                            <span className="text-xs text-slate-500">Chain: {record.blockchainStatus || "not_configured"}</span>
-                                        </div>
-                                    ))}
-                                </div>
+                                <StudentCredentialGroups records={certificates} />
                             )}
                         </section>
                     </div>

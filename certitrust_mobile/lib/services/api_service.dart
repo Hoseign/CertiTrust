@@ -1093,7 +1093,7 @@ class ApiService {
   static Future<List<Map<String, dynamic>>> getCertificatesForCurrentUser(
       {int? limit}) async {
     try {
-      var uri = Uri.parse('$baseUrl/certificates');
+      var uri = Uri.parse('$baseUrl/v1/records');
       if (limit != null) {
         uri = uri.replace(queryParameters: {'limit': '$limit'});
       }
@@ -1107,6 +1107,62 @@ class ApiService {
       _recordConnectionFailure(_connectionMessage(error));
       rethrow;
     }
+  }
+
+  static Future<Map<String, dynamic>> getStudentPortfolio() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/v1/student/portfolio'),
+      headers: _getHeaders,
+    );
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Unable to load your portfolio.',
+      );
+    }
+    return Map<String, dynamic>.from(body['data'] as Map);
+  }
+
+  static Future<Map<String, dynamic>> getPublicPortfolio(String token) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/v1/student/portfolio/${Uri.encodeComponent(token)}'),
+      headers: {'Accept': 'application/json'},
+    );
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Portfolio not found.',
+      );
+    }
+    return Map<String, dynamic>.from(body['data'] as Map);
+  }
+
+  static Future<Map<String, dynamic>> lookupStudentCredentials({
+    String? studentId,
+    String? email,
+  }) async {
+    final query = <String, String>{};
+    if (studentId != null && studentId.trim().isNotEmpty) {
+      query['student_id'] = studentId.trim();
+    }
+    if (email != null && email.trim().isNotEmpty) {
+      query['student_email'] = email.trim().toLowerCase();
+    }
+    final uri = Uri.parse('$baseUrl/v1/students/credential-lookup')
+        .replace(queryParameters: query);
+    final response = await http.get(uri, headers: _getHeaders).timeout(
+          const Duration(seconds: 20),
+        );
+    final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
+    if (response.statusCode != 200) {
+      throw ApiRequestException(
+        response.statusCode,
+        body['message']?.toString() ?? 'Unable to look up existing credentials.',
+      );
+    }
+    return body;
   }
 
   static Future<List<Map<String, dynamic>>> getRecentVerifications(

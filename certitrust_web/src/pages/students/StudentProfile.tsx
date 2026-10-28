@@ -1,7 +1,9 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
+import { QRCodeCanvas } from "qrcode.react";
 import StudentSidebar from "@/Components/Organisms/StudentSidebar";
 import { getSessionUser, updateProfile } from "../../services/authService";
+import { getStudentPortfolio, type StudentPortfolio } from "../../services/certitrustApi";
 
 type AvatarType = "girl" | "boy";
 
@@ -12,7 +14,54 @@ export default function StudentProfile() {
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState("");
     const [notice, setNotice] = useState("");
+    const [portfolio, setPortfolio] = useState<StudentPortfolio | null>(null);
+    const [portfolioError, setPortfolioError] = useState("");
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const qrRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        let active = true;
+        const refreshPortfolio = () => getStudentPortfolio().then((data) => {
+            if (active) {
+                setPortfolio(data);
+                setPortfolioError("");
+            }
+        }).catch(() => {
+            if (active) setPortfolioError("Portfolio QR is unavailable until a credential is linked to this account.");
+        });
+        void refreshPortfolio();
+        const timer = window.setInterval(() => void refreshPortfolio(), 30000);
+        return () => {
+            active = false;
+            window.clearInterval(timer);
+        };
+    }, []);
+
+    const portfolioUrl = portfolio
+        ? `${window.location.origin}/public-verification?portfolio=${encodeURIComponent(portfolio.portfolio_token)}`
+        : "";
+
+    const downloadPortfolioQr = () => {
+        const canvas = qrRef.current?.querySelector("canvas");
+        if (!canvas) return;
+        const link = document.createElement("a");
+        link.download = "certitrust-portfolio-qr.png";
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+    };
+
+    const sharePortfolio = async () => {
+        if (!portfolioUrl) return;
+        try {
+            if (navigator.share) await navigator.share({ title: "My CertiTrust portfolio", url: portfolioUrl });
+            else {
+                await navigator.clipboard.writeText(portfolioUrl);
+                setNotice("Public portfolio link copied.");
+            }
+        } catch {
+            setError("Unable to share the public portfolio link.");
+        }
+    };
 
     const saveProfile = async (options: { profileIcon?: AvatarType; image?: File }) => {
         setIsSaving(true);
@@ -122,6 +171,22 @@ export default function StudentProfile() {
                             </div>
                             {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
                             {notice && <p role="status" className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-700">{notice}</p>}
+                        </div>
+                    </section>
+                    <section className="mt-6 grid gap-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:grid-cols-[1fr_auto] sm:items-center sm:p-7">
+                        <div>
+                            <p className="text-xs font-bold uppercase text-emerald-700">Academic portfolio</p>
+                            <h2 className="mt-1 text-xl font-extrabold text-[#0A192F]">Master Portfolio QR Code</h2>
+                            <p className="mt-2 text-sm text-slate-600">{portfolio?.degree_count ?? 0} verified credential(s) across institutions</p>
+                            {portfolio && <p className="mt-2 break-all font-mono text-xs text-slate-500">Master hash: {portfolio.master_hash}</p>}
+                            {portfolioError && <p role="status" className="mt-2 text-sm text-amber-700">{portfolioError}</p>}
+                            <div className="mt-4 flex flex-wrap gap-2">
+                                <button type="button" onClick={downloadPortfolioQr} disabled={!portfolio} className="min-h-10 rounded-lg bg-[#0A192F] px-4 text-sm font-bold text-white disabled:opacity-50">Download Portfolio QR Code</button>
+                                <button type="button" onClick={() => void sharePortfolio()} disabled={!portfolio} className="min-h-10 rounded-lg border border-slate-300 px-4 text-sm font-bold text-[#0A192F] disabled:opacity-50">Share Public Portfolio Link</button>
+                            </div>
+                        </div>
+                        <div ref={qrRef} className="mx-auto rounded-lg border border-slate-200 p-3 sm:mx-0">
+                            {portfolioUrl ? <QRCodeCanvas value={portfolioUrl} size={160} level="H" includeMargin /> : <div className="grid h-40 w-40 place-items-center text-center text-xs text-slate-400">No linked credentials</div>}
                         </div>
                     </section>
                 </div>

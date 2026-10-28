@@ -1,11 +1,15 @@
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'dart:async';
+import '../../app_config.dart';
 import '../../services/api_service.dart';
 import '../../core/widgets/certitrust_loading_indicator.dart';
 import '../../core/utils/academic_degree.dart';
+import '../dashboard/widgets/diploma_download.dart';
 import '../dashboard/widgets/diploma_preview.dart';
 import '../dashboard/widgets/qr_code_dialog.dart';
 
@@ -240,22 +244,63 @@ class _RecordsScreenState extends State<RecordsScreen>
         .trim()
         .toLowerCase();
     if (email != null && email.isNotEmpty) {
-      final name = (record['student_name'] ?? record['recipient_name'])
-          ?.toString()
-          .trim()
-          .toLowerCase();
-      return 'email:$email:name:${name ?? ''}';
+      return 'email:$email';
     }
     final studentId = record['student_id']?.toString().trim().toLowerCase();
-    final universityCode =
-        record['university_code']?.toString().trim().toLowerCase();
-    if (studentId != null &&
-        studentId.isNotEmpty &&
-        universityCode != null &&
-        universityCode.isNotEmpty) {
-      return 'id:$universityCode:$studentId';
+    if (studentId != null && studentId.isNotEmpty) {
+      return 'id:$studentId';
     }
-    return null;
+    final name = (record['student_name'] ?? record['recipient_name'])
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    return name == null || name.isEmpty ? null : 'name:$name';
+  }
+
+  Widget _groupedStudentRecords(
+    BuildContext context,
+    List<Map<String, dynamic>> records,
+  ) {
+    final students = <String, List<Map<String, dynamic>>>{};
+    for (final record in records) {
+      final key = _studentGroupKey(record);
+      if (key != null) students.putIfAbsent(key, () => []).add(record);
+    }
+    return Column(
+      children: students.entries.map((student) {
+        final recordsByDegree = <String, List<Map<String, dynamic>>>{};
+        for (final record in student.value) {
+          final degree = (record['degree'] ?? record['course_or_event'] ?? 'Credential')
+              .toString();
+          final university = record['university_code']?.toString() ?? '';
+          recordsByDegree.putIfAbsent('$degree|$university', () => []).add(record);
+        }
+        final first = student.value.first;
+        final name = (first['student_name'] ?? first['recipient_name'] ?? 'Student').toString();
+        final id = first['student_id']?.toString();
+        return Card(
+          clipBehavior: Clip.antiAlias,
+          child: ExpansionTile(
+            key: PageStorageKey('student-${student.key}'),
+            leading: const Icon(Icons.person_outline),
+            title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: Text('${recordsByDegree.length} degree(s)${id == null ? '' : ' · $id'}'),
+            children: recordsByDegree.entries.map((degreeGroup) {
+              final parts = degreeGroup.key.split('|');
+              return ExpansionTile(
+                key: PageStorageKey('degree-${student.key}-${degreeGroup.key}'),
+                leading: const Icon(Icons.school_outlined),
+                title: Text(parts.first, maxLines: 2, overflow: TextOverflow.ellipsis),
+                subtitle: Text(parts.length > 1 && parts[1].isNotEmpty ? parts[1] : 'Institution not listed'),
+                children: degreeGroup.value
+                    .map((record) => _recordCard(context, record))
+                    .toList(),
+              );
+            }).toList(),
+          ),
+        );
+      }).toList(),
+    );
   }
 
   Map<String, List<Map<String, dynamic>>> _multipleDegreeGroups(
@@ -384,6 +429,37 @@ class _RecordsScreenState extends State<RecordsScreen>
                 label: Text(
                     _isSchoolAdmin ? 'View This Diploma' : 'View Your Diploma'),
               ),
+              if (diplomaUrl != null && diplomaUrl.toString().isNotEmpty)
+                TextButton.icon(
+                  onPressed: () async {
+                    try {
+                      await downloadDiplomaImage(
+                        diplomaUrl.toString(),
+                        fileName: diplomaFileName,
+                      );
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Diploma downloaded.')),
+                        );
+                      }
+                    } catch (error) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Could not download diploma: $error')),
+                        );
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.download_outlined),
+                  label: const Text('Download Diploma'),
+                ),
+              if (verificationCode != null && verificationCode.isNotEmpty)
+                TextButton.icon(
+                  onPressed: () => showQRCodeDialog(context, record,
+                      code: verificationCode, title: 'Credential QR Code'),
+                  icon: const Icon(Icons.qr_code_2),
+                  label: const Text('Download QR Code'),
+                ),
               if (_isSchoolAdmin)
                 TextButton.icon(
                   onPressed: () => context.push('/issue', extra: record),
@@ -867,36 +943,7 @@ class _RecordsScreenState extends State<RecordsScreen>
               );
             }
             if (!_showMultipleDegreeOrganizer && visibleRecords.isNotEmpty) {
-              if (ApiService.authRole == 'student') {
-                final studentDegrees =
-                    visibleRecords.map(_degreeNumber).toSet().toList()..sort();
-                for (final degreeNumber in studentDegrees) {
-                  content.add(
-                      _sectionHeader('Your ${_ordinal(degreeNumber)} Degree'));
-                  content.addAll(visibleRecords
-                      .where((record) => _degreeNumber(record) == degreeNumber)
-                      .map((record) => _recordCard(context, record)));
-                }
-              } else {
-                if (_selectedBatchYear != null) {
-                  content.add(_sectionHeader('Batch $_selectedBatchYear'));
-                  content.addAll(visibleRecords
-                      .map((record) => _recordCard(context, record)));
-                } else {
-                  final years = visibleRecords.map(_batchYear).toSet().toList()
-                    ..sort((a, b) {
-                      final yearA = int.tryParse(a) ?? -1;
-                      final yearB = int.tryParse(b) ?? -1;
-                      return yearB.compareTo(yearA);
-                    });
-                  for (final year in years) {
-                    content.add(_sectionHeader(year));
-                    content.addAll(visibleRecords
-                        .where((record) => _batchYear(record) == year)
-                        .map((record) => _recordCard(context, record)));
-                  }
-                }
-              }
+              content.add(_groupedStudentRecords(context, visibleRecords));
             }
             if (!_showMultipleDegreeOrganizer && visibleRecords.isEmpty) {
               content.add(const Padding(
@@ -947,7 +994,51 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  Timer? _portfolioRefreshTimer;
   bool _isSaving = false;
+  bool _isLoadingPortfolio = true;
+  Map<String, dynamic>? _portfolio;
+  String? _portfolioError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPortfolio();
+    _portfolioRefreshTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _loadPortfolio(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _portfolioRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadPortfolio() async {
+    if (ApiService.authRole != 'student') {
+      setState(() => _isLoadingPortfolio = false);
+      return;
+    }
+    try {
+      final portfolio = await ApiService.getStudentPortfolio();
+      if (mounted) setState(() {
+        _portfolio = portfolio;
+        _portfolioError = null;
+      });
+    } catch (error) {
+      if (mounted) setState(() => _portfolioError = '$error');
+    } finally {
+      if (mounted) setState(() => _isLoadingPortfolio = false);
+    }
+  }
+
+  String? get _portfolioUrl {
+    final token = _portfolio?['portfolio_token']?.toString();
+    if (token == null || token.isEmpty) return null;
+    return '${AppConfig.liveDemoDomain}/public-verification?portfolio=${Uri.encodeQueryComponent(token)}';
+  }
 
   String? get _defaultLogo {
     if (ApiService.isSuperAdmin) return 'web/assets/images/certitrustlogo.png';
@@ -1072,6 +1163,93 @@ class _ProfileScreenState extends State<ProfileScreen> {
               padding: EdgeInsets.all(16),
               child: Center(child: CertiTrustLoadingIndicator()),
             ),
+          if (ApiService.authRole == 'student') ...[
+            const SizedBox(height: 24),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Master Portfolio QR Code',
+                        style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${_portfolio?['degree_count'] ?? 0} credential(s) across institutions',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    if (_portfolio?['master_hash'] != null) ...[
+                      const SizedBox(height: 8),
+                      SelectableText(
+                        'Master hash: ${_portfolio!['master_hash']}',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                    ],
+                    if (_portfolioError != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(_portfolioError!,
+                            style: TextStyle(color: Colors.orange.shade800)),
+                      ),
+                    if (_isLoadingPortfolio)
+                      const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Center(child: CertiTrustLoadingIndicator()),
+                      )
+                    else if (_portfolioUrl != null) ...[
+                      const SizedBox(height: 14),
+                      Center(
+                        child: Container(
+                          color: Colors.white,
+                          padding: const EdgeInsets.all(8),
+                          child: QrImageView(
+                            data: _portfolioUrl!,
+                            size: 180,
+                            backgroundColor: Colors.white,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () => showQRCodeDialog(
+                              context,
+                              _portfolio!,
+                              code: _portfolioUrl,
+                              title: 'Master Portfolio',
+                            ),
+                            icon: const Icon(Icons.download),
+                            label: const Text('Download Portfolio QR Code'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              await Clipboard.setData(
+                                  ClipboardData(text: _portfolioUrl!));
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text('Public portfolio link copied.')),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.share_outlined),
+                            label: const Text('Share Public Portfolio Link'),
+                          ),
+                        ],
+                      ),
+                    ] else
+                      const Padding(
+                        padding: EdgeInsets.only(top: 12),
+                        child: Text('No credentials are linked to this account yet.'),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
       bottomNavigationBar: RoleBottomNavigationBar(

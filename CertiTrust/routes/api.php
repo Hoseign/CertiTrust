@@ -47,6 +47,7 @@ Route::post('/auth/google', [AuthController::class, 'googleLogin']);
 
 // Public verification is available by code; certificate lists require a school-scoped session.
 Route::get('/certificates/{code}', [CertificateController::class, 'show']);
+Route::get('/v1/student/portfolio/{token}', [CertificateController::class, 'publicPortfolio']);
 
 // Protected Routes (Requires Sanctum Token)
 Route::middleware(['auth:sanctum', EnsureAccountIsNotFrozen::class])->group(function () {
@@ -77,6 +78,9 @@ Route::middleware(['auth:sanctum', EnsureAccountIsNotFrozen::class])->group(func
         return response()->json(['message' => 'Successfully logged out.']);
     });
     Route::post('/user/profile', [AuthController::class, 'updateProfile']);
+    Route::get('/v1/student/portfolio', [CertificateController::class, 'studentPortfolio']);
+    Route::get('/v1/records', [CertificateController::class, 'index']);
+    Route::get('/v1/students/credential-lookup', [CertificateController::class, 'lookupStudentCredentials']);
 
     Route::post('/admin/users', [AuthController::class, 'createAdmin']);
     Route::delete('/admin/accounts-and-credentials', [AuthController::class, 'purgeAccountsAndCredentials']);

@@ -10,6 +10,7 @@ import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
 import RecordFilterBar, { type RecordFilterValues } from "@/Components/Molecules/RecordFilterBar";
 import {
     requestCertificateDeletion,
+    lookupStudentCredentials,
     type CertificateRecord,
 } from "../../services/certitrustApi";
 import { getAcademicLevel } from "../../utils/academicLevel";
@@ -120,6 +121,12 @@ export default function Certificates() {
     const [universities, setUniversities] = useState<UniversityRecord[]>([]);
     const [universityCode, setUniversityCode] = useState(currentUser?.university_code ?? "");
     const [universityError, setUniversityError] = useState("");
+    const [degreeSuggestion, setDegreeSuggestion] = useState<{
+        next_degree_number: number;
+        existing_degrees: { degree: string; degree_number: number; university_code?: string }[];
+    } | null>(null);
+    const [isAdditionalDegree, setIsAdditionalDegree] = useState(false);
+    const [degreeNumber, setDegreeNumber] = useState(1);
     const { certificates: apiCertificates, loading, error, refresh } = useCertificates();
     const { issueBatch, isIssuing } = useCertificateBatch();
     const certificates = useMemo(() => apiCertificates.map(mapCertificate), [apiCertificates]);
@@ -138,6 +145,37 @@ export default function Certificates() {
     const [openId, setOpenId] = useState<string | null>(null);
 
     const navigate = useNavigate();
+
+    useEffect(() => {
+        const normalizedId = studentId.trim();
+        const normalizedEmail = institutionalEmail.trim().toLowerCase();
+        const validEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalizedEmail);
+        if (normalizedId.length < 3 && !validEmail) {
+            setDegreeSuggestion(null);
+            return;
+        }
+        let active = true;
+        const timer = window.setTimeout(() => {
+            void lookupStudentCredentials(normalizedId.length >= 3 ? normalizedId : undefined, validEmail ? normalizedEmail : undefined).then((result) => {
+                if (!active) return;
+                const existing = Array.isArray(result.data) ? result.data : [];
+                setDegreeSuggestion(existing.length ? {
+                    next_degree_number: result.next_degree_number,
+                    existing_degrees: existing.map((record) => ({
+                        degree: record.degree,
+                        degree_number: record.degree_number ?? 1,
+                        university_code: record.university_code,
+                    })),
+                } : null);
+            }).catch(() => {
+                if (active) setDegreeSuggestion(null);
+            });
+        }, 450);
+        return () => {
+            active = false;
+            window.clearTimeout(timer);
+        };
+    }, [studentId, institutionalEmail]);
 
     useEffect(() => {
         if (!isSuperAdmin) return;
@@ -178,6 +216,9 @@ export default function Certificates() {
         setFullName("");
         setInstitutionalEmail("");
         setDegreeProgram("");
+        setDegreeSuggestion(null);
+        setIsAdditionalDegree(false);
+        setDegreeNumber(1);
         setFileName("");
         setSelectedFile(null);
         if (diplomaUrl.startsWith("blob:")) URL.revokeObjectURL(diplomaUrl);
@@ -206,6 +247,8 @@ export default function Certificates() {
                 student_name: fullName,
                 student_email: institutionalEmail,
                 degree: degreeProgram,
+                degree_number: degreeNumber,
+                additional_degree: isAdditionalDegree,
                 issue_date: new Date().toISOString().slice(0, 10),
                 diploma_file: selectedFile ?? undefined,
                 university_code: isSuperAdmin ? universityCode : undefined,
@@ -649,6 +692,24 @@ export default function Certificates() {
                                 className="w-full min-h-12 border border-slate-200 rounded-xl bg-white px-4 py-3 outline-none focus:border-[#1D4ED8] focus:ring-4 focus:ring-[#1D4ED8]/10 transition"
                             />
                         </div>
+
+                        {degreeSuggestion && (
+                            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                                <p className="font-bold">Existing credentials found across institutions</p>
+                                <p className="mt-1">{degreeSuggestion.existing_degrees.map((degree) => `${degree.degree} (${degree.university_code || "Institution"})`).join(" · ")}</p>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsAdditionalDegree(true);
+                                        setDegreeNumber(degreeSuggestion.next_degree_number);
+                                    }}
+                                    className="mt-3 min-h-9 rounded-md bg-emerald-800 px-3 font-bold text-white"
+                                >
+                                    Use suggested degree {degreeSuggestion.next_degree_number}
+                                </button>
+                                {isAdditionalDegree && <span className="ml-3 font-semibold">Degree {degreeNumber} selected</span>}
+                            </div>
+                        )}
 
                         {/* Student Fullname */}
                         <div className="grid gap-2">

@@ -122,6 +122,45 @@ class VerificationConfirmationScreen extends StatelessWidget {
                     _row('Student name', certificate['student_name'] ?? 'N/A'),
                     _row('Student ID', certificate['student_id'] ?? 'N/A'),
                     const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final diplomas = degreeCertificates
+                              .where((degree) =>
+                                  (degree['diploma_url'] ?? degree['cert_image_url'])
+                                      ?.toString()
+                                      .isNotEmpty == true)
+                              .toList();
+                          for (var index = 0; index < diplomas.length; index++) {
+                            final degree = diplomas[index];
+                            final id = (degree['student_id'] ?? 'Student')
+                                .toString()
+                                .replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+                            try {
+                              await downloadDiplomaImage(
+                                (degree['diploma_url'] ?? degree['cert_image_url']).toString(),
+                                fileName: 'Diploma_$id-${index + 1}.jpg',
+                              );
+                            } catch (error) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Some diplomas could not be downloaded: $error')),
+                                );
+                              }
+                              return;
+                            }
+                          }
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('${diplomas.length} diploma(s) downloaded.')),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.download),
+                        label: const Text('Download All Diplomas'),
+                      ),
+                    ),
                     for (final degree in degreeCertificates)
                       _degreeCard(context, degree),
                   ] else ...[

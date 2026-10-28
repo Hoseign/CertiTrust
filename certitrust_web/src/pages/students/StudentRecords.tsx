@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import StudentSidebar from "@/Components/Organisms/StudentSidebar";
 import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 import RecordFilterBar, { type RecordFilterValues } from "@/Components/Molecules/RecordFilterBar";
+import StudentCredentialGroups from "@/Components/Organisms/StudentCredentialGroups";
 import { useCertificates } from "../../hooks/useCertificates";
 import { getAcademicLevel } from "../../utils/academicLevel";
 
@@ -99,17 +100,7 @@ export default function StudentRecords() {
                     {loading ? <CertiTrustLoadingIndicator size={32} message="Loading your records..." className="w-full py-12 text-sm text-slate-500" /> : error ? (
                         <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</p>
                     ) : record ? (
-                        <div className="mb-5 overflow-hidden rounded-2xl border border-gray-200 bg-white">
-                            {filteredRecords.map((item) => (
-                                <button key={item.id} type="button" onClick={() => setSelectedCode(item.certificate_code)} className={`flex min-h-14 w-full items-center justify-between gap-4 border-b border-slate-100 px-5 py-3 text-left last:border-b-0 ${item.certificate_code === record.certificate_code ? "bg-blue-50" : "hover:bg-slate-50"}`}>
-                                    <span className="min-w-0">
-                                        <span className="block truncate font-bold text-[#0A192F]">{item.degree}</span>
-                                        <span className="mt-1 block text-xs text-slate-500">{item.certificate_code} · {item.issue_date}</span>
-                                    </span>
-                                    <span className="shrink-0 text-xs font-semibold text-slate-600">{item.status}</span>
-                                </button>
-                            ))}
-                        </div>
+                        <StudentCredentialGroups records={filteredRecords} />
                     ) : (
                         <div className="rounded-2xl border border-gray-200 bg-white px-6 py-12 text-center shadow-sm">
                             <h2 className="text-lg font-semibold text-[#0A192F]">No matching credentials found</h2>
@@ -117,7 +108,7 @@ export default function StudentRecords() {
                         </div>
                     )}
 
-                    {!loading && !error && record ? (
+                    {false && !loading && !error && record ? (
                         <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
                             {/* Record Header */}
                             <div className="flex flex-col gap-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-white p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7">

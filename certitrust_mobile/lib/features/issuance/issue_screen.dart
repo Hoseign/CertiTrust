@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -55,6 +56,10 @@ class _IssueScreenState extends State<IssueScreen> {
   List<Map<String, dynamic>> _universities = [];
   String? _selectedUniversityCode;
   String? _universityLoadError;
+  Timer? _lookupTimer;
+  int _lookupAttempt = 0;
+  Map<String, dynamic>? _studentLookup;
+  bool _isLookingUpStudent = false;
   bool get _isSuperAdmin => ApiService.isSuperAdmin;
   String? get _issuanceUniversityCode =>
       _isSuperAdmin ? _selectedUniversityCode : ApiService.authUniversity;
@@ -137,10 +142,46 @@ class _IssueScreenState extends State<IssueScreen> {
 
   @override
   void dispose() {
+    _lookupTimer?.cancel();
     for (final draft in _drafts) {
       draft.dispose();
     }
     super.dispose();
+  }
+
+  void _lookupStudent(_CredentialDraft draft) {
+    _lookupTimer?.cancel();
+    final attempt = ++_lookupAttempt;
+    final studentId = draft.studentId.text.trim();
+    final email = draft.studentEmail.text.trim().toLowerCase();
+    final validEmail = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
+    if (studentId.length < 3 && !validEmail) {
+      setState(() {
+        _studentLookup = null;
+        _isLookingUpStudent = false;
+      });
+      return;
+    }
+    setState(() => _isLookingUpStudent = true);
+    _lookupTimer = Timer(const Duration(milliseconds: 450), () async {
+      try {
+        final result = await ApiService.lookupStudentCredentials(
+          studentId: studentId.length >= 3 ? studentId : null,
+          email: validEmail ? email : null,
+        );
+        if (!mounted || attempt != _lookupAttempt) return;
+        setState(() {
+          _studentLookup = result;
+          _isLookingUpStudent = false;
+        });
+      } catch (_) {
+        if (!mounted || attempt != _lookupAttempt) return;
+        setState(() {
+          _studentLookup = null;
+          _isLookingUpStudent = false;
+        });
+      }
+    });
   }
 
   Future<void> _pickDiploma(int index) async {
@@ -534,17 +575,49 @@ class _IssueScreenState extends State<IssueScreen> {
               spacing: 12,
               runSpacing: 12,
               children: [
-                _field(draft.studentId, decoration('Student ID', Icons.badge)),
+                _field(draft.studentId, decoration('Student ID', Icons.badge),
+                    onChanged: (_) => _lookupStudent(draft)),
                 _field(
                     draft.studentName, decoration('Full name', Icons.person)),
                 _field(draft.studentEmail,
                     decoration('Google/institutional email', Icons.email),
-                    email: true),
+                    email: true,
+                    onChanged: (_) => _lookupStudent(draft)),
                 _degreeField(draft),
                 _schoolField(draft),
               ],
             ),
             const SizedBox(height: 12),
+            if (_isLookingUpStudent)
+              const LinearProgressIndicator()
+            else if (_studentLookup?['data'] is List &&
+                (_studentLookup!['data'] as List).isNotEmpty)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Found ${_studentLookup!['degree_count']} existing credential(s) across institutions. '
+                      'Suggested next degree number: ${_studentLookup!['next_degree_number']}.',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(((_studentLookup!['data'] as List)
+                            .whereType<Map>()
+                            .map((record) =>
+                                '${record['degree'] ?? 'Credential'} (${record['university_code'] ?? 'Institution'})')
+                            .toSet())
+                        .join(' · ')),
+                  ],
+                ),
+              ),
             OutlinedButton.icon(
               onPressed: () => _pickDiploma(index),
               icon: const Icon(Icons.attach_file),
@@ -568,7 +641,7 @@ class _IssueScreenState extends State<IssueScreen> {
   }
 
   Widget _field(TextEditingController controller, InputDecoration decoration,
-      {bool email = false}) {
+      {bool email = false, ValueChanged<String>? onChanged}) {
     return SizedBox(
       width: 430,
       child: TextFormField(
@@ -581,7 +654,10 @@ class _IssueScreenState extends State<IssueScreen> {
           if (email && !(value!.contains('@'))) return 'Enter a valid email';
           return null;
         },
-        onChanged: (_) => setState(() {}),
+        onChanged: (value) {
+          setState(() {});
+          onChanged?.call(value);
+        },
       ),
     );
   }
