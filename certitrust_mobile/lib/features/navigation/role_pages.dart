@@ -186,7 +186,7 @@ class _RecordsScreenState extends State<RecordsScreen>
     try {
       var hash = localMasterHash;
       var records = credentials;
-      if (!_isSuperAdmin || hash == null) {
+      if (!ApiService.isSuperAdmin || hash == null) {
         final lookup = await ApiService.lookupStudentCredentials(
           studentId: studentId,
           email: studentEmail,
@@ -209,7 +209,7 @@ class _RecordsScreenState extends State<RecordsScreen>
       final portfolioStudentId = records
               .map((record) => record['student_id']?.toString().trim() ?? '')
               .firstWhere((value) => value.isNotEmpty, orElse: () => studentId ?? 'N/A');
-      if (!context.mounted || hash == null) return;
+      if (!context.mounted) return;
       showQRCodeDialog(
         context,
         {...first, 'student_id': portfolioStudentId},
