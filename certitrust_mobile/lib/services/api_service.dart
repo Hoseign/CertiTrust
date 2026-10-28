@@ -1033,7 +1033,7 @@ class ApiService {
   }
 
   /// Issue multiple certificates in a batch payload
-  static Future<bool> issueBatchCertificates(
+  static Future<Map<String, dynamic>> issueBatchCertificates(
       List<Map<String, dynamic>> certificates) async {
     try {
       final response = await http.post(
@@ -1049,7 +1049,8 @@ class ApiService {
 
       if (response.statusCode == 201 || response.statusCode == 200) {
         _recordConnectionSuccess();
-        return true;
+        return Map<String, dynamic>.from(
+            jsonDecode(response.body) as Map<String, dynamic>);
       } else {
         final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};
         throw ApiRequestException(
@@ -1061,7 +1062,7 @@ class ApiService {
       _recordConnectionFailure(_connectionMessage(e));
       if (e is ApiRequestException) rethrow;
       print('Batch issuance error: $e');
-      return false;
+      rethrow;
     }
   }
 

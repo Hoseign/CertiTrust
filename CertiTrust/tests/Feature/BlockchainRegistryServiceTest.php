@@ -44,7 +44,9 @@ class BlockchainRegistryServiceTest extends TestCase
             'services.certitrust.contract_address' => '0x1111111111111111111111111111111111111111',
         ]);
         Http::fake([
-            'https://primary.example' => Http::response(['message' => 'Unavailable'], 503),
+            'https://primary.example' => function () {
+                throw new ConnectionException('Primary RPC could not be reached.');
+            },
             'https://fallback.example' => function ($request) {
                 return Http::response([
                     'jsonrpc' => '2.0',
@@ -60,7 +62,6 @@ class BlockchainRegistryServiceTest extends TestCase
             str_repeat('a', 64),
         );
 
-        Http::assertSent(fn ($request) => $request->url() === 'https://primary.example');
         Http::assertSent(fn ($request) => $request->url() === 'https://fallback.example');
         $expectedVerificationCall = '0x8b23d875'
             . str_pad('20', 64, '0', STR_PAD_LEFT)
@@ -123,7 +124,64 @@ class BlockchainRegistryServiceTest extends TestCase
 
         $this->assertSame('unavailable', $result['status']);
         $this->assertFalse($result['verified']);
-        Http::assertSentCount(1);
+        Http::assertSentCount(2);
+    }
+
+    public function test_multiple_certificates_are_verified_in_one_concurrent_rpc_batch(): void
+    {
+        config([
+            'services.certitrust.enabled' => true,
+            'services.certitrust.rpc_url' => 'https://sepolia.example',
+            'services.certitrust.rpc_fallback_urls' => [],
+            'services.certitrust.chain_id' => 11155111,
+            'services.certitrust.contract_address' => '0x1111111111111111111111111111111111111111',
+        ]);
+        Http::fake([
+            'https://sepolia.example' => fn ($request) => Http::response([
+                'jsonrpc' => '2.0',
+                'id' => 1,
+                'result' => $request['method'] === 'eth_chainId'
+                    ? '0xaa36a7'
+                    : $this->encodedVerificationResult(true),
+            ]),
+        ]);
+
+        $results = app(BlockchainRegistryService::class)->verifyCertificates([
+            str_repeat('a', 64),
+            str_repeat('b', 64),
+        ]);
+
+        $this->assertSame(['verified', 'verified'], array_column($results, 'status'));
+        Http::assertSentCount(4);
+    }
+
+    public function test_verification_keeps_invalid_hashes_out_of_rpc_requests(): void
+    {
+        config([
+            'services.certitrust.enabled' => true,
+            'services.certitrust.rpc_url' => 'https://sepolia.example',
+            'services.certitrust.rpc_fallback_urls' => [],
+            'services.certitrust.chain_id' => 11155111,
+            'services.certitrust.contract_address' => '0x1111111111111111111111111111111111111111',
+        ]);
+        Http::fake([
+            'https://sepolia.example' => fn ($request) => Http::response([
+                'jsonrpc' => '2.0',
+                'id' => 1,
+                'result' => $request['method'] === 'eth_chainId'
+                    ? '0xaa36a7'
+                    : $this->encodedVerificationResult(true),
+            ]),
+        ]);
+
+        $results = app(BlockchainRegistryService::class)->verifyCertificates([
+            'not-a-hash',
+            str_repeat('c', 64),
+        ]);
+
+        $this->assertSame('invalid_hash', $results[0]['status']);
+        $this->assertSame('verified', $results[1]['status']);
+        Http::assertSentCount(2);
     }
 
     public function test_issuance_encodes_the_deployed_four_string_function(): void

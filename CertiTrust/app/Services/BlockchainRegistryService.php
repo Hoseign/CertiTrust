@@ -3,8 +3,11 @@
 namespace App\Services;
 
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use GuzzleHttp\Promise\Utils;
 use RuntimeException;
 use Web3p\EthereumTx\Transaction;
 use kornrunner\Keccak;
@@ -101,39 +104,127 @@ class BlockchainRegistryService
 
     public function verifyCertificate(string $sha256): array
     {
+        return $this->verifyCertificates([$sha256])[0];
+    }
+
+    public function verifyCertificates(array $hashes): array
+    {
+        $hashes = array_values($hashes);
         $configuration = config('services.certitrust');
+        $results = array_fill(0, count($hashes), [
+            'status' => 'unavailable',
+            'verified' => false,
+        ]);
         if (!$configuration['enabled']) {
-            return ['status' => 'not_configured', 'verified' => false];
+            return array_fill(0, count($hashes), [
+                'status' => 'not_configured',
+                'verified' => false,
+            ]);
         }
 
-        $normalizedHash = strtolower(preg_replace('/^0x/i', '', trim($sha256)));
-        if (!preg_match('/^[a-f0-9]{64}$/', $normalizedHash)) {
-            return ['status' => 'invalid_hash', 'verified' => false];
+        $normalizedHashes = [];
+        foreach ($hashes as $index => $hash) {
+            $normalizedHash = strtolower(preg_replace('/^0x/i', '', trim((string) $hash)));
+            if (!preg_match('/^[a-f0-9]{64}$/', $normalizedHash)) {
+                $results[$index] = ['status' => 'invalid_hash', 'verified' => false];
+                continue;
+            }
+            $normalizedHashes[$index] = $normalizedHash;
+        }
+
+        if (!$normalizedHashes) {
+            return $results;
+        }
+
+        $rpcUrls = array_values(array_unique(array_filter(array_merge(
+            [$configuration['rpc_url']],
+            $configuration['rpc_fallback_urls'] ?? [],
+        ))));
+        if (!$rpcUrls) {
+            foreach ($normalizedHashes as $index => $normalizedHash) {
+                Log::warning('Blockchain credential verification failed.', [
+                    'certificate_hash' => $normalizedHash,
+                    'exception' => 'No blockchain RPC endpoints are configured.',
+                ]);
+            }
+
+            return $results;
+        }
+
+        $signature = 'verifyCertificate(string)';
+        $requests = [];
+        foreach ($normalizedHashes as $hashIndex => $normalizedHash) {
+            $callData = '0x' . substr(Keccak::hash($signature, 256), 0, 8)
+                . $this->encodeStringArguments([$normalizedHash]);
+            foreach ($rpcUrls as $endpointIndex => $rpcUrl) {
+                $requests["{$hashIndex}_{$endpointIndex}_chain"] = [
+                    'url' => $rpcUrl,
+                    'method' => 'eth_chainId',
+                    'params' => [],
+                ];
+                $requests["{$hashIndex}_{$endpointIndex}_verify"] = [
+                    'url' => $rpcUrl,
+                    'method' => 'eth_call',
+                    'params' => [[
+                        'to' => $configuration['contract_address'],
+                        'data' => $callData,
+                    ], 'latest'],
+                ];
+            }
         }
 
         try {
-            $rpcChainId = hexdec($this->rpc(
-                $configuration['rpc_url'],
-                'eth_chainId',
-                [],
-                timeoutSeconds: self::VERIFICATION_RPC_TIMEOUT_SECONDS,
-            ));
-            if ((int) $rpcChainId !== (int) $configuration['chain_id']) {
-                throw new RuntimeException('The configured blockchain RPC is not on the expected chain ID.');
+            $promises = [];
+            $responses = [];
+            $pool = new Pool(Http::getFacadeRoot());
+            foreach ($requests as $key => $request) {
+                try {
+                    $pendingRequest = $pool
+                        ->as($key)
+                        ->connectTimeout(2)
+                        ->timeout(self::VERIFICATION_RPC_TIMEOUT_SECONDS)
+                        ->acceptJson();
+                    $pendingRequest->post($request['url'], [
+                        'jsonrpc' => '2.0',
+                        'id' => 1,
+                        'method' => $request['method'],
+                        'params' => $request['params'],
+                    ]);
+                    $promises[$key] = $pendingRequest->getPromise();
+                } catch (\Throwable $exception) {
+                    $responses[$key] = $exception;
+                }
             }
 
-            $signature = 'verifyCertificate(string)';
-            $callData = '0x' . substr(Keccak::hash($signature, 256), 0, 8)
-                . $this->encodeStringArguments([$normalizedHash]);
-            $encodedResult = $this->rpc(
-                $configuration['rpc_url'],
-                'eth_call',
-                [[
-                    'to' => $configuration['contract_address'],
-                    'data' => $callData,
-                ], 'latest'],
-                timeoutSeconds: self::VERIFICATION_RPC_TIMEOUT_SECONDS,
-            );
+        } catch (\Throwable $exception) {
+            foreach ($normalizedHashes as $index => $normalizedHash) {
+                Log::warning('Blockchain credential verification failed.', [
+                    'certificate_hash' => $normalizedHash,
+                    'exception' => $exception->getMessage(),
+                ]);
+                $results[$index] = ['status' => 'unavailable', 'verified' => false];
+            }
+
+            return $results;
+        }
+
+        $parseEndpointResponse = function (array $endpointResponses) use ($configuration): array {
+            [$chainResponse, $verificationResponse] = $endpointResponses;
+            if (!$chainResponse instanceof Response || !$chainResponse->successful()) {
+                throw new RuntimeException('The blockchain RPC did not return a successful chain ID response.');
+            }
+            $rpcChainId = $chainResponse->json('result');
+            if (!is_string($rpcChainId) || hexdec($rpcChainId) !== (int) $configuration['chain_id']) {
+                throw new RuntimeException('The blockchain RPC is not on the expected chain ID.');
+            }
+            if (!$verificationResponse instanceof Response || !$verificationResponse->successful()) {
+                throw new RuntimeException('The blockchain RPC did not return a successful contract verification response.');
+            }
+            $encodedResult = $verificationResponse->json('result');
+            if (!is_string($encodedResult)) {
+                throw new RuntimeException('The CertiTrust contract returned an invalid verification result.');
+            }
+
             $resultData = strtolower(preg_replace('/^0x/i', '', $encodedResult));
             if (
                 !preg_match('/^(?:[a-f0-9]{64})+$/', $resultData)
@@ -145,6 +236,7 @@ class BlockchainRegistryService
             if (!preg_match('/^0{63}[01]$/', $validWord)) {
                 throw new RuntimeException('The CertiTrust contract returned an invalid credential validity flag.');
             }
+
             $verified = hexdec($validWord) === 1;
 
             return [
@@ -153,14 +245,30 @@ class BlockchainRegistryService
                 'is_valid' => $verified,
                 'network' => $configuration['network'],
             ];
-        } catch (\Throwable $exception) {
-            Log::warning('Blockchain credential verification failed.', [
-                'certificate_hash' => $normalizedHash,
-                'exception' => $exception->getMessage(),
-            ]);
+        };
 
-            return ['status' => 'unavailable', 'verified' => false];
+        foreach ($normalizedHashes as $hashIndex => $normalizedHash) {
+            $endpointPromises = [];
+            foreach ($rpcUrls as $endpointIndex => $_rpcUrl) {
+                $chainKey = "{$hashIndex}_{$endpointIndex}_chain";
+                $verifyKey = "{$hashIndex}_{$endpointIndex}_verify";
+                $endpointPromises[] = Utils::all([
+                    $promises[$chainKey] ?? ($responses[$chainKey] ?? null),
+                    $promises[$verifyKey] ?? ($responses[$verifyKey] ?? null),
+                ])->then($parseEndpointResponse);
+            }
+
+            try {
+                $results[$hashIndex] = Utils::any($endpointPromises)->wait();
+            } catch (\Throwable $exception) {
+                Log::warning('Blockchain credential verification failed.', [
+                    'certificate_hash' => $normalizedHash,
+                    'exception' => $exception->getMessage(),
+                ]);
+            }
         }
+
+        return $results;
     }
 
     private function encodeStringArguments(array $values): string

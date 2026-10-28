@@ -214,7 +214,9 @@ export default function Certificates() {
             resetForm();
             document.getElementById("issueModal")?.classList.remove("show");
             const blockchainStatus = result.data?.[0]?.blockchain_status;
-            showToast(blockchainStatus === "submitted"
+            showToast(blockchainStatus === "pending"
+                ? "Certificate issued. Blockchain anchoring is processing in the background."
+                : blockchainStatus === "submitted"
                 ? "Certificate issued and submitted to Ethereum Sepolia."
                 : "Certificate issued; blockchain anchoring is not configured or failed.");
         } catch (requestError) {

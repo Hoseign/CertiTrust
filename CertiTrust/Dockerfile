@@ -3,6 +3,7 @@
 RUN apt-get update && apt-get install -y \
     git \
     curl \
+    libcurl4-openssl-dev \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
@@ -14,7 +15,7 @@ RUN apt-get update && apt-get install -y \
 
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN docker-php-ext-install pdo pdo_mysql pdo_pgsql gmp mbstring exif pcntl bcmath gd xml dom intl
+RUN docker-php-ext-install curl pdo pdo_mysql pdo_pgsql gmp mbstring exif pcntl bcmath gd xml dom intl
 
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
@@ -27,4 +28,4 @@ RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
 
 EXPOSE 10000
 
-CMD php artisan migrate --force && php artisan serve --host=0.0.0.0 --port=${PORT:-10000}
+CMD php artisan migrate --force && (php artisan queue:work --sleep=1 --tries=1 --timeout=120 &) && exec php artisan serve --host=0.0.0.0 --port=${PORT:-10000}

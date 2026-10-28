@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\AnchorCertificateToBlockchain;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class SuperAdminCertificateIssuanceTest extends TestCase
@@ -12,6 +14,9 @@ class SuperAdminCertificateIssuanceTest extends TestCase
 
     public function test_superadmin_can_issue_certificates_for_a_selected_university(): void
     {
+        config(['services.certitrust.enabled' => true]);
+        Queue::fake();
+
         $superAdmin = User::create([
             'name' => 'CertiTrust Super Admin',
             'email' => 'certitrust256@gmail.com',
@@ -42,12 +47,15 @@ class SuperAdminCertificateIssuanceTest extends TestCase
             'certificates' => [$certificate],
         ])
             ->assertCreated()
-            ->assertJsonPath('count', 1);
+            ->assertJsonPath('count', 1)
+            ->assertJsonPath('data.0.blockchain_status', 'pending');
 
+        Queue::assertPushed(AnchorCertificateToBlockchain::class, 1);
         $this->assertDatabaseHas('certificates', [
             'student_id' => 'SUPER-ISSUE-1001',
             'university_code' => 'UCU',
             'student_email' => 'taylor-super-issue@example.edu',
+            'blockchain_status' => 'pending',
         ]);
     }
 }

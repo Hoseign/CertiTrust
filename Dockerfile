@@ -3,6 +3,7 @@ FROM php:8.3-fpm
 RUN apt-get update && apt-get install -y \
     git \
     curl \
+    libcurl4-openssl-dev \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
@@ -11,7 +12,7 @@ RUN apt-get update && apt-get install -y \
     libicu-dev \
     zip \
     unzip \
-    && docker-php-ext-install pdo pdo_mysql pdo_pgsql gmp mbstring exif pcntl bcmath gd xml dom intl \
+    && docker-php-ext-install curl pdo pdo_mysql pdo_pgsql gmp mbstring exif pcntl bcmath gd xml dom intl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -25,4 +26,4 @@ RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs \
 
 EXPOSE 10000
 
-CMD php artisan migrate --force && php artisan serve --host=0.0.0.0 --port=${PORT:-10000}
+CMD php artisan migrate --force && (php artisan queue:work --sleep=1 --tries=1 --timeout=120 &) && exec php artisan serve --host=0.0.0.0 --port=${PORT:-10000}

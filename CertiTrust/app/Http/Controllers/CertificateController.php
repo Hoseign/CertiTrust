@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\AnchorCertificateToBlockchain;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
@@ -116,11 +117,12 @@ class CertificateController extends Controller
                     true,
                 ),
             );
-            $degrees = $degrees->map(function (Certificate $degree) use ($blockchain) {
+            $blockchainResults = $blockchain->verifyCertificates(
+                $degrees->pluck('cert_hash')->map(fn ($hash) => (string) $hash)->all(),
+            );
+            $degrees = $degrees->values()->map(function (Certificate $degree, int $index) use ($blockchainResults) {
                 $data = $this->publicCertificateData($degree);
-                $data['blockchain_verification'] = $blockchain->verifyCertificate(
-                    (string) $degree->cert_hash,
-                );
+                $data['blockchain_verification'] = $blockchainResults[$index];
                 return $data;
             });
 
@@ -169,9 +171,9 @@ class CertificateController extends Controller
         }
 
         $data = $this->publicCertificateData($certificate);
-        $data['blockchain_verification'] = $blockchain->verifyCertificate(
+        $data['blockchain_verification'] = $blockchain->verifyCertificates([
             (string) $certificate->cert_hash,
-        );
+        ])[0];
 
         return response()->json(['data' => $data]);
     }
@@ -379,7 +381,7 @@ class CertificateController extends Controller
         ], 201);
     }
 
-    public function store(Request $request, BlockchainRegistryService $blockchain)
+    public function store(Request $request)
     {
         $validated = $request->validate([
             'student_id' => ['required', 'string', 'max:255'],
@@ -450,16 +452,20 @@ class CertificateController extends Controller
         $validated['university_code'] = $universityCode;
         $validated['status'] = 'Verified';
 
+        $blockchainEnabled = (bool) config('services.certitrust.enabled');
+        $validated['blockchain_status'] = $blockchainEnabled ? 'pending' : 'not_configured';
         $certificate = Certificate::create($validated);
-        $blockchainResult = $this->anchorCertificate($blockchain, $certificate);
+        if ($blockchainEnabled) {
+            AnchorCertificateToBlockchain::dispatch($certificate->id);
+        }
 
         return response()->json([
             'data' => $certificate->fresh(),
-            'blockchain' => $blockchainResult,
+            'blockchain' => ['status' => $certificate->blockchain_status],
         ], 201);
     }
 
-    public function storeBatch(Request $request, BlockchainRegistryService $blockchain)
+    public function storeBatch(Request $request)
     {
         $validated = $request->validate([
             'certificates' => ['required', 'array', 'min:1'],
@@ -601,7 +607,8 @@ class CertificateController extends Controller
             }
         }
 
-        $records = $certificates->map(function (array $certificate) use ($universityCode) {
+        $blockchainEnabled = (bool) config('services.certitrust.enabled');
+        $records = $certificates->map(function (array $certificate) use ($universityCode, $blockchainEnabled) {
             $diplomaFileName = $this->normalizedDiplomaFileName(
                 ($certificate['diploma_file_name'] ?? '') ?: ($certificate['diploma_url'] ?? null)
             );
@@ -618,6 +625,7 @@ class CertificateController extends Controller
                 'course_or_event' => $certificate['degree'],
                 'university_code' => $universityCode,
                 'status' => 'Verified',
+                'blockchain_status' => $blockchainEnabled ? 'pending' : 'not_configured',
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
@@ -628,8 +636,10 @@ class CertificateController extends Controller
         $issuedCertificates = Certificate::query()
             ->whereIn('certificate_code', array_column($records, 'certificate_code'))
             ->get();
-        foreach ($issuedCertificates as $certificate) {
-            $this->anchorCertificate($blockchain, $certificate);
+        if ($blockchainEnabled) {
+            foreach ($issuedCertificates as $certificate) {
+                AnchorCertificateToBlockchain::dispatch($certificate->id);
+            }
         }
 
         return response()->json([
@@ -637,36 +647,6 @@ class CertificateController extends Controller
             'count' => count($records),
             'data' => $issuedCertificates->fresh(),
         ], 201);
-    }
-
-    private function anchorCertificate(BlockchainRegistryService $blockchain, Certificate $certificate): array
-    {
-        try {
-            $result = $blockchain->issueCertificate(
-                (string) $certificate->cert_hash,
-                (string) ($certificate->student_name ?: $certificate->recipient_name),
-                (string) $certificate->degree,
-                (string) $certificate->issue_date,
-            );
-        } catch (\Throwable $exception) {
-            Log::warning('Blockchain credential submission failed.', [
-                'certificate_id' => $certificate->id,
-                'exception' => $exception->getMessage(),
-            ]);
-            $result = [
-                'status' => 'failed',
-                'error' => 'Blockchain submission failed. The certificate remains in the application database.',
-            ];
-        }
-
-        $certificate->forceFill([
-            'blockchain_status' => $result['status'],
-            'blockchain_tx_hash' => $result['transaction_hash'] ?? null,
-            'blockchain_network' => $result['network'] ?? null,
-            'blockchain_error' => $result['error'] ?? null,
-        ])->save();
-
-        return $result;
     }
 
     public function checkDiplomaFileNames(Request $request)

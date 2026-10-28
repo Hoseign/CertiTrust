@@ -153,13 +153,13 @@ class _IssueScreenState extends State<IssueScreen> {
       try {
         final universities = await ApiService.getUniversities();
         if (universities.isEmpty) {
-          throw StateError('No registered universities are available for issuing.');
+          throw StateError(
+              'No registered universities are available for issuing.');
         }
         final requestedCode =
             widget.initialRecord?['university_code']?.toString();
         final preferredCode = universities.any(
-          (university) =>
-              university['code']?.toString() == requestedCode,
+          (university) => university['code']?.toString() == requestedCode,
         )
             ? requestedCode
             : universities.first['code']?.toString();
@@ -245,73 +245,6 @@ class _IssueScreenState extends State<IssueScreen> {
     return url;
   }
 
-  Future<bool> _validateUniqueConstraints() async {
-    final seenStudentIds = <String, String>{};
-    final seenFileNames = <String, String>{};
-    final existingRecords = await ApiService.getCertificatesForCurrentUser();
-    final existingFileOwners = <String, String>{};
-    for (final record in existingRecords) {
-      final owner = _studentOwnerLabel(record);
-      final url =
-          (record['diploma_file_name'] ?? record['diploma_url'])?.toString() ??
-              '';
-      if (url.isNotEmpty) {
-        existingFileOwners.putIfAbsent(
-            _normalizeDiplomaFileName(url), () => owner);
-      }
-    }
-
-    for (int i = 0; i < _drafts.length; i++) {
-      final draft = _drafts[i];
-      final studentIdTrimmed = draft.studentId.text.trim();
-      final normalizedStudentId = studentIdTrimmed.toLowerCase();
-      final fileName = draft.diploma?.name;
-      final studentDisplayName = draft.studentName.text.trim().isEmpty
-          ? 'Student ${i + 1}'
-          : draft.studentName.text.trim();
-      final draftOwner = '$studentDisplayName (Student ID $studentIdTrimmed)';
-      final previousIdOwner = seenStudentIds[normalizedStudentId];
-
-      if (previousIdOwner != null) {
-        _showWarning('Student ID "$studentIdTrimmed" already belongs to '
-            '$previousIdOwner. Enter a unique Student ID.');
-        return false;
-      }
-      seenStudentIds[normalizedStudentId] = draftOwner;
-
-      // Rule 4: Check unique image file name across drafts
-      if (fileName != null && fileName.isNotEmpty) {
-        final normalizedFileName = _normalizeDiplomaFileName(fileName);
-        final previousFileOwner = existingFileOwners[normalizedFileName] ??
-            seenFileNames[normalizedFileName];
-        if (previousFileOwner != null) {
-          _showWarning('Diploma image "$fileName" already belongs to '
-              '$previousFileOwner. Choose another image file.');
-          return false;
-        }
-        seenFileNames[normalizedFileName] = draftOwner;
-      }
-    }
-    return true;
-  }
-
-  String _studentOwnerLabel(Map<String, dynamic> record) {
-    final name =
-        (record['student_name'] ?? record['recipient_name'] ?? 'Student')
-            .toString()
-            .trim();
-    final studentId = record['student_id']?.toString().trim() ?? '';
-    return studentId.isEmpty ? name : '$name (Student ID $studentId)';
-  }
-
-  String _normalizeDiplomaFileName(String value) {
-    final uri = Uri.tryParse(value);
-    final fileName = uri?.hasScheme == true && uri?.hasAuthority == true
-        ? uri!.pathSegments.last
-        : value.replaceAll('\\', '/').split('/').last;
-    return fileName.trim().toLowerCase();
-  }
-
   void _showWarning(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -389,10 +322,6 @@ class _IssueScreenState extends State<IssueScreen> {
     }
     if (!_formKey.currentState!.validate()) return;
 
-    // Run custom duplicate validations before proceeding
-    final isValid = await _validateUniqueConstraints();
-    if (!isValid) return;
-
     setState(() => _isProcessing = true);
     try {
       var activeDrafts = List<_CredentialDraft>.from(_drafts);
@@ -423,16 +352,17 @@ class _IssueScreenState extends State<IssueScreen> {
         _showWarning('No credentials were issued.');
         return;
       }
-      validation = await ApiService.validateBatchIssuance(
-        activeDrafts.map(_validationRecord).toList(),
-        universityCode: _issuanceUniversityCode,
-      );
+      if (candidates.isNotEmpty) {
+        validation = await ApiService.validateBatchIssuance(
+          activeDrafts.map(_validationRecord).toList(),
+          universityCode: _issuanceUniversityCode,
+        );
+      }
       final validationWarnings = List<String>.from(
         validation['warnings'] as List? ?? const [],
       );
-      final records = <Map<String, dynamic>>[];
-      for (final draft in activeDrafts) {
-        records.add({
+      final records = await Future.wait(activeDrafts.map((draft) async {
+        return {
           'student_id': draft.studentId.text.trim(),
           'student_name': draft.studentName.text.trim(),
           'student_email': draft.studentEmail.text.trim().toLowerCase(),
@@ -444,10 +374,18 @@ class _IssueScreenState extends State<IssueScreen> {
           'diploma_url': await _uploadDiploma(draft),
           'additional_degree': draft.isAdditionalDegree,
           'degree_number': draft.degreeNumber ?? 1,
-        });
-      }
-      final success = await ApiService.issueBatchCertificates(records);
-      if (!success) throw Exception('The server rejected this batch.');
+        };
+      }));
+      final result = await ApiService.issueBatchCertificates(records);
+      final issued = result['data'] is List
+          ? (result['data'] as List).whereType<Map>().toList()
+          : const <Map>[];
+      final blockchainPending = issued.any(
+        (record) => record['blockchain_status'] == 'pending',
+      );
+      final issueMessage = blockchainPending
+          ? '${records.length} credential(s) issued. Blockchain anchoring is processing in the background.'
+          : '${records.length} credential(s) issued successfully.';
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -455,8 +393,8 @@ class _IssueScreenState extends State<IssueScreen> {
               validationWarnings.isEmpty ? null : Colors.orange.shade800,
           content: Text(
             validationWarnings.isEmpty
-                ? '${records.length} credential(s) issued successfully.'
-                : '${records.length} credential(s) issued. ${validationWarnings.join(' ')}',
+                ? issueMessage
+                : '$issueMessage ${validationWarnings.join(' ')}',
           ),
         ),
       );
@@ -545,8 +483,7 @@ class _IssueScreenState extends State<IssueScreen> {
                         .map((university) {
                           final code = university['code']?.toString() ?? '';
                           final name =
-                              university['university_name']?.toString() ??
-                                  code;
+                              university['university_name']?.toString() ?? code;
                           return DropdownMenuItem(
                             value: code,
                             child: Text('$name ($code)'),
