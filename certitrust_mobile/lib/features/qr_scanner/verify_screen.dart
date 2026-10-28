@@ -13,8 +13,9 @@ import '../../services/api_service.dart';
 
 class VerifyScreen extends StatefulWidget {
   final String? certHash;
+  final String? requestId;
 
-  const VerifyScreen({super.key, this.certHash});
+  const VerifyScreen({super.key, this.certHash, this.requestId});
 
   @override
   State<VerifyScreen> createState() => _VerifyScreenState();
@@ -40,7 +41,8 @@ class _VerifyScreenState extends State<VerifyScreen> {
   @override
   void didUpdateWidget(covariant VerifyScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.certHash != oldWidget.certHash) {
+    if (widget.certHash != oldWidget.certHash ||
+        widget.requestId != oldWidget.requestId) {
       _verificationAttempt++;
       _hashController.text = widget.certHash ?? '';
       _certResult = null;

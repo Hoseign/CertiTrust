@@ -157,6 +157,7 @@ class AppRouter {
                 path: '/verify',
                 builder: (context, state) => VerifyScreen(
                   certHash: state.uri.queryParameters['hash'],
+                  requestId: state.uri.queryParameters['request'],
                 ),
               ),
             ],

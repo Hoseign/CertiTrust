@@ -480,7 +480,7 @@ class _RecordsScreenState extends State<RecordsScreen>
                 onPressed: verificationCode == null || verificationCode.isEmpty
                     ? null
                     : () => context.go(
-                        '/verify?hash=${Uri.encodeQueryComponent(verificationCode)}'),
+                        '/verify?hash=${Uri.encodeQueryComponent(verificationCode)}&request=${DateTime.now().microsecondsSinceEpoch}'),
                 icon: const Icon(Icons.verified_outlined),
                 label: const Text('Verify this record'),
               ),
@@ -723,7 +723,7 @@ class _RecordsScreenState extends State<RecordsScreen>
                             onPressed: multiDegreeCode == null
                                 ? null
                                 : () => context.push(
-                                      '/verify?hash=${Uri.encodeQueryComponent(multiDegreeCode)}',
+                                      '/verify?hash=${Uri.encodeQueryComponent(multiDegreeCode)}&request=${DateTime.now().microsecondsSinceEpoch}',
                                     ),
                             icon: const Icon(Icons.verified_outlined),
                             label: const Text('Verify all degrees'),
@@ -1273,7 +1273,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           OutlinedButton.icon(
                             onPressed: () => context.go(
-                                '/verify?hash=${Uri.encodeQueryComponent(_portfolioHash!)}'),
+                                '/verify?hash=${Uri.encodeQueryComponent(_portfolioHash!)}&request=${DateTime.now().microsecondsSinceEpoch}'),
                             icon: const Icon(Icons.verified_outlined),
                             label: const Text('Verify this record'),
                           ),

@@ -96,7 +96,7 @@ void showQRCodeDialog(
             TextButton.icon(
               onPressed: () {
                 Navigator.pop(dialogContext);
-                context.go('/verify?hash=${Uri.encodeQueryComponent(qrData)}');
+                context.go('/verify?hash=${Uri.encodeQueryComponent(qrData)}&request=${DateTime.now().microsecondsSinceEpoch}');
               },
               icon: const Icon(Icons.verified_outlined),
               label: const Text('Verify on Chain'),

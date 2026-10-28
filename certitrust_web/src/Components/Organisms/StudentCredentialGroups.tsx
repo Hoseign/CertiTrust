@@ -102,6 +102,8 @@ export default function StudentCredentialGroups({
     const [openDegrees, setOpenDegrees] = useState<string[]>([]);
     const [masterHashes, setMasterHashes] = useState<Record<string, string>>({});
     const [masterStudentIds, setMasterStudentIds] = useState<Record<string, string>>({});
+    const [loadingMasterQr, setLoadingMasterQr] = useState<string | null>(null);
+    const [masterQrError, setMasterQrError] = useState("");
     const [activeMasterQr, setActiveMasterQr] = useState<{ name: string; studentId: string; hash: string } | null>(null);
     const masterQrRef = useRef<HTMLDivElement>(null);
     const groups = useMemo(() => {
@@ -126,15 +128,6 @@ export default function StudentCredentialGroups({
             const ids = new Set(credentials.map((record) => record.student_id?.trim().toLowerCase()).filter(Boolean));
             const email = emails.values().next().value as string | undefined;
             const studentId = ids.values().next().value as string | undefined;
-            if (lookupMasterRecords) {
-                const lookedUpRecords = await lookupStudentCredentials(studentId, email)
-                    .then((result) => result.data)
-                    .catch(() => []);
-                return [key, {
-                    hash: await makeMasterHash(lookedUpRecords),
-                    studentId: lookedUpRecords.find((record) => record.student_id?.trim())?.student_id?.trim() || "",
-                }] as const;
-            }
             masterRecords.forEach((record) => {
                 if (emails.has(recordEmail(record)) && record.student_id?.trim()) {
                     ids.add(record.student_id.trim().toLowerCase());
@@ -158,7 +151,7 @@ export default function StudentCredentialGroups({
             if (active) setMasterHashes({});
         });
         return () => { active = false; };
-    }, [groups, lookupMasterRecords, masterRecords, showStudentMasterQr]);
+    }, [groups, masterRecords, showStudentMasterQr]);
 
     const toggle = (current: string[], key: string, update: (next: string[]) => void) =>
         update(current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
@@ -178,12 +171,35 @@ export default function StudentCredentialGroups({
                     });
                     const studentOpen = openStudents.includes(key);
                     const masterHash = masterHashes[key];
+                    const openMasterQr = async () => {
+                        setMasterQrError("");
+                        if (!lookupMasterRecords && masterHash) {
+                            setActiveMasterQr({ name, studentId: masterStudentIds[key] || studentId, hash: masterHash });
+                            return;
+                        }
+                        setLoadingMasterQr(key);
+                        try {
+                            const email = credentials.map(recordEmail).find(Boolean);
+                            const id = credentials.find((record) => record.student_id?.trim())?.student_id?.trim();
+                            const lookedUpRecords = (await lookupStudentCredentials(id, email)).data;
+                            const hash = await makeMasterHash(lookedUpRecords);
+                            if (!hash) throw new Error("No linked credentials were found for this student.");
+                            const resolvedStudentId = lookedUpRecords.find((record) => record.student_id?.trim())?.student_id?.trim() || id || studentId;
+                            setMasterHashes((current) => ({ ...current, [key]: hash }));
+                            setMasterStudentIds((current) => ({ ...current, [key]: resolvedStudentId }));
+                            setActiveMasterQr({ name, studentId: resolvedStudentId, hash });
+                        } catch (error) {
+                            setMasterQrError(error instanceof Error ? error.message : "Could not load the student master QR code.");
+                        } finally {
+                            setLoadingMasterQr(null);
+                        }
+                    };
                     return <section key={key}>
                         <div className="flex min-h-14 items-center gap-2 py-2">
                             <button type="button" aria-expanded={studentOpen} onClick={() => toggle(openStudents, key, setOpenStudents)} className="flex min-h-12 min-w-0 flex-1 items-center text-left">
                                 <span className="min-w-0"><span className="block truncate font-bold text-[#0A192F]">{name}</span><span className="mt-1 block text-xs text-slate-500">{studentId === "N/A" ? "No student ID" : studentId} · {degrees.size} degree{degrees.size === 1 ? "" : "s"}</span></span>
                             </button>
-                            {showStudentMasterQr && <button type="button" disabled={!masterHash} title={masterHash ? "View student master QR code" : "Preparing student master QR code"} aria-label={`View ${name}'s master QR code`} onClick={() => masterHash && setActiveMasterQr({ name, studentId: masterStudentIds[key] || studentId, hash: masterHash })} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 text-[#0A192F] hover:bg-slate-50 disabled:opacity-40">
+                            {showStudentMasterQr && <button type="button" disabled={loadingMasterQr === key} title="View student master QR code" aria-label={`View ${name}'s master QR code`} onClick={() => void openMasterQr()} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 text-[#0A192F] hover:bg-slate-50 disabled:opacity-40">
                                 <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
                                     <rect x="3" y="3" width="7" height="7" rx="1" />
                                     <rect x="5" y="5" width="3" height="3" fill="currentColor" stroke="none" />
@@ -212,6 +228,7 @@ export default function StudentCredentialGroups({
                     </section>;
                 })}
             </div>
+            {masterQrError && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{masterQrError}</p>}
             {activeMasterQr && <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/60 p-4" role="presentation" onClick={() => setActiveMasterQr(null)}>
                 <section role="dialog" aria-modal="true" aria-label={`${activeMasterQr.name} master portfolio QR code`} className="w-full max-w-sm rounded-xl bg-white p-5 text-center shadow-xl" onClick={(event) => event.stopPropagation()}>
                     <h3 className="text-lg font-bold text-[#0A192F]">{activeMasterQr.name} · Master Portfolio QR</h3>

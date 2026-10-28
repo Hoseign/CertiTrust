@@ -166,7 +166,12 @@ export default function CertificateVerification({ publicAccess = false }: { publ
                     {portfolio ? (
                         <section className="mx-auto max-w-5xl">
                             <div className="mb-5 flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-4">
-                                <div><p className="text-xs font-bold uppercase text-emerald-700">Verified portfolio</p><h2 className="mt-1 text-2xl font-extrabold text-[#0A192F]">{portfolio.student_name || "Student portfolio"}</h2><p className="mt-1 text-sm text-slate-600">{portfolio.degree_count} credentials · Master hash {portfolio.master_hash}</p></div>
+                                <div>
+                                    <p className="text-xs font-bold uppercase text-emerald-700">Verified portfolio</p>
+                                    <h2 className="mt-1 text-2xl font-extrabold text-[#0A192F]">{portfolio.student_name || "Student portfolio"}</h2>
+                                    <p className="mt-1 text-sm font-semibold text-slate-700">Student ID: {portfolio.student_id || "Not available"}</p>
+                                    <p className="mt-1 text-sm text-slate-600">{portfolio.degree_count} credentials · Master hash {portfolio.master_hash}</p>
+                                </div>
                                 <button type="button" onClick={downloadAllDiplomas} className="min-h-10 rounded-lg bg-[#0A192F] px-4 text-sm font-bold text-white">Download All Diplomas</button>
                             </div>
                             <div className="space-y-5">

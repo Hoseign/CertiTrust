@@ -317,7 +317,7 @@ class _RecentCredentialTileState extends State<_RecentCredentialTile> {
                 onPressed: verificationCode == null || verificationCode.isEmpty
                     ? null
                     : () => context.go(
-                        '/verify?hash=${Uri.encodeQueryComponent(verificationCode)}'),
+                        '/verify?hash=${Uri.encodeQueryComponent(verificationCode)}&request=${DateTime.now().microsecondsSinceEpoch}'),
                 icon: const Icon(Icons.verified_outlined),
                 label: const Text('Verify this record'),
               ),

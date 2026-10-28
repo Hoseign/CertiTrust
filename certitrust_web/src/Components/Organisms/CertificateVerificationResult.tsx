@@ -99,6 +99,17 @@ export default function CertificateVerificationResult({
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-7">
                 <h2 className="mb-5 break-words text-lg font-extrabold text-[#0A192F]">Credential Details</h2>
 
+                <dl className="mb-5 grid gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 sm:grid-cols-2">
+                    <div>
+                        <dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Student Name</dt>
+                        <dd className="mt-1 break-words text-sm font-bold text-[#0A192F]">{result.student_name || "Not available"}</dd>
+                    </div>
+                    <div>
+                        <dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Student ID</dt>
+                        <dd className="mt-1 break-words text-sm font-bold text-[#0A192F]">{result.student_id || "Not available"}</dd>
+                    </div>
+                </dl>
+
                 {result.multi_degree && certificates.length > 0 ? (
                     <div className="space-y-3">
                         <p className="text-sm font-semibold text-slate-600">

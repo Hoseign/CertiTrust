@@ -177,7 +177,7 @@ class _StudentDashboardViewState extends State<StudentDashboardView> {
                             onPressed: multipleDegreeCode == null
                                 ? null
                                 : () => context.push(
-                                      '/verify?hash=${Uri.encodeQueryComponent('CERTITRUST-MULTI:$multipleDegreeCode')}',
+                                      '/verify?hash=${Uri.encodeQueryComponent('CERTITRUST-MULTI:$multipleDegreeCode')}&request=${DateTime.now().microsecondsSinceEpoch}',
                                     ),
                             icon: const Icon(Icons.verified_outlined),
                             label: const Text('Verify all degrees'),
@@ -339,7 +339,7 @@ class _StudentDashboardViewState extends State<StudentDashboardView> {
                             verificationHash.isEmpty
                         ? null
                         : () => context.push(
-                            '/verify?hash=${Uri.encodeQueryComponent(verificationHash)}'),
+                            '/verify?hash=${Uri.encodeQueryComponent(verificationHash)}&request=${DateTime.now().microsecondsSinceEpoch}'),
                     icon: const Icon(Icons.qr_code_scanner),
                     label: const Text('Verify on Chain'),
                   ),
