@@ -253,13 +253,7 @@ class _CertificateDeletionRequestsScreenState
           appBar: AppBar(
             leading: IconButton(
               tooltip: 'Back',
-              onPressed: () {
-                if (context.canPop()) {
-                  context.pop();
-                } else {
-                  context.go('/admin-management');
-                }
-              },
+              onPressed: () => context.go('/dashboard'),
               icon: const Icon(Icons.arrow_back),
             ),
             title: const Text('Deletion Requests'),

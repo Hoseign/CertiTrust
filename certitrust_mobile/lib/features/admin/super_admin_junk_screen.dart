@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/widgets/certitrust_loading_indicator.dart';
 import '../../services/api_service.dart';
@@ -114,6 +115,11 @@ class _SuperAdminJunkScreenState extends State<SuperAdminJunkScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
+          leading: IconButton(
+            tooltip: 'Back',
+            onPressed: () => context.go('/dashboard'),
+            icon: const Icon(Icons.arrow_back),
+          ),
           title: const Text('Junk / Recycle Bin'),
           actions: [
             IconButton(
