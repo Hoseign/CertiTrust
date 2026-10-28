@@ -45,6 +45,7 @@ class _CredentialDraft {
 }
 
 class _IssueScreenState extends State<IssueScreen> {
+  static const _recordsBranchIndex = 1;
   final _formKey = GlobalKey<FormState>();
   final List<_CredentialDraft> _drafts = [];
   static const _degreeSuggestions = AcademicDegree.programSuggestions;
@@ -345,7 +346,10 @@ class _IssueScreenState extends State<IssueScreen> {
           ),
         ),
       );
-      context.go('/records');
+      StatefulNavigationShell.of(context).goBranch(
+        _recordsBranchIndex,
+        initialLocation: true,
+      );
     } catch (error) {
       if (mounted) {
         if (error is ApiRequestException &&

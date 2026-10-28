@@ -375,6 +375,151 @@ void main() {
     );
   });
 
+  testWidgets(
+      'subadmin can open Records from navigation after issuing a new student',
+      (WidgetTester tester) async {
+    final previousRole = ApiService.authRole;
+    final previousEmail = ApiService.authEmail;
+    final previousUniversity = ApiService.authUniversity;
+    ApiService.authRole = 'admin';
+    ApiService.authEmail = 'psu-admin@example.edu';
+    ApiService.authUniversity = 'PSU';
+    addTearDown(() {
+      ApiService.authRole = previousRole;
+      ApiService.authEmail = previousEmail;
+      ApiService.authUniversity = previousUniversity;
+    });
+
+    await http.runWithClient(
+      () async {
+        final router = GoRouter(
+          initialLocation: '/issue',
+          routes: [
+            StatefulShellRoute.indexedStack(
+              builder: (context, state, navigationShell) => navigationShell,
+              branches: [
+                for (final path in [
+                  '/dashboard',
+                  '/records',
+                  '/issue',
+                  '/verify',
+                  '/profile',
+                  '/ansq',
+                  '/askq',
+                ])
+                  StatefulShellBranch(
+                    routes: [
+                      GoRoute(
+                        path: path,
+                        builder: (context, state) {
+                          if (path == '/issue') return const IssueScreen();
+                          if (path == '/records') return const RecordsScreen();
+                          return Scaffold(
+                            body: Text(path),
+                            bottomNavigationBar:
+                                const RoleBottomNavigationBar(isAdmin: true),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ],
+        );
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Add student'));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+            find.byType(TextFormField).at(0), 'PSU-NEW-1001');
+        await tester.enterText(
+            find.byType(TextFormField).at(1), 'PSU New Student');
+        await tester.enterText(
+            find.byType(TextFormField).at(2), 'psu-new@example.edu');
+        await tester.enterText(find.byType(TextFormField).at(3), 'BSIT');
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pumpAndSettle();
+        await tester.drag(find.byType(ListView), const Offset(0, -1000));
+        await tester.pumpAndSettle();
+        final issueButton = find.textContaining('Review and issue');
+        expect(issueButton, findsOneWidget);
+        await tester.ensureVisible(issueButton);
+        await tester.tap(issueButton);
+        await tester.pumpAndSettle();
+
+        expect(router.state.uri.path, '/records');
+        expect(find.text('PSU New Student'), findsOneWidget);
+
+        await tester.tap(find.text('Home'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Records'));
+        await tester.pumpAndSettle();
+        expect(router.state.uri.path, '/records');
+        expect(find.text('PSU New Student'), findsOneWidget);
+        router.dispose();
+      },
+      () => MockClient((request) async {
+        if (request.url.path.endsWith('/certificates/validate-batch')) {
+          return http.Response(
+            jsonEncode({
+              'additional_degree_candidates': [],
+              'warnings': [],
+            }),
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/certificates/batch')) {
+          return http.Response(
+            jsonEncode({
+              'count': 1,
+              'data': [
+                {
+                  'id': 1001,
+                  'student_id': 'PSU-NEW-1001',
+                  'student_name': 'PSU New Student',
+                  'student_email': 'psu-new@example.edu',
+                  'degree': 'BSIT',
+                  'university_code': 'PSU',
+                  'certificate_code': 'CERT-PSU-NEW',
+                  'cert_hash': 'psu-new-hash',
+                  'issue_date': '2026-10-28',
+                  'status': 'Verified',
+                  'blockchain_status': 'submitted',
+                },
+              ],
+            }),
+            201,
+          );
+        }
+        if (request.url.path.endsWith('/certificates')) {
+          return http.Response(
+            jsonEncode({
+              'data': [
+                {
+                  'id': 1001,
+                  'student_id': 'PSU-NEW-1001',
+                  'student_name': 'PSU New Student',
+                  'student_email': 'psu-new@example.edu',
+                  'degree': 'BSIT',
+                  'university_code': 'PSU',
+                  'certificate_code': 'CERT-PSU-NEW',
+                  'cert_hash': 'psu-new-hash',
+                  'issue_date': '2026-10-28',
+                  'status': 'Verified',
+                  'blockchain_status': 'submitted',
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+  });
+
   testWidgets('empty conversation prompts to start chatting until first send',
       (WidgetTester tester) async {
     ApiService.authRole = 'admin';
