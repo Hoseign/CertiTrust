@@ -329,6 +329,8 @@ class _VerifyScreenState extends State<VerifyScreen> {
     final chainStatus = chainResult is Map
         ? chainResult['status']?.toString() ?? 'unknown'
         : 'unknown';
+    final anchoringStatus =
+        _certResult!['blockchain_status']?.toString().toLowerCase() ?? '';
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -395,6 +397,26 @@ class _VerifyScreenState extends State<VerifyScreen> {
                   'blockchain authenticity.',
                 ),
               ),
+            if (!isVerified &&
+                (anchoringStatus == 'pending' ||
+                    anchoringStatus == 'submitted' ||
+                    anchoringStatus == 'failed'))
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  border: Border.all(color: Colors.blue.shade200),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  anchoringStatus == 'pending'
+                      ? 'This credential is waiting for the blockchain worker to submit it. Try verification again shortly.'
+                      : anchoringStatus == 'submitted'
+                          ? 'The blockchain transaction was submitted and may still be confirming. Try verification again in a moment.'
+                          : 'Blockchain submission failed. This credential is in the database, but it has not been confirmed on-chain.',
+                ),
+              ),
             const Divider(height: 32),
             _buildDetailRow(
                 'Student Name', _certResult!['student_name'] ?? 'N/A'),
@@ -403,6 +425,8 @@ class _VerifyScreenState extends State<VerifyScreen> {
             _buildDetailRow(
                 'Verification Status', _certResult!['status'] ?? 'Verified'),
             _buildDetailRow('Ethereum Sepolia', chainStatus),
+            if (anchoringStatus.isNotEmpty)
+              _buildDetailRow('Blockchain submission', anchoringStatus),
             if (imageUrl != null && imageUrl.toString().isNotEmpty) ...[
               const SizedBox(height: 20),
               const Text(

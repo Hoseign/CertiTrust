@@ -124,7 +124,7 @@ class BlockchainRegistryServiceTest extends TestCase
 
         $this->assertSame('unavailable', $result['status']);
         $this->assertFalse($result['verified']);
-        Http::assertSentCount(2);
+        Http::assertSentCount(4);
     }
 
     public function test_multiple_certificates_are_verified_in_one_concurrent_rpc_batch(): void
@@ -182,6 +182,45 @@ class BlockchainRegistryServiceTest extends TestCase
         $this->assertSame('invalid_hash', $results[0]['status']);
         $this->assertSame('verified', $results[1]['status']);
         Http::assertSentCount(2);
+    }
+
+    public function test_verification_retries_once_when_the_rpc_is_temporarily_unavailable(): void
+    {
+        config([
+            'services.certitrust.enabled' => true,
+            'services.certitrust.rpc_url' => 'https://sepolia.example',
+            'services.certitrust.rpc_fallback_urls' => [],
+            'services.certitrust.chain_id' => 11155111,
+            'services.certitrust.contract_address' => '0x1111111111111111111111111111111111111111',
+        ]);
+        $requestCounts = [];
+        Http::fake([
+            'https://sepolia.example' => function ($request) use (&$requestCounts) {
+                $method = $request['method'];
+                $requestCounts[$method] = ($requestCounts[$method] ?? 0) + 1;
+                if ($requestCounts[$method] === 1) {
+                    return Http::response(['message' => 'Temporarily unavailable'], 503);
+                }
+
+                return Http::response([
+                    'jsonrpc' => '2.0',
+                    'id' => 1,
+                    'result' => $method === 'eth_chainId'
+                        ? '0xaa36a7'
+                        : $this->encodedVerificationResult(true),
+                ]);
+            },
+        ]);
+
+        $result = app(BlockchainRegistryService::class)->verifyCertificate(
+            str_repeat('e', 64),
+        );
+
+        $this->assertSame('verified', $result['status'], json_encode([
+            'result' => $result,
+            'request_counts' => $requestCounts,
+        ]));
+        Http::assertSentCount(4);
     }
 
     public function test_issuance_encodes_the_deployed_four_string_function(): void

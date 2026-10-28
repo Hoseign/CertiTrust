@@ -408,7 +408,7 @@ class _IssueScreenState extends State<IssueScreen> {
           ),
         ),
       );
-      context.go('/dashboard');
+      context.go('/records');
     } catch (error) {
       if (mounted) {
         if (error is ApiRequestException &&

@@ -109,6 +109,11 @@ class BlockchainRegistryService
 
     public function verifyCertificates(array $hashes): array
     {
+        return $this->verifyCertificatesAttempt($hashes, retryUnavailable: true);
+    }
+
+    private function verifyCertificatesAttempt(array $hashes, bool $retryUnavailable): array
+    {
         $hashes = array_values($hashes);
         $configuration = config('services.certitrust');
         $results = array_fill(0, count($hashes), [
@@ -265,6 +270,31 @@ class BlockchainRegistryService
                     'certificate_hash' => $normalizedHash,
                     'exception' => $exception->getMessage(),
                 ]);
+            }
+        }
+
+        if ($retryUnavailable) {
+            $retryIndexes = [];
+            $retryHashes = [];
+            foreach ($results as $index => $result) {
+                if (
+                    ($result['status'] ?? null) === 'unavailable'
+                    && isset($normalizedHashes[$index])
+                ) {
+                    $retryIndexes[] = $index;
+                    $retryHashes[] = $normalizedHashes[$index];
+                }
+            }
+
+            if ($retryHashes !== []) {
+                usleep(250_000);
+                $retryResults = $this->verifyCertificatesAttempt(
+                    $retryHashes,
+                    retryUnavailable: false,
+                );
+                foreach ($retryIndexes as $retryIndex => $originalIndex) {
+                    $results[$originalIndex] = $retryResults[$retryIndex];
+                }
             }
         }
 
