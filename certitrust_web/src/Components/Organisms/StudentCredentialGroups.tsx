@@ -132,7 +132,17 @@ export default function StudentCredentialGroups({
                             <button type="button" aria-expanded={studentOpen} onClick={() => toggle(openStudents, key, setOpenStudents)} className="flex min-h-12 min-w-0 flex-1 items-center text-left">
                                 <span className="min-w-0"><span className="block truncate font-bold text-[#0A192F]">{name}</span><span className="mt-1 block text-xs text-slate-500">{studentId === "N/A" ? "No student ID" : studentId} · {degrees.size} degree{degrees.size === 1 ? "" : "s"}</span></span>
                             </button>
-                            {showStudentMasterQr && <button type="button" disabled={!masterHash} title={masterHash ? "View student master QR code" : "Preparing student master QR code"} aria-label={`View ${name}'s master QR code`} onClick={() => masterHash && setActiveMasterQr({ name, studentId, hash: masterHash })} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 text-[#0A192F] hover:bg-slate-50 disabled:opacity-40"><span aria-hidden="true">▦</span></button>}
+                            {showStudentMasterQr && <button type="button" disabled={!masterHash} title={masterHash ? "View student master QR code" : "Preparing student master QR code"} aria-label={`View ${name}'s master QR code`} onClick={() => masterHash && setActiveMasterQr({ name, studentId, hash: masterHash })} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 text-[#0A192F] hover:bg-slate-50 disabled:opacity-40">
+                                <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                                    <rect x="5" y="5" width="3" height="3" fill="currentColor" stroke="none" />
+                                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                                    <rect x="16" y="5" width="3" height="3" fill="currentColor" stroke="none" />
+                                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                                    <rect x="5" y="16" width="3" height="3" fill="currentColor" stroke="none" />
+                                    <path d="M14 13h3v3h-3zM19 13h2M14 18h2v3M19 17v1h2v3M17 19h1" fill="currentColor" stroke="none" />
+                                </svg>
+                            </button>}
                             <button type="button" aria-label={`${studentOpen ? "Collapse" : "Expand"} ${name}'s degrees`} aria-expanded={studentOpen} onClick={() => toggle(openStudents, key, setOpenStudents)} className="grid h-10 w-8 shrink-0 place-items-center text-sm font-semibold text-slate-600">{studentOpen ? "−" : "+"}</button>
                         </div>
                         {studentOpen && <div className="pb-3 pl-3 sm:pl-6">
