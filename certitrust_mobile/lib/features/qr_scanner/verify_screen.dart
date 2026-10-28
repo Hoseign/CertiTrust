@@ -411,7 +411,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
                 ),
                 child: Text(
                   anchoringStatus == 'pending'
-                      ? 'This credential is waiting for the blockchain worker to submit it. Try verification again shortly.'
+                      ? 'Blockchain submission has not completed yet. Contact the issuing administrator and try verification again after it is submitted.'
                       : anchoringStatus == 'submitted'
                           ? 'The blockchain transaction was submitted and may still be confirming. Try verification again in a moment.'
                           : 'Blockchain submission failed. This credential is in the database, but it has not been confirmed on-chain.',

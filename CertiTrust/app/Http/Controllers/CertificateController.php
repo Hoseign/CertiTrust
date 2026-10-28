@@ -484,11 +484,12 @@ class CertificateController extends Controller
         $validated['blockchain_status'] = $blockchainEnabled ? 'pending' : 'not_configured';
         $certificate = Certificate::create($validated);
         if ($blockchainEnabled) {
-            AnchorCertificateToBlockchain::dispatch($certificate->id);
+            AnchorCertificateToBlockchain::dispatchSync($certificate->id);
         }
+        $certificate->refresh();
 
         return response()->json([
-            'data' => $certificate->fresh(),
+            'data' => $certificate,
             'blockchain' => ['status' => $certificate->blockchain_status],
         ], 201);
     }
@@ -695,7 +696,7 @@ class CertificateController extends Controller
             ->get();
         if ($blockchainEnabled) {
             foreach ($issuedCertificates as $certificate) {
-                AnchorCertificateToBlockchain::dispatch($certificate->id);
+                AnchorCertificateToBlockchain::dispatchSync($certificate->id);
             }
         }
 
