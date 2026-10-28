@@ -22,7 +22,7 @@ class VerificationConfirmationScreen extends StatelessWidget {
             .toList()
         : <Map<String, dynamic>>[];
     final isMultipleDegree =
-        certificate['multi_degree'] == true && degreeCertificates.length > 1;
+        certificate['multi_degree'] == true && degreeCertificates.isNotEmpty;
     final school = isMultipleDegree
         ? 'MULTI'
         : (certificate['university_code'] ??

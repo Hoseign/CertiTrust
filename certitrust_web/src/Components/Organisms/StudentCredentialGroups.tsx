@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 import type { CertificateRecord } from "../../services/certitrustApi";
 
@@ -8,27 +8,9 @@ type Props = {
 };
 
 function CredentialDetails({ record }: { record: CertificateRecord }) {
-    const qrRef = useRef<HTMLDivElement>(null);
+    const [showQr, setShowQr] = useState(false);
+    const [showDiploma, setShowDiploma] = useState(false);
     const diplomaUrl = record.diploma_url || undefined;
-
-    const downloadQr = () => {
-        const canvas = qrRef.current?.querySelector("canvas");
-        if (!canvas) return;
-        const link = document.createElement("a");
-        link.href = canvas.toDataURL("image/png");
-        link.download = `${record.certificate_code}-qr.png`;
-        link.click();
-    };
-
-    const downloadDiploma = () => {
-        if (!diplomaUrl) return;
-        const link = document.createElement("a");
-        link.href = diplomaUrl;
-        link.download = record.diploma_file_name || `${record.certificate_code}-diploma`;
-        link.target = "_blank";
-        link.rel = "noreferrer";
-        link.click();
-    };
 
     return (
         <div className="border-t border-slate-200 px-4 py-4 sm:px-5">
@@ -38,13 +20,20 @@ function CredentialDetails({ record }: { record: CertificateRecord }) {
                 <div><dt className="text-slate-500">On-chain hash</dt><dd className="break-all font-mono text-xs">{record.cert_hash}</dd></div>
                 <div><dt className="text-slate-500">Verification</dt><dd>{record.blockchain_status || record.status}</dd></div>
             </dl>
-            {diplomaUrl && <img src={diplomaUrl} alt={`${record.degree} diploma`} className="mt-4 max-h-80 w-full border border-slate-200 bg-white object-contain" />}
             <div className="mt-4 flex flex-wrap gap-2">
-                {diplomaUrl && <button type="button" onClick={downloadDiploma} className="min-h-9 rounded-md border border-slate-300 px-3 text-sm font-bold">Download Diploma</button>}
-                <a href={`/public-verification?hash=${encodeURIComponent(record.cert_hash)}`} className="inline-flex min-h-9 items-center rounded-md border border-slate-300 px-3 text-sm font-bold">Verify on Chain</a>
-                <button type="button" onClick={downloadQr} className="min-h-9 rounded-md border border-slate-300 px-3 text-sm font-bold">Download QR Code</button>
+                <a href={`/public-verification?hash=${encodeURIComponent(record.cert_hash)}`} className="inline-flex min-h-9 items-center rounded-md border border-slate-300 px-3 text-sm font-bold">Verify this record</a>
+                {diplomaUrl && <button type="button" onClick={() => setShowDiploma((visible) => !visible)} className="min-h-9 rounded-md border border-slate-300 px-3 text-sm font-bold">{showDiploma ? "Hide diploma" : "View your diploma"}</button>}
+                <button type="button" onClick={() => setShowQr(true)} className="min-h-9 rounded-md border border-slate-300 px-3 text-sm font-bold">View QR code</button>
             </div>
-            <div ref={qrRef} className="sr-only" aria-hidden="true"><QRCodeCanvas value={`${window.location.origin}/public-verification?hash=${encodeURIComponent(record.cert_hash)}`} size={240} /></div>
+            {showDiploma && diplomaUrl && <img src={diplomaUrl} alt={`${record.degree} diploma`} className="mt-4 max-h-80 w-full border border-slate-200 bg-white object-contain" />}
+            {showQr && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4" role="presentation" onClick={() => setShowQr(false)}>
+                <section role="dialog" aria-modal="true" aria-label={`${record.degree} verification QR code`} className="w-full max-w-sm rounded-xl bg-white p-5 text-center shadow-xl" onClick={(event) => event.stopPropagation()}>
+                    <h3 className="text-lg font-bold text-[#0A192F]">Credential QR code</h3>
+                    <div className="my-4 flex justify-center"><QRCodeCanvas value={`${window.location.origin}/public-verification?hash=${encodeURIComponent(record.cert_hash)}`} size={240} includeMargin /></div>
+                    <p className="break-all font-mono text-xs text-slate-500">{record.cert_hash}</p>
+                    <button type="button" onClick={() => setShowQr(false)} className="mt-4 min-h-10 rounded-lg bg-[#0A192F] px-4 text-sm font-bold text-white">Close</button>
+                </section>
+            </div>}
         </div>
     );
 }

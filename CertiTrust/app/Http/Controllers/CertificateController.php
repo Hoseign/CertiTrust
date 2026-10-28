@@ -36,7 +36,7 @@ class CertificateController extends Controller
     public function publicPortfolio(string $token, BlockchainRegistryService $blockchain)
     {
         $emails = Certificate::query()
-            ->selectRaw('LOWER(TRIM(COALESCE(NULLIF(student_email, ""), email))) as portfolio_email')
+            ->selectRaw("LOWER(TRIM(COALESCE(NULLIF(student_email, ''), email))) as portfolio_email")
             ->whereNotNull('student_email')
             ->orWhereNotNull('email')
             ->distinct()
@@ -96,7 +96,11 @@ class CertificateController extends Controller
             ];
             return $data;
         });
-        $hashes = $certificates->pluck('cert_hash')->sort()->values()->all();
+        $hashes = $certificates->pluck('cert_hash')
+            ->map(fn ($hash) => (string) $hash)
+            ->sort()
+            ->values()
+            ->all();
         $groups = $certificates->groupBy('university_code')->map(function ($items, $code) {
             return [
                 'university_code' => $code,
@@ -123,6 +127,38 @@ class CertificateController extends Controller
     private function portfolioToken(string $email): string
     {
         return hash_hmac('sha256', strtolower(trim($email)), (string) config('app.key'));
+    }
+
+    private function masterHashForEmail(string $email): string
+    {
+        $normalizedEmail = strtolower(trim($email));
+        $studentIds = Certificate::query()
+            ->where(function ($query) use ($normalizedEmail) {
+                $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$normalizedEmail])
+                    ->orWhereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail]);
+            })
+            ->pluck('student_id')
+            ->map(fn ($id) => strtolower(trim((string) $id)))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $hashes = Certificate::query()
+            ->where(function ($query) use ($normalizedEmail, $studentIds) {
+                $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$normalizedEmail])
+                    ->orWhereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail]);
+                if ($studentIds !== []) {
+                    $query->orWhereIn(DB::raw('LOWER(TRIM(student_id))'), $studentIds);
+                }
+            })
+            ->pluck('cert_hash')
+            ->map(fn ($hash) => (string) $hash)
+            ->sort()
+            ->values()
+            ->all();
+
+        return hash('sha256', implode('|', $hashes));
     }
 
     public function index(Request $request)
@@ -223,6 +259,26 @@ class CertificateController extends Controller
         $certificate = Certificate::where('certificate_code', $normalizedCode)
             ->orWhereRaw('LOWER(cert_hash) = ?', [strtolower($normalizedCode)])
             ->first();
+
+        if (!$certificate && preg_match('/^[a-f0-9]{64}$/i', $normalizedCode)) {
+            $emails = Certificate::query()
+                ->selectRaw("LOWER(TRIM(COALESCE(NULLIF(student_email, ''), email))) as portfolio_email")
+                ->where(function ($query) {
+                    $query->whereNotNull('student_email')->orWhereNotNull('email');
+                })
+                ->distinct()
+                ->pluck('portfolio_email')
+                ->filter();
+
+            foreach ($emails as $email) {
+                if (!hash_equals($this->masterHashForEmail((string) $email), strtolower($normalizedCode))) {
+                    continue;
+                }
+                $portfolio = $this->portfolioForEmail((string) $email, $blockchain);
+                $portfolio['multi_degree'] = true;
+                return response()->json(['data' => $portfolio]);
+            }
+        }
 
         if ($certificate && $isMultipleDegreeCode) {
             $degreesQuery = Certificate::query();

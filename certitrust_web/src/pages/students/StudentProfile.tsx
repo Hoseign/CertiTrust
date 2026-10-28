@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { QRCodeCanvas } from "qrcode.react";
 import StudentSidebar from "@/Components/Organisms/StudentSidebar";
 import { getSessionUser, updateProfile } from "../../services/authService";
@@ -8,6 +9,7 @@ import { getStudentPortfolio, type StudentPortfolio } from "../../services/certi
 type AvatarType = "girl" | "boy";
 
 export default function StudentProfile() {
+    const navigate = useNavigate();
     const sessionUser = getSessionUser();
     const [avatar, setAvatar] = useState<AvatarType>(sessionUser?.profile_icon || "girl");
     const [photo, setPhoto] = useState<string | null>(sessionUser?.profile_image_url || null);
@@ -37,9 +39,7 @@ export default function StudentProfile() {
         };
     }, []);
 
-    const portfolioUrl = portfolio
-        ? `${window.location.origin}/public-verification?portfolio=${encodeURIComponent(portfolio.portfolio_token)}`
-        : "";
+    const masterHash = portfolio && portfolio.degree_count > 0 ? portfolio.master_hash : "";
 
     const downloadPortfolioQr = () => {
         const canvas = qrRef.current?.querySelector("canvas");
@@ -48,19 +48,6 @@ export default function StudentProfile() {
         link.download = "certitrust-portfolio-qr.png";
         link.href = canvas.toDataURL("image/png");
         link.click();
-    };
-
-    const sharePortfolio = async () => {
-        if (!portfolioUrl) return;
-        try {
-            if (navigator.share) await navigator.share({ title: "My CertiTrust portfolio", url: portfolioUrl });
-            else {
-                await navigator.clipboard.writeText(portfolioUrl);
-                setNotice("Public portfolio link copied.");
-            }
-        } catch {
-            setError("Unable to share the public portfolio link.");
-        }
     };
 
     const saveProfile = async (options: { profileIcon?: AvatarType; image?: File }) => {
@@ -182,11 +169,11 @@ export default function StudentProfile() {
                             {portfolioError && <p role="status" className="mt-2 text-sm text-amber-700">{portfolioError}</p>}
                             <div className="mt-4 flex flex-wrap gap-2">
                                 <button type="button" onClick={downloadPortfolioQr} disabled={!portfolio} className="min-h-10 rounded-lg bg-[#0A192F] px-4 text-sm font-bold text-white disabled:opacity-50">Download Portfolio QR Code</button>
-                                <button type="button" onClick={() => void sharePortfolio()} disabled={!portfolio} className="min-h-10 rounded-lg border border-slate-300 px-4 text-sm font-bold text-[#0A192F] disabled:opacity-50">Share Public Portfolio Link</button>
+                                <button type="button" onClick={() => navigate(`/verify?hash=${encodeURIComponent(masterHash)}&manual=1`)} disabled={!masterHash} className="min-h-10 rounded-lg border border-slate-300 px-4 text-sm font-bold text-[#0A192F] disabled:opacity-50">Verify this record</button>
                             </div>
                         </div>
                         <div ref={qrRef} className="mx-auto rounded-lg border border-slate-200 p-3 sm:mx-0">
-                            {portfolioUrl ? <QRCodeCanvas value={portfolioUrl} size={160} level="H" includeMargin /> : <div className="grid h-40 w-40 place-items-center text-center text-xs text-slate-400">No linked credentials</div>}
+                            {masterHash ? <QRCodeCanvas value={masterHash} size={160} level="H" includeMargin /> : <div className="grid h-40 w-40 place-items-center text-center text-xs text-slate-400">No linked credentials</div>}
                         </div>
                     </section>
                 </div>

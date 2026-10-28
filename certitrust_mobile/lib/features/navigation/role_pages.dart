@@ -1,15 +1,12 @@
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'dart:async';
-import '../../app_config.dart';
 import '../../services/api_service.dart';
 import '../../core/widgets/certitrust_loading_indicator.dart';
 import '../../core/utils/academic_degree.dart';
-import '../dashboard/widgets/diploma_download.dart';
 import '../dashboard/widgets/diploma_preview.dart';
 import '../dashboard/widgets/qr_code_dialog.dart';
 
@@ -429,36 +426,12 @@ class _RecordsScreenState extends State<RecordsScreen>
                 label: Text(
                     _isSchoolAdmin ? 'View This Diploma' : 'View Your Diploma'),
               ),
-              if (diplomaUrl != null && diplomaUrl.toString().isNotEmpty)
-                TextButton.icon(
-                  onPressed: () async {
-                    try {
-                      await downloadDiplomaImage(
-                        diplomaUrl.toString(),
-                        fileName: diplomaFileName,
-                      );
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Diploma downloaded.')),
-                        );
-                      }
-                    } catch (error) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Could not download diploma: $error')),
-                        );
-                      }
-                    }
-                  },
-                  icon: const Icon(Icons.download_outlined),
-                  label: const Text('Download Diploma'),
-                ),
               if (verificationCode != null && verificationCode.isNotEmpty)
                 TextButton.icon(
                   onPressed: () => showQRCodeDialog(context, record,
                       code: verificationCode, title: 'Credential QR Code'),
                   icon: const Icon(Icons.qr_code_2),
-                  label: const Text('Download QR Code'),
+                  label: const Text('View QR code'),
                 ),
               if (_isSchoolAdmin)
                 TextButton.icon(
@@ -1034,11 +1007,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  String? get _portfolioUrl {
-    final token = _portfolio?['portfolio_token']?.toString();
-    if (token == null || token.isEmpty) return null;
-    return '${AppConfig.liveDemoDomain}/public-verification?portfolio=${Uri.encodeQueryComponent(token)}';
-  }
+  String? get _portfolioHash =>
+      (_portfolio?['degree_count'] as num?)?.toInt() == 0
+          ? null
+          : _portfolio?['master_hash']?.toString();
 
   String? get _defaultLogo {
     if (ApiService.isSuperAdmin) return 'web/assets/images/certitrustlogo.png';
@@ -1196,14 +1168,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         padding: EdgeInsets.all(12),
                         child: Center(child: CertiTrustLoadingIndicator()),
                       )
-                    else if (_portfolioUrl != null) ...[
+                    else if (_portfolioHash != null && _portfolioHash!.isNotEmpty) ...[
                       const SizedBox(height: 14),
                       Center(
                         child: Container(
                           color: Colors.white,
                           padding: const EdgeInsets.all(8),
                           child: QrImageView(
-                            data: _portfolioUrl!,
+                            data: _portfolioHash!,
                             size: 180,
                             backgroundColor: Colors.white,
                           ),
@@ -1218,25 +1190,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             onPressed: () => showQRCodeDialog(
                               context,
                               _portfolio!,
-                              code: _portfolioUrl,
+                              code: _portfolioHash,
                               title: 'Master Portfolio',
                             ),
                             icon: const Icon(Icons.download),
                             label: const Text('Download Portfolio QR Code'),
                           ),
                           OutlinedButton.icon(
-                            onPressed: () async {
-                              await Clipboard.setData(
-                                  ClipboardData(text: _portfolioUrl!));
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text('Public portfolio link copied.')),
-                                );
-                              }
-                            },
-                            icon: const Icon(Icons.share_outlined),
-                            label: const Text('Share Public Portfolio Link'),
+                            onPressed: () => context.go(
+                                '/verify?hash=${Uri.encodeQueryComponent(_portfolioHash!)}'),
+                            icon: const Icon(Icons.verified_outlined),
+                            label: const Text('Verify this record'),
                           ),
                         ],
                       ),

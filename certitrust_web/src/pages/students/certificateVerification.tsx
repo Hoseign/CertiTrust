@@ -22,6 +22,7 @@ export default function CertificateVerification({ publicAccess = false }: { publ
     const [scannerOpen, setScannerOpen] = useState(false);
     const verificationAttemptRef = useRef(0);
     const initialCode = searchParams.get("hash") || searchParams.get("certificateId");
+    const manualEntry = searchParams.get("manual") === "1";
     const portfolioToken = searchParams.get("portfolio");
 
     useEffect(() => {
@@ -60,6 +61,11 @@ export default function CertificateVerification({ publicAccess = false }: { publ
         }
 
         let active = true;
+        if (manualEntry) {
+            setHashInput(initialCode);
+            setIsVerifying(false);
+            return () => { active = false; };
+        }
         const attempt = ++verificationAttemptRef.current;
         setHashInput(initialCode);
         setIsVerifying(true);
@@ -80,7 +86,7 @@ export default function CertificateVerification({ publicAccess = false }: { publ
             });
 
         return () => { active = false; };
-    }, [initialCode, publicAccess]);
+    }, [initialCode, manualEntry, publicAccess]);
 
     const handleVerify = async (value = hashInput) => {
         const code = value.trim();
