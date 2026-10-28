@@ -161,6 +161,70 @@ class _RecordsScreenState extends State<RecordsScreen>
   int _degreeNumber(Map<String, dynamic> record) =>
       int.tryParse(record['degree_number']?.toString() ?? '') ?? 1;
 
+  Future<void> _showStudentMasterQr(
+    BuildContext context,
+    List<Map<String, dynamic>> credentials, {
+    String? localMasterHash,
+  }) async {
+    final first = credentials.first;
+    final emails = credentials
+        .map((record) => (record['student_email'] ?? record['email'])
+            ?.toString()
+            .trim()
+            .toLowerCase())
+        .whereType<String>()
+        .where((email) => email.isNotEmpty)
+        .toSet();
+    final ids = credentials
+        .map((record) => record['student_id']?.toString().trim())
+        .whereType<String>()
+        .where((studentId) => studentId.isNotEmpty)
+        .toSet();
+    final studentEmail = emails.isEmpty ? null : emails.first;
+    final studentId = ids.isEmpty ? null : ids.first;
+
+    try {
+      var hash = localMasterHash;
+      var records = credentials;
+      if (!_isSuperAdmin || hash == null) {
+        final lookup = await ApiService.lookupStudentCredentials(
+          studentId: studentId,
+          email: studentEmail,
+        );
+        records = (lookup['data'] as List? ?? const [])
+            .whereType<Map>()
+            .map((record) => Map<String, dynamic>.from(record))
+            .toList();
+        final hashes = records
+            .map((record) => record['cert_hash']?.toString().trim() ?? '')
+            .where((credentialHash) => credentialHash.isNotEmpty)
+            .toList()
+          ..sort();
+        if (hashes.isEmpty) {
+          throw StateError('No linked credentials were found for this student.');
+        }
+        hash = HashUtil.generateStringHash(hashes.join('|'));
+      }
+
+      final portfolioStudentId = records
+              .map((record) => record['student_id']?.toString().trim() ?? '')
+              .firstWhere((value) => value.isNotEmpty, orElse: () => studentId ?? 'N/A');
+      if (!context.mounted || hash == null) return;
+      showQRCodeDialog(
+        context,
+        {...first, 'student_id': portfolioStudentId},
+        code: hash,
+        title: 'Master Portfolio QR',
+        showVerifyOnChain: true,
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load the student master QR: $error')),
+      );
+    }
+  }
+
   String _degreeType(Map<String, dynamic> record) {
     final degree = (record['degree'] ?? record['course_or_event'] ?? '').toString();
     return AcademicDegree.classify(degree, degreeNumber: _degreeNumber(record));
@@ -278,16 +342,15 @@ class _RecordsScreenState extends State<RecordsScreen>
                   child: Text(name,
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                 ),
-                if (ApiService.isSuperAdmin && masterHash != null)
+                if ((ApiService.isSuperAdmin || _isSchoolAdmin) &&
+                    (ApiService.isSuperAdmin || studentEmails.isNotEmpty || studentIds.isNotEmpty))
                   IconButton(
                     tooltip: 'View student master QR code',
                     visualDensity: VisualDensity.compact,
-                    onPressed: () => showQRCodeDialog(
+                    onPressed: () => _showStudentMasterQr(
                       context,
-                      {...first, 'student_id': id},
-                      code: masterHash,
-                      title: 'Master Portfolio QR',
-                      showVerifyOnChain: true,
+                      student.value,
+                      localMasterHash: masterHash,
                     ),
                     icon: const Icon(Icons.qr_code_2),
                   ),

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
-import type { CertificateRecord } from "../../services/certitrustApi";
+import { lookupStudentCredentials, type CertificateRecord } from "../../services/certitrustApi";
 
 type Props = {
     records: CertificateRecord[];
     masterRecords?: CertificateRecord[];
     showStudentMasterQr?: boolean;
+    lookupMasterRecords?: boolean;
     emptyMessage?: string;
 };
 
@@ -19,7 +20,24 @@ function recordEmail(record: CertificateRecord) {
 function CredentialDetails({ record }: { record: CertificateRecord }) {
     const [showQr, setShowQr] = useState(false);
     const [showDiploma, setShowDiploma] = useState(false);
+    const qrRef = useRef<HTMLDivElement>(null);
     const diplomaUrl = record.diploma_url || undefined;
+
+    const downloadDiploma = async () => {
+        if (!diplomaUrl) return;
+        try {
+            const response = await fetch(diplomaUrl);
+            if (!response.ok) throw new Error("Diploma download failed");
+            const objectUrl = URL.createObjectURL(await response.blob());
+            const link = document.createElement("a");
+            link.href = objectUrl;
+            link.download = record.diploma_file_name || `${record.certificate_code}-diploma`;
+            link.click();
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+        } catch {
+            window.open(diplomaUrl, "_blank", "noopener,noreferrer");
+        }
+    };
 
     return (
         <div className="border-t border-slate-200 px-4 py-4 sm:px-5">
@@ -34,13 +52,26 @@ function CredentialDetails({ record }: { record: CertificateRecord }) {
                 {diplomaUrl && <button type="button" onClick={() => setShowDiploma((visible) => !visible)} className="min-h-9 rounded-md border border-slate-300 px-3 text-sm font-bold">{showDiploma ? "Hide diploma" : "View your diploma"}</button>}
                 <button type="button" onClick={() => setShowQr(true)} className="min-h-9 rounded-md border border-slate-300 px-3 text-sm font-bold">View QR code</button>
             </div>
-            {showDiploma && diplomaUrl && <img src={diplomaUrl} alt={`${record.degree} diploma`} className="mt-4 max-h-80 w-full border border-slate-200 bg-white object-contain" />}
+            {showDiploma && diplomaUrl && <div className="mt-4">
+                <img src={diplomaUrl} alt={`${record.degree} diploma`} className="max-h-80 w-full border border-slate-200 bg-white object-contain" />
+                <button type="button" onClick={() => void downloadDiploma()} className="mt-3 inline-flex min-h-9 items-center rounded-md bg-[#0A192F] px-3 text-sm font-bold text-white">Download Diploma</button>
+            </div>}
             {showQr && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4" role="presentation" onClick={() => setShowQr(false)}>
                 <section role="dialog" aria-modal="true" aria-label={`${record.degree} verification QR code`} className="w-full max-w-sm rounded-xl bg-white p-5 text-center shadow-xl" onClick={(event) => event.stopPropagation()}>
                     <h3 className="text-lg font-bold text-[#0A192F]">Credential QR code</h3>
-                    <div className="my-4 flex justify-center"><QRCodeCanvas value={`${window.location.origin}/public-verification?hash=${encodeURIComponent(record.cert_hash)}`} size={240} includeMargin /></div>
+                    <div ref={qrRef} className="my-4 flex justify-center"><QRCodeCanvas value={`${window.location.origin}/public-verification?hash=${encodeURIComponent(record.cert_hash)}`} size={240} includeMargin /></div>
                     <p className="break-all font-mono text-xs text-slate-500">{record.cert_hash}</p>
-                    <button type="button" onClick={() => setShowQr(false)} className="mt-4 min-h-10 rounded-lg bg-[#0A192F] px-4 text-sm font-bold text-white">Close</button>
+                    <div className="mt-4 flex flex-wrap justify-center gap-2">
+                        <button type="button" onClick={() => {
+                            const canvas = qrRef.current?.querySelector("canvas");
+                            if (!canvas) return;
+                            const link = document.createElement("a");
+                            link.href = canvas.toDataURL("image/png");
+                            link.download = `${record.certificate_code}-qr.png`;
+                            link.click();
+                        }} className="min-h-10 rounded-lg bg-[#0A192F] px-4 text-sm font-bold text-white">Download QR</button>
+                        <button type="button" onClick={() => setShowQr(false)} className="min-h-10 rounded-lg border border-slate-300 px-4 text-sm font-bold text-[#0A192F]">Close</button>
+                    </div>
                 </section>
             </div>}
         </div>
@@ -64,11 +95,13 @@ export default function StudentCredentialGroups({
     records,
     masterRecords = records,
     showStudentMasterQr = false,
+    lookupMasterRecords = false,
     emptyMessage = "No credential records found.",
 }: Props) {
     const [openStudents, setOpenStudents] = useState<string[]>([]);
     const [openDegrees, setOpenDegrees] = useState<string[]>([]);
     const [masterHashes, setMasterHashes] = useState<Record<string, string>>({});
+    const [masterStudentIds, setMasterStudentIds] = useState<Record<string, string>>({});
     const [activeMasterQr, setActiveMasterQr] = useState<{ name: string; studentId: string; hash: string } | null>(null);
     const masterQrRef = useRef<HTMLDivElement>(null);
     const groups = useMemo(() => {
@@ -87,9 +120,21 @@ export default function StudentCredentialGroups({
         }
         let active = true;
         setMasterHashes({});
+        setMasterStudentIds({});
         void Promise.all(groups.map(async ([key, credentials]) => {
             const emails = new Set(credentials.map(recordEmail).filter(Boolean));
             const ids = new Set(credentials.map((record) => record.student_id?.trim().toLowerCase()).filter(Boolean));
+            const email = emails.values().next().value as string | undefined;
+            const studentId = ids.values().next().value as string | undefined;
+            if (lookupMasterRecords) {
+                const lookedUpRecords = await lookupStudentCredentials(studentId, email)
+                    .then((result) => result.data)
+                    .catch(() => []);
+                return [key, {
+                    hash: await makeMasterHash(lookedUpRecords),
+                    studentId: lookedUpRecords.find((record) => record.student_id?.trim())?.student_id?.trim() || "",
+                }] as const;
+            }
             masterRecords.forEach((record) => {
                 if (emails.has(recordEmail(record)) && record.student_id?.trim()) {
                     ids.add(record.student_id.trim().toLowerCase());
@@ -100,14 +145,20 @@ export default function StudentCredentialGroups({
                 const id = record.student_id?.trim().toLowerCase();
                 return (email && emails.has(email)) || (id && ids.has(id));
             });
-            return [key, await makeMasterHash(portfolioRecords)] as const;
+            return [key, {
+                hash: await makeMasterHash(portfolioRecords),
+                studentId: portfolioRecords.find((record) => record.student_id?.trim())?.student_id?.trim() || "",
+            }] as const;
         })).then((entries) => {
-            if (active) setMasterHashes(Object.fromEntries(entries));
+            if (active) {
+                setMasterHashes(Object.fromEntries(entries.map(([key, value]) => [key, value.hash])));
+                setMasterStudentIds(Object.fromEntries(entries.map(([key, value]) => [key, value.studentId])));
+            }
         }).catch(() => {
             if (active) setMasterHashes({});
         });
         return () => { active = false; };
-    }, [groups, masterRecords, showStudentMasterQr]);
+    }, [groups, lookupMasterRecords, masterRecords, showStudentMasterQr]);
 
     const toggle = (current: string[], key: string, update: (next: string[]) => void) =>
         update(current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
@@ -132,7 +183,7 @@ export default function StudentCredentialGroups({
                             <button type="button" aria-expanded={studentOpen} onClick={() => toggle(openStudents, key, setOpenStudents)} className="flex min-h-12 min-w-0 flex-1 items-center text-left">
                                 <span className="min-w-0"><span className="block truncate font-bold text-[#0A192F]">{name}</span><span className="mt-1 block text-xs text-slate-500">{studentId === "N/A" ? "No student ID" : studentId} · {degrees.size} degree{degrees.size === 1 ? "" : "s"}</span></span>
                             </button>
-                            {showStudentMasterQr && <button type="button" disabled={!masterHash} title={masterHash ? "View student master QR code" : "Preparing student master QR code"} aria-label={`View ${name}'s master QR code`} onClick={() => masterHash && setActiveMasterQr({ name, studentId, hash: masterHash })} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 text-[#0A192F] hover:bg-slate-50 disabled:opacity-40">
+                            {showStudentMasterQr && <button type="button" disabled={!masterHash} title={masterHash ? "View student master QR code" : "Preparing student master QR code"} aria-label={`View ${name}'s master QR code`} onClick={() => masterHash && setActiveMasterQr({ name, studentId: masterStudentIds[key] || studentId, hash: masterHash })} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 text-[#0A192F] hover:bg-slate-50 disabled:opacity-40">
                                 <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
                                     <rect x="3" y="3" width="7" height="7" rx="1" />
                                     <rect x="5" y="5" width="3" height="3" fill="currentColor" stroke="none" />

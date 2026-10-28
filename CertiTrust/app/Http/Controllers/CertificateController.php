@@ -223,13 +223,28 @@ class CertificateController extends Controller
             return response()->json(['data' => [], 'degree_count' => 0]);
         }
 
+        $linkedStudentIds = $email === '' ? [] : Certificate::query()
+            ->where(function ($emailQuery) use ($email) {
+                $emailQuery->whereRaw('LOWER(TRIM(student_email)) = ?', [$email])
+                    ->orWhereRaw('LOWER(TRIM(email)) = ?', [$email]);
+            })
+            ->pluck('student_id')
+            ->map(fn ($id) => strtolower(trim((string) $id)))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
         $records = Certificate::query()
-            ->where(function ($identity) use ($studentId, $email) {
+            ->where(function ($identity) use ($studentId, $email, $linkedStudentIds) {
                 if ($email !== '') {
                     $identity->where(function ($emailQuery) use ($email) {
                         $emailQuery->whereRaw('LOWER(TRIM(student_email)) = ?', [$email])
                             ->orWhereRaw('LOWER(TRIM(email)) = ?', [$email]);
                     });
+                    if ($linkedStudentIds !== []) {
+                        $identity->orWhereIn(DB::raw('LOWER(TRIM(student_id))'), $linkedStudentIds);
+                    }
                 } elseif ($studentId !== '') {
                     $identity->whereRaw('LOWER(TRIM(student_id)) = ?', [$studentId]);
                 }

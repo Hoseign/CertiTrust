@@ -98,6 +98,7 @@ export default function CertificateVerificationResult({
                                 <dl className="mt-3 grid gap-3 sm:grid-cols-2">
                                     {[
                                         ["Certificate ID", certificate.certificate_code],
+                                        ["Issuing Institution", certificate.university_name || certificate.university_code],
                                         ["Status", certificate.status],
                                         ["Ethereum Sepolia", certificate.blockchain_verification?.status || "unknown"],
                                         ["SHA-256 Hash", certificate.cert_hash],
@@ -108,6 +109,16 @@ export default function CertificateVerificationResult({
                                         </div>
                                     ))}
                                 </dl>
+                                {certificate.diploma_url ? (
+                                    <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+                                        <h4 className="mb-2 text-sm font-bold text-[#0A192F]">Diploma image</h4>
+                                        <a href={certificate.diploma_url} target="_blank" rel="noreferrer">
+                                            <img src={certificate.diploma_url} alt={`${certificate.degree || "Degree"} diploma`} className="max-h-80 w-full object-contain" />
+                                        </a>
+                                    </div>
+                                ) : (
+                                    <p className="mt-4 text-sm text-slate-500">No diploma image is attached to this degree.</p>
+                                )}
                             </article>
                         ))}
                     </div>
@@ -120,6 +131,15 @@ export default function CertificateVerificationResult({
                             </div>
                         ))}
                     </dl>
+                )}
+
+                {!result.multi_degree && result.diploma_url && (
+                    <div className="mt-5 rounded-xl border border-slate-200 bg-[#F6F8FC] p-4">
+                        <h3 className="mb-3 font-bold text-[#0A192F]">Diploma image</h3>
+                        <a href={result.diploma_url} target="_blank" rel="noreferrer">
+                            <img src={result.diploma_url} alt={`${result.degree || result.course_or_event || "Credential"} diploma`} className="max-h-[32rem] w-full object-contain" />
+                        </a>
+                    </div>
                 )}
 
                 {!isVerified && (

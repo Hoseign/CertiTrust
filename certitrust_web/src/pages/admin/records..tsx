@@ -599,7 +599,11 @@ export default function Records() {
                                     Uploaded academic records will appear here.
                                 </p>
                             ) : (
-                                <StudentCredentialGroups records={certificates} />
+                                <StudentCredentialGroups
+                                    records={certificates}
+                                    showStudentMasterQr
+                                    lookupMasterRecords
+                                />
                             )}
                         </section>
                     </div>
