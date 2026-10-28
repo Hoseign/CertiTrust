@@ -8,8 +8,6 @@ export const apiClient = axios.create({
     baseURL: API_BASE_URL.replace(/\/$/, ""),
     headers: {
         Accept: "application/json",
-        "Content-Type": "application/json",
-        "X-Requested-With": "XMLHttpRequest",
     },
     timeout: 30000,
 });
@@ -18,7 +16,6 @@ export const publicApiClient = axios.create({
     baseURL: API_BASE_URL.replace(/\/$/, ""),
     headers: {
         Accept: "application/json",
-        "Content-Type": "application/json",
     },
     timeout: 30000,
 });

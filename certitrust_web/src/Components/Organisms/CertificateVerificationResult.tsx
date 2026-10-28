@@ -14,6 +14,23 @@ function isCredentialVerified(credential: {
         && credential.blockchain_verification?.verified === true;
 }
 
+async function downloadDiploma(url: string, fileName: string) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Diploma download failed");
+        const objectUrl = URL.createObjectURL(await response.blob());
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch {
+        window.open(url, "_blank", "noopener,noreferrer");
+    }
+}
+
 export default function CertificateVerificationResult({
     result,
     searchedCode,
@@ -115,6 +132,16 @@ export default function CertificateVerificationResult({
                                         <a href={certificate.diploma_url} target="_blank" rel="noreferrer">
                                             <img src={certificate.diploma_url} alt={`${certificate.degree || "Degree"} diploma`} className="max-h-80 w-full object-contain" />
                                         </a>
+                                        <button
+                                            type="button"
+                                            onClick={() => void downloadDiploma(
+                                                certificate.diploma_url!,
+                                                certificate.diploma_file_name || `${certificate.certificate_code || `degree-${index + 1}`}-diploma`,
+                                            )}
+                                            className="mt-3 min-h-10 rounded-lg bg-[#1D4ED8] px-4 text-sm font-bold text-white transition-colors hover:bg-blue-800"
+                                        >
+                                            Download Diploma
+                                        </button>
                                     </div>
                                 ) : (
                                     <p className="mt-4 text-sm text-slate-500">No diploma image is attached to this degree.</p>
@@ -139,6 +166,16 @@ export default function CertificateVerificationResult({
                         <a href={result.diploma_url} target="_blank" rel="noreferrer">
                             <img src={result.diploma_url} alt={`${result.degree || result.course_or_event || "Credential"} diploma`} className="max-h-[32rem] w-full object-contain" />
                         </a>
+                        <button
+                            type="button"
+                            onClick={() => void downloadDiploma(
+                                result.diploma_url!,
+                                result.diploma_file_name || `${result.certificate_code || "credential"}-diploma`,
+                            )}
+                            className="mt-3 min-h-10 rounded-lg bg-[#1D4ED8] px-4 text-sm font-bold text-white transition-colors hover:bg-blue-800"
+                        >
+                            Download Diploma
+                        </button>
                     </div>
                 )}
 
