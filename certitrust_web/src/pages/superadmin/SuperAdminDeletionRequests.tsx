@@ -148,13 +148,6 @@ export default function SuperAdminDeletionRequests() {
 
                 <div className="max-w-3xl mx-auto">
 
-                    <button
-                        type="button"
-                        onClick={() => navigate("/superadmin")}
-                        className="mb-5 inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 font-semibold text-slate-700 hover:bg-white"
-                    >
-                        <span aria-hidden="true">←</span> Back
-                    </button>
                     <h1 className="mb-8 text-3xl font-extrabold text-[#0A192F]">Deletion Requests</h1>
                     {error && <p role="alert" className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 

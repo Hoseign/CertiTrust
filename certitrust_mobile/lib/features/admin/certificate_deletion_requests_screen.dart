@@ -251,6 +251,17 @@ class _CertificateDeletionRequestsScreenState
         length: 2,
         child: Scaffold(
           appBar: AppBar(
+            leading: IconButton(
+              tooltip: 'Back',
+              onPressed: () {
+                if (context.canPop()) {
+                  context.pop();
+                } else {
+                  context.go('/admin-management');
+                }
+              },
+              icon: const Icon(Icons.arrow_back),
+            ),
             title: const Text('Deletion Requests'),
             bottom: const TabBar(
               tabs: [

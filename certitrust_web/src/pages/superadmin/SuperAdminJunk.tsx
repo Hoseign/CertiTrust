@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
 import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 import {
@@ -20,7 +19,6 @@ function sourceLabel(sourceValue: unknown) {
 }
 
 export default function SuperAdminJunk() {
-    const navigate = useNavigate();
     const [items, setItems] = useState<JunkItem[]>([]);
     const [search, setSearch] = useState("");
     const [isLoading, setIsLoading] = useState(true);
@@ -101,13 +99,6 @@ export default function SuperAdminJunk() {
             <SuperAdminSideBar />
             <main className="h-screen min-w-0 flex-1 overflow-y-auto p-5 md:p-10">
                 <div className="mx-auto max-w-5xl">
-                    <button
-                        type="button"
-                        onClick={() => navigate("/superadmin")}
-                        className="mb-5 inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 font-semibold text-slate-700 hover:bg-white"
-                    >
-                        <span aria-hidden="true">←</span> Back
-                    </button>
                     <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#2563EB]">Super Admin</p>
                     <h1 className="mt-2 text-3xl font-extrabold text-[#0A192F]">Junk / Recycle Bin</h1>
                     <p className="mt-3 max-w-3xl leading-7 text-slate-600">
