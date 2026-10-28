@@ -1,22 +1,52 @@
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import StudentSidebar from "@/Components/Organisms/StudentSidebar";
 import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
+import RecordFilterBar, { type RecordFilterValues } from "@/Components/Molecules/RecordFilterBar";
 import { useCertificates } from "../../hooks/useCertificates";
+import { getAcademicLevel } from "../../utils/academicLevel";
 
 export default function StudentRecords() {
     const navigate = useNavigate();
-    const [searchTerm, setSearchTerm] = useState("");
+    const [filters, setFilters] = useState<RecordFilterValues>({
+        academicLevel: "",
+        program: "",
+        year: "",
+        search: "",
+    });
     const [selectedCode, setSelectedCode] = useState<string | null>(null);
     const { certificates, loading, error } = useCertificates();
-    const filteredRecords = certificates.filter((certificate) => [
-        certificate.student_name,
-        certificate.student_id,
-        certificate.degree,
-        certificate.student_email,
-        certificate.certificate_code,
-    ].some((value) => value?.toLowerCase().includes(searchTerm.trim().toLowerCase())));
+    const programs = useMemo(
+        () => Array.from(new Set(certificates.map((certificate) => certificate.degree)))
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b)),
+        [certificates],
+    );
+    const years = useMemo(
+        () => Array.from(new Set(certificates.map((certificate) => certificate.issue_date.slice(0, 4))))
+            .filter((year) => /^\d{4}$/.test(year))
+            .sort((a, b) => b.localeCompare(a)),
+        [certificates],
+    );
+    const filteredRecords = useMemo(() => {
+        const query = filters.search.trim().toLowerCase();
+        return certificates.filter((certificate) => {
+            const matchesLevel = !filters.academicLevel ||
+                getAcademicLevel(certificate.degree) === filters.academicLevel;
+            const matchesProgram = !filters.program || certificate.degree === filters.program;
+            const matchesYear = !filters.year || certificate.issue_date.slice(0, 4) === filters.year;
+            const matchesSearch = !query || [
+                certificate.student_name,
+                certificate.student_id,
+                certificate.degree,
+                certificate.student_email,
+                certificate.certificate_code,
+                certificate.cert_hash,
+            ].some((value) => value?.toLowerCase().includes(query));
+            return matchesLevel && matchesProgram && matchesYear && matchesSearch;
+        });
+    }, [certificates, filters]);
     const record = filteredRecords.find((certificate) => certificate.certificate_code === selectedCode)
         || filteredRecords[0];
 
@@ -57,32 +87,13 @@ export default function StudentRecords() {
                         </p>
                     </div>
 
-                    {/* Search Credentials */}
-                    <div className="mb-6">
-                        <label
-                            htmlFor="credential-search"
-                            className="mb-2 block text-sm font-medium text-gray-700"
-                        >
-                            Search credentials
-                        </label>
-
-                        <div className="relative">
-                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg text-gray-400">
-                                ⌕
-                            </span>
-
-                            <input
-                                id="credential-search"
-                                type="text"
-                                value={searchTerm}
-                                onChange={(event) =>
-                                    setSearchTerm(event.target.value)
-                                }
-                                placeholder="Search name, student ID, program, or certificate code..."
-                                className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-11 pr-4 text-sm text-gray-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                            />
-                        </div>
-                    </div>
+                    <RecordFilterBar
+                        value={filters}
+                        onChange={setFilters}
+                        programs={programs}
+                        years={years}
+                        searchPlaceholder="Search credentials by student name, ID, or certificate hash..."
+                    />
 
                     {/* Certificate Record */}
                     {loading ? <CertiTrustLoadingIndicator size={32} message="Loading your records..." className="w-full py-12 text-sm text-slate-500" /> : error ? (

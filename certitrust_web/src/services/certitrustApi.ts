@@ -13,6 +13,8 @@ export type CertificateRecord = {
     issue_date: string;
     status: string;
     cert_hash: string;
+    university_code?: string | null;
+    university_name?: string | null;
     created_at?: string;
     diploma_url?: string | null;
     diploma_file_name?: string | null;

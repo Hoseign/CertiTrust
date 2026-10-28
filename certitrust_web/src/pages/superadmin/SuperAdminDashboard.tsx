@@ -87,6 +87,12 @@ function StatIcon({ type }: { type: string }) {
 
 export default function SuperAdminDashboard() {
     const [historyOpen, setHistoryOpen] = useState(false);
+    const [historyFilters, setHistoryFilters] = useState({
+        university: "",
+        action: "",
+        year: "",
+        search: "",
+    });
     const [overview, setOverview] = useState<Record<string, unknown> | null>(null);
     const [actionHistory, setActionHistory] = useState<Record<string, unknown>[]>([]);
     const [loading, setLoading] = useState(true);
@@ -98,6 +104,34 @@ export default function SuperAdminDashboard() {
         label: string;
         items: Record<string, unknown>[];
     } | null>(null);
+
+    const historyUniversities = Array.from(new Set(actionHistory
+        .map((item) => String(item.university_code ?? ""))
+        .filter(Boolean))).sort();
+    const historyActions = Array.from(new Set(actionHistory
+        .map((item) => String(item.action ?? ""))
+        .filter(Boolean))).sort();
+    const historyYears = Array.from(new Set(actionHistory
+        .map((item) => String(item.created_at ?? "").slice(0, 4))
+        .filter((year) => /^\d{4}$/.test(year)))).sort((a, b) => b.localeCompare(a));
+    const visibleActionHistory = actionHistory.filter((item) => {
+        const query = historyFilters.search.trim().toLowerCase();
+        const action = String(item.action ?? "");
+        const university = String(item.university_code ?? "");
+        const year = String(item.created_at ?? "").slice(0, 4);
+        const searchable = [
+            action,
+            item.actor_email,
+            item.target_email,
+            item.details,
+            university,
+            item.created_at,
+        ].map((value) => String(value ?? "").toLowerCase());
+        return (!historyFilters.university || university === historyFilters.university) &&
+            (!historyFilters.action || action === historyFilters.action) &&
+            (!historyFilters.year || year === historyFilters.year) &&
+            (!query || searchable.some((value) => value.includes(query)));
+    });
 
     const refresh = async (silent = false) => {
         if (!silent) setLoading(true);
@@ -472,14 +506,92 @@ export default function SuperAdminDashboard() {
                             onClick={() => setHistoryOpen(false)}
                         />
 
-                        <div className="relative w-full max-w-md max-h-[90vh] flex flex-col bg-[#E9EBF1] rounded-3xl shadow-2xl p-8">
+                        <div className="relative w-full max-w-3xl max-h-[90vh] flex flex-col bg-[#E9EBF1] rounded-3xl shadow-2xl p-6 sm:p-8">
 
                             <h2 className="text-3xl font-normal text-[#0A192F] leading-tight mb-6">
                                 Super Admin Action History
                             </h2>
 
+                            <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <label className="text-sm font-semibold text-slate-700">
+                                    University
+                                    <select
+                                        value={historyFilters.university}
+                                        onChange={(event) => setHistoryFilters((current) => ({
+                                            ...current,
+                                            university: event.target.value,
+                                        }))}
+                                        className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 font-normal"
+                                    >
+                                        <option value="">All Universities</option>
+                                        {historyUniversities.map((university) => (
+                                            <option key={university} value={university}>{university}</option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <label className="text-sm font-semibold text-slate-700">
+                                    Action
+                                    <select
+                                        value={historyFilters.action}
+                                        onChange={(event) => setHistoryFilters((current) => ({
+                                            ...current,
+                                            action: event.target.value,
+                                        }))}
+                                        className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 font-normal"
+                                    >
+                                        <option value="">All Actions</option>
+                                        {historyActions.map((action) => (
+                                            <option key={action} value={action}>{action.replaceAll("_", " ")}</option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <label className="text-sm font-semibold text-slate-700">
+                                    Year
+                                    <select
+                                        value={historyFilters.year}
+                                        onChange={(event) => setHistoryFilters((current) => ({
+                                            ...current,
+                                            year: event.target.value,
+                                        }))}
+                                        className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 font-normal"
+                                    >
+                                        <option value="">All Years</option>
+                                        {historyYears.map((year) => (
+                                            <option key={year} value={year}>{year}</option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <label className="text-sm font-semibold text-slate-700">
+                                    Search audit history
+                                    <input
+                                        type="search"
+                                        value={historyFilters.search}
+                                        onChange={(event) => setHistoryFilters((current) => ({
+                                            ...current,
+                                            search: event.target.value,
+                                        }))}
+                                        placeholder="Action, administrator, email, or details"
+                                        className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 font-normal"
+                                    />
+                                </label>
+                                {(historyFilters.university || historyFilters.action || historyFilters.year || historyFilters.search) && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setHistoryFilters({
+                                            university: "",
+                                            action: "",
+                                            year: "",
+                                            search: "",
+                                        })}
+                                        className="min-h-10 justify-self-start rounded-lg px-3 text-sm font-semibold text-blue-700 hover:bg-white/70 sm:col-span-2"
+                                    >
+                                        Reset filters
+                                    </button>
+                                )}
+                            </div>
+
                             <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-                                {actionHistory.map((item, index) => (
+                                {visibleActionHistory.map((item, index) => (
                                     <div
                                         key={String(item.id || index)}
                                         className={`py-5 ${index !== actionHistory.length - 1
@@ -500,6 +612,13 @@ export default function SuperAdminDashboard() {
                                         </p>
                                     </div>
                                 ))}
+                                {visibleActionHistory.length === 0 && (
+                                    <p className="py-6 text-sm text-slate-600">
+                                        {actionHistory.length
+                                            ? "No audit entries match the selected filters."
+                                            : "No administrative actions have been recorded yet."}
+                                    </p>
+                                )}
                             </div>
 
                             <div className="flex justify-end mt-6">

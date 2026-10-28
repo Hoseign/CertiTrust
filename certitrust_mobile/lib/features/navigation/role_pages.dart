@@ -23,7 +23,11 @@ class _RecordsScreenState extends State<RecordsScreen>
   bool _isRefreshing = false;
   bool _isRevoking = false;
   bool _isAppActive = true;
-  String _selectedRecordFilter = 'all';
+  String _selectedAcademicLevel = '';
+  String? _selectedProgram;
+  int? _selectedDegreeNumber;
+  String? _selectedStatus;
+  String? _selectedUniversityCode;
   String? _selectedBatchYear;
   bool _showMultipleDegreeOrganizer = false;
   String? _selectedMultiDegreeStudent;
@@ -218,12 +222,12 @@ class _RecordsScreenState extends State<RecordsScreen>
         acronym.startsWith('mpa') ||
         acronym.startsWith('mph') ||
         acronym.startsWith('mfa')) {
-      return 'masteral';
+      return 'masters';
     }
     if (degree.contains('doctor') ||
         const ['phd', 'edd', 'dba', 'dpa', 'deng', 'md', 'jd']
             .any((code) => acronym == code || acronym.startsWith(code))) {
-      return 'doctoral';
+      return 'doctorate';
     }
     if (degree.contains('bachelor') ||
         acronym.startsWith('bs') ||
@@ -242,35 +246,21 @@ class _RecordsScreenState extends State<RecordsScreen>
   }
 
   bool _matchesRecordFilter(
-    Map<String, dynamic> record, {
-    required Set<String> multipleDegreeStudentKeys,
-  }) {
-    if (_selectedRecordFilter == 'all') return true;
-    if (_selectedRecordFilter == 'multiple') {
-      final key = _studentGroupKey(record);
-      return key != null && multipleDegreeStudentKeys.contains(key);
-    }
-    if (_selectedRecordFilter.startsWith('ordinal:')) {
-      return _degreeNumber(record) ==
-          int.tryParse(_selectedRecordFilter.substring('ordinal:'.length));
-    }
-    if (_selectedRecordFilter.startsWith('type:')) {
-      return _degreeType(record) ==
-          _selectedRecordFilter.substring('type:'.length);
-    }
-    if (_selectedRecordFilter.startsWith('program:')) {
-      return (record['degree'] ?? record['course_or_event'])?.toString() ==
-          _selectedRecordFilter.substring('program:'.length);
-    }
-    return true;
-  }
+    Map<String, dynamic> record,
+  ) {
+    final program =
+        (record['degree'] ?? record['course_or_event'])?.toString() ?? '';
+    final status = record['status']?.toString() ?? '';
+    final universityCode = record['university_code']?.toString() ?? '';
 
-  void _selectRecordFilter(String filter) {
-    setState(() {
-      _showMultipleDegreeOrganizer = false;
-      _selectedMultiDegreeStudent = null;
-      _selectedRecordFilter = filter;
-    });
+    return (_selectedAcademicLevel.isEmpty ||
+            _degreeType(record) == _selectedAcademicLevel) &&
+        (_selectedProgram == null || program == _selectedProgram) &&
+        (_selectedDegreeNumber == null ||
+            _degreeNumber(record) == _selectedDegreeNumber) &&
+        (_selectedStatus == null || status == _selectedStatus) &&
+        (_selectedUniversityCode == null ||
+            universityCode == _selectedUniversityCode);
   }
 
   String? _studentGroupKey(Map<String, dynamic> record) {
@@ -493,14 +483,11 @@ class _RecordsScreenState extends State<RecordsScreen>
                 _canOrganizeMultipleDegrees
                     ? _multipleDegreeGroups(allRecords)
                     : {};
-            final multipleDegreeStudentKeys = multipleDegreeGroups.keys.toSet();
             if (_selectedMultiDegreeStudent != null &&
                 !multipleDegreeGroups
                     .containsKey(_selectedMultiDegreeStudent)) {
               _selectedMultiDegreeStudent = null;
             }
-            final degreeNumbers = allRecords.map(_degreeNumber).toSet().toList()
-              ..sort();
             final programs = allRecords
                 .map((record) => (record['degree'] ?? record['course_or_event'])
                     ?.toString()
@@ -510,17 +497,31 @@ class _RecordsScreenState extends State<RecordsScreen>
                 .toSet()
                 .toList()
               ..sort();
-            final degreeFilteredRecords = _isSchoolAdmin &&
-                    !_showMultipleDegreeOrganizer
-                ? searchedRecords
-                    .where((record) => _matchesRecordFilter(
-                          record,
-                          multipleDegreeStudentKeys: multipleDegreeStudentKeys,
-                        ))
-                    .toList()
-                : searchedRecords;
-            final visibleRecords = ApiService.authRole != 'student' &&
-                    !_showMultipleDegreeOrganizer &&
+            final degreeNumbers = allRecords.map(_degreeNumber).toSet().toList()
+              ..sort();
+            final batchYears = allRecords.map(_batchYear).toSet().toList()
+              ..sort((a, b) {
+                final yearA = int.tryParse(a) ?? -1;
+                final yearB = int.tryParse(b) ?? -1;
+                return yearB.compareTo(yearA);
+              });
+            final statuses = allRecords
+                .map((record) => record['status']?.toString().trim())
+                .whereType<String>()
+                .where((status) => status.isNotEmpty)
+                .toSet()
+                .toList()
+              ..sort();
+            final universityCodes = allRecords
+                .map((record) => record['university_code']?.toString().trim())
+                .whereType<String>()
+                .where((code) => code.isNotEmpty)
+                .toSet()
+                .toList()
+              ..sort();
+            final degreeFilteredRecords =
+                searchedRecords.where(_matchesRecordFilter).toList();
+            final visibleRecords = !_showMultipleDegreeOrganizer &&
                     _selectedBatchYear != null
                 ? degreeFilteredRecords
                     .where((record) => _batchYear(record) == _selectedBatchYear)
@@ -536,26 +537,48 @@ class _RecordsScreenState extends State<RecordsScreen>
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    ChoiceChip(
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.account_tree_outlined),
                       label: Text(
                           'Students with multiple degrees (${multipleDegreeGroups.length})'),
-                      selected: _showMultipleDegreeOrganizer,
-                      onSelected: (selected) => setState(() {
-                        _showMultipleDegreeOrganizer = selected;
-                        if (!selected) _selectedMultiDegreeStudent = null;
+                      onPressed: () => setState(() {
+                        _showMultipleDegreeOrganizer =
+                            !_showMultipleDegreeOrganizer;
+                        if (!_showMultipleDegreeOrganizer) {
+                          _selectedMultiDegreeStudent = null;
+                        }
                       }),
                     ),
                     if (_showMultipleDegreeOrganizer)
-                      for (final entry in multipleDegreeGroups.entries)
-                        ChoiceChip(
-                          label: Text(
-                            '${entry.value.first['student_name'] ?? entry.value.first['recipient_name'] ?? 'Student'} '
-                            '(${entry.value.length} credentials)',
+                      SizedBox(
+                        width: 360,
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _selectedMultiDegreeStudent ?? '',
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Select student',
+                            border: OutlineInputBorder(),
                           ),
-                          selected: _selectedMultiDegreeStudent == entry.key,
-                          onSelected: (_) => setState(
-                              () => _selectedMultiDegreeStudent = entry.key),
+                          items: [
+                            const DropdownMenuItem(
+                              value: '',
+                              child: Text('Choose a student'),
+                            ),
+                            for (final entry in multipleDegreeGroups.entries)
+                              DropdownMenuItem(
+                                value: entry.key,
+                                child: Text(
+                                  '${entry.value.first['student_name'] ?? entry.value.first['recipient_name'] ?? 'Student'} (${entry.value.length} credentials)',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: (value) => setState(() {
+                            _selectedMultiDegreeStudent =
+                                value == null || value.isEmpty ? null : value;
+                          }),
                         ),
+                      ),
                   ],
                 ),
               );
@@ -624,84 +647,248 @@ class _RecordsScreenState extends State<RecordsScreen>
                 ));
               }
             }
-            if (_isSchoolAdmin) {
-              content.add(_sectionHeader('Filter certificate records'));
-              content.add(
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    ChoiceChip(
-                      label: const Text('All records'),
-                      selected: _selectedRecordFilter == 'all',
-                      onSelected: (_) => _selectRecordFilter('all'),
-                    ),
-                    if (multipleDegreeGroups.isNotEmpty)
-                      ChoiceChip(
-                        label: Text(
-                            'Multiple degrees (${multipleDegreeGroups.length} students)'),
-                        selected: _selectedRecordFilter == 'multiple',
-                        onSelected: (_) => _selectRecordFilter('multiple'),
-                      ),
-                    for (final option in const [
-                      ('type:masteral', 'Masteral'),
-                      ('type:doctoral', 'Doctoral'),
-                      ('type:bachelors', "Bachelor's"),
-                    ])
-                      ChoiceChip(
-                        label: Text(option.$2),
-                        selected: _selectedRecordFilter == option.$1,
-                        onSelected: (_) => _selectRecordFilter(option.$1),
-                      ),
-                    for (final degreeNumber in degreeNumbers)
-                      ChoiceChip(
-                        label: Text('${_ordinal(degreeNumber)} degree'),
-                        selected:
-                            _selectedRecordFilter == 'ordinal:$degreeNumber',
-                        onSelected: (_) =>
-                            _selectRecordFilter('ordinal:$degreeNumber'),
-                      ),
-                    for (final program in programs)
-                      ChoiceChip(
-                        label: Text(program),
-                        selected: _selectedRecordFilter == 'program:$program',
-                        onSelected: (_) =>
-                            _selectRecordFilter('program:$program'),
-                      ),
-                  ],
+            if (!_showMultipleDegreeOrganizer) {
+              Widget buildFilterField({
+                required String label,
+                required String value,
+                required List<DropdownMenuItem<String>> items,
+                required ValueChanged<String?> onChanged,
+              }) {
+                return DropdownButtonFormField<String>(
+                  key: ValueKey(value),
+                  initialValue: value,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: label,
+                    border: const OutlineInputBorder(),
+                  ),
+                  items: items,
+                  onChanged: onChanged,
+                );
+              }
+
+              final width = MediaQuery.sizeOf(context).width;
+              final fieldWidth = width >= 1100
+                  ? (width - 72) / 4
+                  : width >= 700
+                      ? (width - 56) / 2
+                      : width - 48;
+              final allYears = [
+                const DropdownMenuItem(value: '', child: Text('All Years')),
+                for (final year in batchYears)
+                  DropdownMenuItem(value: year, child: Text(year)),
+              ];
+              final academicLevels = const [
+                DropdownMenuItem(value: '', child: Text('All Levels')),
+                DropdownMenuItem(
+                  value: 'bachelors',
+                  child: Text("Undergraduate / Bachelor's"),
                 ),
-              );
-            }
-            if (ApiService.authRole != 'student' &&
-                !_showMultipleDegreeOrganizer) {
-              final batchYears = allRecords.map(_batchYear).toSet().toList()
-                ..sort((a, b) {
-                  final yearA = int.tryParse(a) ?? -1;
-                  final yearB = int.tryParse(b) ?? -1;
-                  return yearB.compareTo(yearA);
-                });
-              content.add(_sectionHeader('Record batch year'));
-              content.add(
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      ChoiceChip(
-                        label: const Text('All years'),
-                        selected: _selectedBatchYear == null,
-                        onSelected: (_) =>
-                            setState(() => _selectedBatchYear = null),
-                      ),
-                      for (final year in batchYears)
-                        ChoiceChip(
-                          label: Text(year),
-                          selected: _selectedBatchYear == year,
-                          onSelected: (_) =>
-                              setState(() => _selectedBatchYear = year),
+                DropdownMenuItem(
+                  value: 'masters',
+                  child: Text("Master's Degree"),
+                ),
+                DropdownMenuItem(
+                  value: 'doctorate',
+                  child: Text('Doctorate / Ph.D.'),
+                ),
+              ];
+
+              content.insert(
+                0,
+                Card(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextField(
+                          controller: _searchController,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(
+                            prefixIcon: Icon(Icons.search),
+                            labelText: 'Search credentials',
+                            hintText:
+                                'Search by student name, ID, or certificate hash',
+                            border: OutlineInputBorder(),
+                          ),
                         ),
-                    ],
+                        ExpansionTile(
+                          title: const Text('Filter certificate records'),
+                          childrenPadding:
+                              const EdgeInsets.fromLTRB(0, 0, 0, 12),
+                          children: [
+                            SizedBox(
+                              height: MediaQuery.sizeOf(context).height * 0.45,
+                              child: SingleChildScrollView(
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                                  child: Column(
+                                    children: [
+                                      Wrap(
+                                    spacing: 12,
+                                    runSpacing: 12,
+                                    children: [
+                                      SizedBox(
+                                        width: fieldWidth,
+                                        child: buildFilterField(
+                                          label: 'Academic Level',
+                                          value: _selectedAcademicLevel,
+                                          items: academicLevels,
+                                          onChanged: (value) => setState(() {
+                                            _selectedAcademicLevel =
+                                                value ?? '';
+                                          }),
+                                        ),
+                                      ),
+                                      SizedBox(
+                                        width: fieldWidth,
+                                        child: buildFilterField(
+                                          label: 'Program / Degree Title',
+                                          value: _selectedProgram ?? '',
+                                          items: [
+                                            const DropdownMenuItem(
+                                              value: '',
+                                              child: Text('All Programs'),
+                                            ),
+                                            for (final program in programs)
+                                              DropdownMenuItem(
+                                                value: program,
+                                                child: Text(
+                                                  program,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                          ],
+                                          onChanged: (value) => setState(() {
+                                            _selectedProgram =
+                                                value == null || value.isEmpty
+                                                    ? null
+                                                    : value;
+                                          }),
+                                        ),
+                                      ),
+                                      SizedBox(
+                                        width: fieldWidth,
+                                        child: buildFilterField(
+                                          label: 'Batch / Academic Year',
+                                          value: _selectedBatchYear ?? '',
+                                          items: allYears,
+                                          onChanged: (value) => setState(() {
+                                            _selectedBatchYear =
+                                                value == null || value.isEmpty
+                                                    ? null
+                                                    : value;
+                                          }),
+                                        ),
+                                      ),
+                                      SizedBox(
+                                        width: fieldWidth,
+                                        child: buildFilterField(
+                                          label: 'Degree Sequence',
+                                          value: _selectedDegreeNumber
+                                                  ?.toString() ??
+                                              '',
+                                          items: [
+                                            const DropdownMenuItem(
+                                              value: '',
+                                              child: Text('All Degrees'),
+                                            ),
+                                            for (final number in degreeNumbers)
+                                              DropdownMenuItem(
+                                                value: number.toString(),
+                                                child:
+                                                    Text('Credential #$number'),
+                                              ),
+                                          ],
+                                          onChanged: (value) => setState(() {
+                                            _selectedDegreeNumber =
+                                                value == null || value.isEmpty
+                                                    ? null
+                                                    : int.tryParse(value);
+                                          }),
+                                        ),
+                                      ),
+                                      SizedBox(
+                                        width: fieldWidth,
+                                        child: buildFilterField(
+                                          label: 'Verification Status',
+                                          value: _selectedStatus ?? '',
+                                          items: [
+                                            const DropdownMenuItem(
+                                              value: '',
+                                              child: Text('All Statuses'),
+                                            ),
+                                            for (final status in statuses)
+                                              DropdownMenuItem(
+                                                value: status,
+                                                child: Text(status),
+                                              ),
+                                          ],
+                                          onChanged: (value) => setState(() {
+                                            _selectedStatus =
+                                                value == null || value.isEmpty
+                                                    ? null
+                                                    : value;
+                                          }),
+                                        ),
+                                      ),
+                                      if (ApiService.isSuperAdmin)
+                                        SizedBox(
+                                          width: fieldWidth,
+                                          child: buildFilterField(
+                                            label: 'University',
+                                            value:
+                                                _selectedUniversityCode ?? '',
+                                            items: [
+                                              const DropdownMenuItem(
+                                                value: '',
+                                                child: Text('All Universities'),
+                                              ),
+                                              for (final code
+                                                  in universityCodes)
+                                                DropdownMenuItem(
+                                                  value: code,
+                                                  child: Text(code),
+                                                ),
+                                            ],
+                                            onChanged: (value) => setState(() {
+                                              _selectedUniversityCode =
+                                                  value == null || value.isEmpty
+                                                      ? null
+                                                      : value;
+                                            }),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: TextButton(
+                                          onPressed: () => setState(() {
+                                            _searchController.clear();
+                                            _selectedAcademicLevel = '';
+                                            _selectedProgram = null;
+                                            _selectedBatchYear = null;
+                                            _selectedDegreeNumber = null;
+                                            _selectedStatus = null;
+                                            _selectedUniversityCode = null;
+                                          }),
+                                          child: const Text('Reset filters'),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               );
@@ -750,22 +937,9 @@ class _RecordsScreenState extends State<RecordsScreen>
               ));
             }
             return Column(children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    labelText: 'Search credentials',
-                    hintText: 'Name, ID, email, degree, hash or code',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ),
               Expanded(
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  padding: const EdgeInsets.all(16),
                   children: content,
                 ),
               ),

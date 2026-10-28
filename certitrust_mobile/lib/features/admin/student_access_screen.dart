@@ -27,14 +27,13 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
   late Future<Map<String, dynamic>> _studentsFuture;
   Timer? _refreshTimer;
   String? _selectedBatchYear;
-  String? _selectedDegree;
+  String _selectedAcademicLevel = '';
+  String? _selectedProgram;
+  int? _selectedDegreeNumber;
+  bool _showMultipleDegrees = false;
   bool _isUpdating = false;
   bool _isRefreshing = false;
   bool _isAppActive = true;
-
-  static const _masteralFilter = '@type:Masteral';
-  static const _doctoralFilter = '@type:Doctoral';
-  static const _multipleDegreesFilter = '@multiple-degrees';
 
   @override
   void initState() {
@@ -255,128 +254,64 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
   }
 
   bool _matchesDegreeFilter(Map<String, dynamic> student) {
-    final filter = _selectedDegree;
-    if (filter == null) return true;
     final credentials = _credentialsFor(student);
-    if (filter == _multipleDegreesFilter) return credentials.length > 1;
-    if (filter.startsWith('@number:')) {
-      final degreeNumber = int.tryParse(filter.substring('@number:'.length));
-      return degreeNumber != null &&
-          credentials.any(
-            (credential) =>
-                int.tryParse(
-                  credential['degree_number']?.toString() ?? '',
-                ) ==
-                degreeNumber,
-          );
+    if (_showMultipleDegrees && credentials.length < 2) return false;
+    if (_selectedAcademicLevel.isEmpty &&
+        _selectedProgram == null &&
+        _selectedDegreeNumber == null) {
+      return true;
     }
-    if (filter.startsWith('@type:')) {
-      final type = filter.substring('@type:'.length);
-      return credentials
-          .any((credential) => credential['degree_type']?.toString() == type);
-    }
-    if (filter.startsWith('program:')) {
-      final program = filter.substring('program:'.length);
-      return credentials.any(
-        (credential) => credential['degree']?.toString() == program,
-      );
-    }
-    return true;
+    return credentials.any((credential) {
+      final degree = credential['degree']?.toString() ?? '';
+      final type = (credential['degree_type']?.toString() ?? '').toLowerCase();
+      final level = type.contains('master')
+          ? 'masters'
+          : type.contains('doctor') || type.contains('phd')
+              ? 'doctorate'
+              : type.contains('bachelor') || type.contains('undergraduate')
+                  ? 'bachelors'
+                  : _inferAcademicLevel(degree);
+      final degreeNumber =
+          int.tryParse(credential['degree_number']?.toString() ?? '');
+      return (_selectedAcademicLevel.isEmpty ||
+              level == _selectedAcademicLevel) &&
+          (_selectedProgram == null || degree == _selectedProgram) &&
+          (_selectedDegreeNumber == null ||
+              degreeNumber == _selectedDegreeNumber);
+    });
   }
 
-  String _degreeFilterLabel(String? filter) {
-    if (filter == null) return 'All degrees';
-    if (filter == _masteralFilter) return 'Masteral';
-    if (filter == _doctoralFilter) return 'Doctoral';
-    if (filter == _multipleDegreesFilter) return 'Multiple degrees';
-    if (filter.startsWith('@number:')) {
-      final number = int.tryParse(filter.substring('@number:'.length)) ?? 1;
-      return '${_ordinal(number)} degree';
-    }
-    if (filter.startsWith('program:')) return filter.substring(8);
-    return 'All degrees';
-  }
-
-  Future<void> _selectDegreeFilter(
-    List<String> degrees,
-    int highestDegreeNumber,
-  ) async {
-    final options = <(String, String)>[
-      ('@all', 'All degrees'),
-      (_masteralFilter, 'Masteral'),
-      (_doctoralFilter, 'Doctoral'),
-      (_multipleDegreesFilter, 'Multiple degrees'),
-      for (var number = 1; number <= highestDegreeNumber; number++)
-        ('@number:$number', '${_ordinal(number)} degree'),
-      for (final degree in degrees) ('program:$degree', degree),
-    ];
-    final selected = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) {
-        var query = '';
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            final visibleOptions = options
-                .where((option) =>
-                    option.$2.toLowerCase().contains(query.toLowerCase()))
-                .toList();
-            return SafeArea(
-              child: SizedBox(
-                height: MediaQuery.sizeOf(context).height * 0.7,
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: TextField(
-                        autofocus: true,
-                        decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.search),
-                          labelText: 'Search degree or program',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (value) =>
-                            setSheetState(() => query = value.trim()),
-                      ),
-                    ),
-                    Expanded(
-                      child: visibleOptions.isEmpty
-                          ? const Center(child: Text('No matching options.'))
-                          : ListView.builder(
-                              itemCount: visibleOptions.length,
-                              itemBuilder: (context, index) {
-                                final option = visibleOptions[index];
-                                return ListTile(
-                                  title: Text(option.$2),
-                                  selected: _selectedDegree == option.$1 ||
-                                      (_selectedDegree == null &&
-                                          option.$1 == '@all'),
-                                  onTap: () =>
-                                      Navigator.pop(sheetContext, option.$1),
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
+  String _inferAcademicLevel(String degree) {
+    final normalized = degree.toLowerCase().replaceAll(
+          RegExp(r'[^a-z0-9]'),
+          '',
         );
-      },
-    );
-    if (selected == null || !mounted) return;
-    setState(() => _selectedDegree = selected == '@all' ? null : selected);
+    if (degree.toLowerCase().contains('master') ||
+        RegExp(r'^(mba|ma|ms|mpa|mph|mfa)').hasMatch(normalized)) {
+      return 'masters';
+    }
+    if (degree.toLowerCase().contains('doctor') ||
+        const ['phd', 'edd', 'dba', 'dpa', 'deng', 'md', 'jd']
+            .any(normalized.startsWith)) {
+      return 'doctorate';
+    }
+    if (degree.toLowerCase().contains('bachelor') ||
+        RegExp(r'^(bs|ba|beed|bsed|bshm|bstm|bsn|bsa)').hasMatch(normalized)) {
+      return 'bachelors';
+    }
+    return 'other';
   }
 
-  String _ordinal(int number) {
-    if (number % 100 >= 11 && number % 100 <= 13) return '${number}th';
-    return switch (number % 10) {
-      1 => '${number}st',
-      2 => '${number}nd',
-      3 => '${number}rd',
-      _ => '${number}th',
-    };
+  String _credentialLevelLabel(Map<String, dynamic> credential) {
+    final type = (credential['degree_type']?.toString() ?? '').toLowerCase();
+    if (type.contains('master')) return "Master's Degree";
+    if (type.contains('doctor') || type.contains('phd')) {
+      return 'Doctorate / Ph.D.';
+    }
+    if (type.contains('bachelor') || type.contains('undergraduate')) {
+      return "Undergraduate / Bachelor's";
+    }
+    return 'Other';
   }
 
   String _studentSubtitle(Map<String, dynamic> student) {
@@ -384,7 +319,7 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
     return [
       student['email']?.toString() ?? 'No email',
       for (var index = 0; index < credentials.length; index++)
-        '${_ordinal(int.tryParse(credentials[index]['degree_number']?.toString() ?? '') ?? index + 1)} degree: ${credentials[index]['degree'] ?? 'Degree not recorded'} (${credentials[index]['degree_type'] ?? 'Other'})',
+        'Credential #${int.tryParse(credentials[index]['degree_number']?.toString() ?? '') ?? index + 1}: ${credentials[index]['degree'] ?? 'Degree not recorded'} (${_credentialLevelLabel(credentials[index])})',
       if (credentials.length > 1) 'Multiple degrees: ${credentials.length}',
       'Batch: ${student['batch_year'] ?? 'Year unavailable'}',
       if (student['is_frozen'] == true)
@@ -452,14 +387,15 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
                 .toSet()
                 .toList()
               ..sort();
-            final highestDegreeNumber = students
+            final degreeNumbers = students
                 .expand((student) => _credentialsFor(student))
                 .map((credential) =>
                     int.tryParse(
                         credential['degree_number']?.toString() ?? '') ??
                     1)
-                .fold<int>(1,
-                    (highest, number) => number > highest ? number : highest);
+                .toSet()
+                .toList()
+              ..sort();
             final query = _searchController.text.trim().toLowerCase();
             final visibleStudents = students.where((student) {
               final year =
@@ -518,59 +454,182 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
                   ),
                 ],
                 const SizedBox(height: 16),
-                TextField(
-                  controller: _searchController,
-                  onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    labelText: 'Search students or credentials',
-                    hintText:
-                        'Name, Gmail, student ID, degree or certificate code',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                if (batchYears.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    'Student batch year',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: 8),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
                       children: [
-                        ChoiceChip(
-                          label: const Text('All batches'),
-                          selected: _selectedBatchYear == null,
-                          onSelected: (_) =>
-                              setState(() => _selectedBatchYear = null),
-                        ),
-                        const SizedBox(width: 8),
-                        for (final year in batchYears) ...[
-                          ChoiceChip(
-                            label: Text(year),
-                            selected: _selectedBatchYear == year,
-                            onSelected: (_) =>
-                                setState(() => _selectedBatchYear = year),
+                        TextField(
+                          controller: _searchController,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(
+                            prefixIcon: Icon(Icons.search),
+                            labelText: 'Search students or credentials',
+                            hintText:
+                                'Name, email, student ID, program, or certificate code',
+                            border: OutlineInputBorder(),
                           ),
-                          const SizedBox(width: 8),
-                        ],
+                        ),
+                        ExpansionTile(
+                          title: const Text('Filter student records'),
+                          childrenPadding:
+                              const EdgeInsets.fromLTRB(0, 0, 0, 12),
+                          children: [
+                            SizedBox(
+                              height: MediaQuery.sizeOf(context).height * 0.45,
+                              child: SingleChildScrollView(
+                                child: Column(
+                                  children: [
+                                    DropdownButtonFormField<String>(
+                                      key: ValueKey(_selectedAcademicLevel),
+                                      initialValue: _selectedAcademicLevel,
+                                      isExpanded: true,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Academic Level',
+                                        border: OutlineInputBorder(),
+                                      ),
+                                      items: const [
+                                        DropdownMenuItem(
+                                          value: '',
+                                          child: Text('All Levels'),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: 'bachelors',
+                                          child: Text(
+                                              "Undergraduate / Bachelor's"),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: 'masters',
+                                          child: Text("Master's Degree"),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: 'doctorate',
+                                          child: Text('Doctorate / Ph.D.'),
+                                        ),
+                                      ],
+                                      onChanged: (value) => setState(
+                                        () => _selectedAcademicLevel =
+                                            value ?? '',
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    DropdownButtonFormField<String>(
+                                      key: ValueKey(_selectedProgram ?? ''),
+                                      initialValue: _selectedProgram ?? '',
+                                      isExpanded: true,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Program / Degree Title',
+                                        border: OutlineInputBorder(),
+                                      ),
+                                      items: [
+                                        const DropdownMenuItem(
+                                          value: '',
+                                          child: Text('All Programs'),
+                                        ),
+                                        for (final degree in degrees)
+                                          DropdownMenuItem(
+                                            value: degree,
+                                            child: Text(
+                                              degree,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                      ],
+                                      onChanged: (value) => setState(
+                                        () => _selectedProgram =
+                                            value == null || value.isEmpty
+                                                ? null
+                                                : value,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    DropdownButtonFormField<String>(
+                                      key: ValueKey(_selectedBatchYear ?? ''),
+                                      initialValue: _selectedBatchYear ?? '',
+                                      isExpanded: true,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Batch / Academic Year',
+                                        border: OutlineInputBorder(),
+                                      ),
+                                      items: [
+                                        const DropdownMenuItem(
+                                          value: '',
+                                          child: Text('All Years'),
+                                        ),
+                                        for (final year in batchYears)
+                                          DropdownMenuItem(
+                                            value: year,
+                                            child: Text(year),
+                                          ),
+                                      ],
+                                      onChanged: (value) => setState(
+                                        () => _selectedBatchYear =
+                                            value == null || value.isEmpty
+                                                ? null
+                                                : value,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    DropdownButtonFormField<String>(
+                                      key: ValueKey(
+                                          _selectedDegreeNumber?.toString() ??
+                                              ''),
+                                      initialValue:
+                                          _selectedDegreeNumber?.toString() ??
+                                              '',
+                                      isExpanded: true,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Degree Sequence',
+                                        border: OutlineInputBorder(),
+                                      ),
+                                      items: [
+                                        const DropdownMenuItem(
+                                          value: '',
+                                          child: Text('All Degrees'),
+                                        ),
+                                        for (final number in degreeNumbers)
+                                          DropdownMenuItem(
+                                            value: number.toString(),
+                                            child: Text('Credential #$number'),
+                                          ),
+                                      ],
+                                      onChanged: (value) => setState(
+                                        () => _selectedDegreeNumber =
+                                            value == null || value.isEmpty
+                                                ? null
+                                                : int.tryParse(value),
+                                      ),
+                                    ),
+                                    SwitchListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      title: const Text(
+                                          'Only students with multiple degrees'),
+                                      value: _showMultipleDegrees,
+                                      onChanged: (value) => setState(
+                                          () => _showMultipleDegrees = value),
+                                    ),
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: TextButton(
+                                        onPressed: () => setState(() {
+                                          _searchController.clear();
+                                          _selectedAcademicLevel = '';
+                                          _selectedProgram = null;
+                                          _selectedBatchYear = null;
+                                          _selectedDegreeNumber = null;
+                                          _showMultipleDegrees = false;
+                                        }),
+                                        child: const Text('Reset filters'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
-                  ),
-                ],
-                const SizedBox(height: 12),
-                InkWell(
-                  onTap: () =>
-                      _selectDegreeFilter(degrees, highestDegreeNumber),
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Filter by degree or program',
-                      border: OutlineInputBorder(),
-                      suffixIcon: Icon(Icons.arrow_drop_down),
-                    ),
-                    child: Text(_degreeFilterLabel(_selectedDegree)),
                   ),
                 ),
                 const SizedBox(height: 16),

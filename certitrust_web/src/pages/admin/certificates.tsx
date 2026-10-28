@@ -7,10 +7,12 @@ import { useCertificateBatch } from "../../hooks/useCertificateBatch";
 import { getSessionUser, isSuperAdminSession } from "../../services/authService";
 import { listUniversities, type UniversityRecord } from "../../services/adminApi";
 import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
+import RecordFilterBar, { type RecordFilterValues } from "@/Components/Molecules/RecordFilterBar";
 import {
     requestCertificateDeletion,
     type CertificateRecord,
 } from "../../services/certitrustApi";
+import { getAcademicLevel } from "../../utils/academicLevel";
 
 type Certificate = {
     id: string;
@@ -28,14 +30,8 @@ type Certificate = {
     status: string;
     blockchainStatus: string;
     blockchainTxHash?: string;
-};
-
-const FILTERS = ["All records", "Masteral", "Doctoral", "Bachelor's", "1st degree", "BSIT"];
-
-const detectLevel = (program: string) => {
-    if (/master/i.test(program)) return "Masteral";
-    if (/doctor|ph\.?d/i.test(program)) return "Doctoral";
-    return "Bachelor's";
+    universityCode: string;
+    certHash: string;
 };
 
 const mapCertificate = (record: CertificateRecord): Certificate => ({
@@ -45,7 +41,7 @@ const mapCertificate = (record: CertificateRecord): Certificate => ({
     institutionalEmail: record.student_email,
     degreeProgram: record.degree,
     degreeNumber: String(record.degree_number ?? 1),
-    level: detectLevel(record.degree),
+    level: getAcademicLevel(record.degree),
     certificateCode: record.certificate_code,
     fileName: record.diploma_file_name || "No file attached",
     diplomaUrl: record.diploma_url || undefined,
@@ -54,20 +50,9 @@ const mapCertificate = (record: CertificateRecord): Certificate => ({
     status: record.status,
     blockchainStatus: record.blockchain_status ?? "not_configured",
     blockchainTxHash: record.blockchain_tx_hash ?? undefined,
+    universityCode: record.university_code ?? "",
+    certHash: record.cert_hash,
 });
-
-const certTags = (c: Certificate) => [
-    c.level,
-    `${c.degreeNumber} degree`,
-    c.degreeProgram,
-];
-
-const SearchIcon = () => (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="11" cy="11" r="7" />
-        <path d="M20 20l-3.5-3.5" />
-    </svg>
-);
 
 const CapIcon = () => (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -142,9 +127,14 @@ export default function Certificates() {
     const [deleteTarget, setDeleteTarget] = useState<Certificate | null>(null);
     const [deleteReason, setDeleteReason] = useState<string>("");
 
-    const [search, setSearch] = useState<string>("");
-    const [activeFilter, setActiveFilter] = useState<string>("All records");
-    const [activeYear, setActiveYear] = useState<string>("All years");
+    const [filters, setFilters] = useState<RecordFilterValues>({
+        academicLevel: "",
+        program: "",
+        year: "",
+        search: "",
+        university: "",
+        status: "",
+    });
     const [openId, setOpenId] = useState<string | null>(null);
 
     const navigate = useNavigate();
@@ -278,23 +268,44 @@ export default function Certificates() {
         const set = new Set(certificates.map((c) => c.issuedAt.slice(0, 4)));
         return Array.from(set).sort((a, b) => Number(b) - Number(a));
     }, [certificates]);
+    const programs = useMemo(
+        () => Array.from(new Set(certificates.map((certificate) => certificate.degreeProgram)))
+            .sort((a, b) => a.localeCompare(b)),
+        [certificates],
+    );
+    const universityOptions = useMemo(
+        () => Array.from(new Set(certificates.map((certificate) => certificate.universityCode).filter(Boolean)))
+            .sort()
+            .map((code) => ({ value: code, label: code })),
+        [certificates],
+    );
+    const statuses = useMemo(
+        () => Array.from(new Set(certificates.map((certificate) => certificate.status).filter(Boolean)))
+            .sort(),
+        [certificates],
+    );
 
     const filtered = useMemo(() => {
-        const q = search.trim().toLowerCase();
+        const q = filters.search.trim().toLowerCase();
         return certificates.filter((c) => {
-            if (activeFilter !== "All records" && !certTags(c).includes(activeFilter)) return false;
-            if (activeYear !== "All years" && c.issuedAt.slice(0, 4) !== activeYear) return false;
-            if (!q) return true;
-            return [
+            const matchesLevel = !filters.academicLevel || c.level === filters.academicLevel;
+            const matchesProgram = !filters.program || c.degreeProgram === filters.program;
+            const matchesYear = !filters.year || c.issuedAt.slice(0, 4) === filters.year;
+            const matchesUniversity = !filters.university || c.universityCode === filters.university;
+            const matchesStatus = !filters.status || c.status === filters.status;
+            const matchesSearch = !q || [
                 c.fullName,
                 c.studentId,
                 c.institutionalEmail,
                 c.degreeProgram,
                 c.certificateCode,
-                c.level,
-            ].some((v) => v.toLowerCase().includes(q));
+                c.certHash,
+                c.blockchainTxHash,
+            ].some((v) => String(v ?? "").toLowerCase().includes(q));
+            return matchesLevel && matchesProgram && matchesYear &&
+                matchesUniversity && matchesStatus && matchesSearch;
         });
-    }, [certificates, search, activeFilter, activeYear]);
+    }, [certificates, filters]);
 
     const grouped = useMemo(() => {
         const map = new Map<string, Certificate[]>();
@@ -304,18 +315,6 @@ export default function Certificates() {
         });
         return Array.from(map.entries()).sort((a, b) => Number(b[0]) - Number(a[0]));
     }, [filtered]);
-
-    const chipClass = (active: boolean) =>
-        `inline-flex items-center gap-2 min-h-11 px-5 rounded-xl border text-sm font-semibold transition ${active
-            ? "bg-[#D9E6FA] border-[#D9E6FA] text-[#0A192F]"
-            : "bg-white border-slate-300 text-[#0A192F] hover:bg-slate-50"
-        }`;
-
-    const Check = () => (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12.5l4.5 4.5L19 7.5" />
-        </svg>
-    );
 
     const actionClass =
         "inline-flex items-center justify-center gap-2.5 min-h-11 px-4 rounded-xl text-[#0A4A8F] font-bold text-sm hover:bg-white transition";
@@ -375,62 +374,14 @@ export default function Certificates() {
 
                     </header>
 
-                    {/* Search */}
-                    <div className="relative mb-8">
-                        <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-600 pointer-events-none">
-                            <SearchIcon />
-                        </span>
-                        <input
-                            type="text"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Search credentials"
-                            aria-label="Search credentials"
-                            className="w-full min-h-14 border border-slate-400 rounded-xl bg-white pl-14 pr-4 text-base text-[#0A192F] outline-none focus:border-[#1D4ED8] focus:ring-4 focus:ring-[#1D4ED8]/10 transition"
-                        />
-                    </div>
-
-                    {/* Filter certificate records */}
-                    <section className="mb-8">
-                        <h2 className="mb-4 text-lg font-extrabold text-[#0A192F]">
-                            Filter certificate records
-                        </h2>
-                        <div className="flex flex-wrap gap-3">
-                            {FILTERS.map((f) => (
-                                <button
-                                    key={f}
-                                    type="button"
-                                    onClick={() => setActiveFilter(f)}
-                                    aria-pressed={activeFilter === f}
-                                    className={chipClass(activeFilter === f)}
-                                >
-                                    {activeFilter === f && <Check />}
-                                    {f}
-                                </button>
-                            ))}
-                        </div>
-                    </section>
-
-                    {/* Record batch year */}
-                    <section className="mb-8">
-                        <h2 className="mb-4 text-lg font-extrabold text-[#0A192F]">
-                            Record batch year
-                        </h2>
-                        <div className="flex flex-wrap gap-3">
-                            {["All years", ...years].map((y) => (
-                                <button
-                                    key={y}
-                                    type="button"
-                                    onClick={() => setActiveYear(y)}
-                                    aria-pressed={activeYear === y}
-                                    className={chipClass(activeYear === y)}
-                                >
-                                    {activeYear === y && <Check />}
-                                    {y}
-                                </button>
-                            ))}
-                        </div>
-                    </section>
+                    <RecordFilterBar
+                        value={filters}
+                        onChange={setFilters}
+                        programs={programs}
+                        years={years}
+                        universities={isSuperAdmin ? universityOptions : []}
+                        statuses={statuses}
+                    />
 
                     {/* Certificate Area */}
                     {loading ? (

@@ -280,14 +280,16 @@ void main() {
       ),
     ));
 
-    await tester.tap(find.text('Your Multiple Degrees'));
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('All Credentials'));
     await tester.pumpAndSettle();
 
     expect(find.text('Get QR for all degrees'), findsOneWidget);
     expect(find.text('Verify all degrees'), findsOneWidget);
     expect(find.text('Get QR Code'), findsNothing);
-    expect(find.text('Your 1st Degree'), findsWidgets);
-    expect(find.text('Your 2nd Degree'), findsWidgets);
+    expect(find.text('Credential #1'), findsOneWidget);
+    expect(find.text('Credential #2'), findsOneWidget);
 
     await tester.tap(find.text('Get QR for all degrees'));
     await tester.pumpAndSettle();
@@ -327,7 +329,7 @@ void main() {
         );
         await tester.pumpWidget(MaterialApp.router(routerConfig: router));
         await tester.pumpAndSettle();
-        await tester.tap(find.byType(ExpansionTile));
+        await tester.tap(find.byType(ExpansionTile).last);
         await tester.pumpAndSettle();
 
         expect(find.text('Student name'), findsOneWidget);
@@ -496,7 +498,7 @@ void main() {
           const MaterialApp(home: StudentAccessScreen()),
         );
         await tester.pumpAndSettle();
-        await tester.tap(find.byType(ExpansionTile));
+        await tester.tap(find.text('Ucu Student'));
         await tester.pumpAndSettle();
         final studentMenu = find.byType(PopupMenuButton<String>);
         await tester.ensureVisible(studentMenu);
@@ -777,15 +779,19 @@ void main() {
         );
         await tester.pumpWidget(MaterialApp.router(routerConfig: router));
         await tester.pumpAndSettle();
+        await tester
+            .ensureVisible(find.text('Students with multiple degrees (1)'));
         await tester.tap(find.text('Students with multiple degrees (1)'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(DropdownButtonFormField<String>));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Ucu Student (2 credentials)'));
         await tester.pumpAndSettle();
 
         expect(find.text('Ucu Student (2 credentials)'), findsOneWidget);
         expect(
             find.text('Single Degree Student (1 credentials)'), findsNothing);
 
-        await tester.tap(find.text('Ucu Student (2 credentials)'));
-        await tester.pumpAndSettle();
         expect(find.text('Show combined QR'), findsOneWidget);
         await tester.tap(find.text('Show combined QR'));
         await tester.pumpAndSettle();
@@ -798,7 +804,7 @@ void main() {
   });
 
   testWidgets(
-      'subadmin records filter by degree type, ordinal, multiple degrees, and issued program',
+      'subadmin records use academic-level and program dropdown filters',
       (WidgetTester tester) async {
     ApiService.authRole = 'admin';
     ApiService.authEmail = 'subadmin@example.edu';
@@ -857,27 +863,34 @@ void main() {
 
         expect(find.text('Filter certificate records'), findsOneWidget);
         expect(find.text('Organize by degree'), findsNothing);
-        expect(find.text('Masteral'), findsOneWidget);
-        expect(find.text('Doctoral'), findsOneWidget);
-
-        await tester.tap(find.text('Masteral'));
+        expect(find.text('Masteral'), findsNothing);
+        expect(find.text('Doctoral'), findsNothing);
+        await tester.tap(find.text('Filter certificate records'));
         await tester.pumpAndSettle();
-        expect(find.text('No matching certificate records.'), findsNothing);
 
-        await tester.ensureVisible(find.text('Doctoral'));
-        await tester.tap(find.text('Doctoral'));
+        await tester.tap(find.byType(DropdownButtonFormField<String>).first);
         await tester.pumpAndSettle();
-        expect(find.text('No matching certificate records.'), findsNothing);
+        await tester.tap(find.text("Master's Degree").last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Filter certificate records'));
+        await tester.pumpAndSettle();
+        expect(find.text('Graduate Student'), findsOneWidget);
 
-        await tester.ensureVisible(find.text('Multiple degrees (1 students)'));
-        await tester.tap(find.text('Multiple degrees (1 students)'));
+        await tester.tap(find.text('Filter certificate records'));
         await tester.pumpAndSettle();
-        expect(find.text('No matching certificate records.'), findsNothing);
+        await tester.tap(find.byType(DropdownButtonFormField<String>).at(1));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('MSIT').last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Filter certificate records'));
+        await tester.pumpAndSettle();
+        expect(find.text('Graduate Student'), findsOneWidget);
 
-        await tester.ensureVisible(find.text('BSIT'));
-        await tester.tap(find.text('BSIT'));
+        await tester.tap(find.text('Filter certificate records'));
         await tester.pumpAndSettle();
-        expect(find.text('No matching certificate records.'), findsNothing);
+        await tester.ensureVisible(find.text('Reset filters'));
+        await tester.tap(find.text('Reset filters'));
+        await tester.pumpAndSettle();
 
         router.dispose();
       },
@@ -910,19 +923,32 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('BSIT Only Student'), findsOneWidget);
-        await tester.ensureVisible(find.text('Masteral'));
-        await tester.tap(find.text('Masteral'));
+        await tester.tap(find.text('Filter certificate records'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text("Master's Degree").last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Filter certificate records'));
         await tester.pumpAndSettle();
 
         expect(router.state.uri.path, '/records');
         expect(find.text('Filter certificate records'), findsOneWidget);
-        expect(find.text('Masteral'), findsOneWidget);
-        expect(find.text('All records'), findsOneWidget);
         expect(
           find.text(
               'No records match this filter. Try another filter or search.'),
           findsOneWidget,
         );
+        await tester.tap(find.text('Filter certificate records'));
+        await tester.pumpAndSettle();
+        expect(find.text("Master's Degree"), findsOneWidget);
+        await tester.ensureVisible(find.text('Reset filters'));
+        await tester.tap(find.text('Reset filters'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Filter certificate records'));
+        await tester.tap(find.text('Filter certificate records'));
+        await tester.pumpAndSettle();
+        expect(find.text('BSIT Only Student'), findsOneWidget);
 
         router.dispose();
       },

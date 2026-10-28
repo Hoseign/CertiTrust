@@ -345,6 +345,30 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
 
   void _showHistoryDialog(
       BuildContext context, List<Map<String, dynamic>> history) {
+    var search = '';
+    var selectedUniversity = '';
+    var selectedYear = '';
+    var selectedAction = '';
+    final universities = history
+        .map((item) => item['university_code']?.toString() ?? '')
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    final years = history
+        .map((item) => (item['created_at']?.toString() ?? '').substring(
+            0, (item['created_at']?.toString() ?? '').length >= 4 ? 4 : 0))
+        .where((value) => RegExp(r'^\d{4}$').hasMatch(value))
+        .toSet()
+        .toList()
+      ..sort((a, b) => b.compareTo(a));
+    final actions = history
+        .map((item) => item['action']?.toString() ?? '')
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+
     showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -352,31 +376,181 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
           title: const Text('Super Admin Action History'),
           content: SizedBox(
             width: double.maxFinite,
-            child: history.isEmpty
-                ? const Text('No subadmin actions have been recorded yet.')
-                : ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: history.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final item = history[index];
-                      final action = (item['action'] ?? 'action').toString();
-                      final university =
-                          (item['university_code'] ?? 'N/A').toString();
-                      final target =
-                          (item['target_email'] ?? 'No email').toString();
-                      final date = _timestamp(item['created_at']?.toString());
-                      final label = _formatAction(action);
+            height: MediaQuery.sizeOf(dialogContext).height * 0.65,
+            child: StatefulBuilder(
+              builder: (context, setDialogState) {
+                final query = search.trim().toLowerCase();
+                final filteredHistory = history.where((item) {
+                  final action = item['action']?.toString() ?? '';
+                  final university = item['university_code']?.toString() ?? '';
+                  final year = (item['created_at']?.toString() ?? '').substring(
+                    0,
+                    (item['created_at']?.toString() ?? '').length >= 4 ? 4 : 0,
+                  );
+                  final searchable = [
+                    action,
+                    item['actor_email'],
+                    item['target_email'],
+                    item['details'],
+                    university,
+                    item['created_at'],
+                  ].map((value) => value.toString().toLowerCase());
+                  return (selectedUniversity.isEmpty ||
+                          university == selectedUniversity) &&
+                      (selectedYear.isEmpty || year == selectedYear) &&
+                      (selectedAction.isEmpty || action == selectedAction) &&
+                      (query.isEmpty ||
+                          searchable.any((value) => value.contains(query)));
+                }).toList();
 
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(label),
-                        subtitle: Text('$target • $university\n$date',
-                            style: const TextStyle(fontSize: 12)),
-                        isThreeLine: true,
-                      );
-                    },
-                  ),
+                return Column(
+                  children: [
+                    TextField(
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search),
+                        labelText: 'Search audit history',
+                        hintText: 'Action, administrator, email, or details',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) =>
+                          setDialogState(() => search = value),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        SizedBox(
+                          width: 150,
+                          child: DropdownButtonFormField<String>(
+                            initialValue: selectedUniversity,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'University',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: [
+                              const DropdownMenuItem(
+                                value: '',
+                                child: Text('All Universities'),
+                              ),
+                              for (final university in universities)
+                                DropdownMenuItem(
+                                  value: university,
+                                  child: Text(university),
+                                ),
+                            ],
+                            onChanged: (value) => setDialogState(
+                              () => selectedUniversity = value ?? '',
+                            ),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 130,
+                          child: DropdownButtonFormField<String>(
+                            initialValue: selectedYear,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Year',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: [
+                              const DropdownMenuItem(
+                                value: '',
+                                child: Text('All Years'),
+                              ),
+                              for (final year in years)
+                                DropdownMenuItem(
+                                  value: year,
+                                  child: Text(year),
+                                ),
+                            ],
+                            onChanged: (value) => setDialogState(
+                              () => selectedYear = value ?? '',
+                            ),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 150,
+                          child: DropdownButtonFormField<String>(
+                            initialValue: selectedAction,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Action',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: [
+                              const DropdownMenuItem(
+                                value: '',
+                                child: Text('All Actions'),
+                              ),
+                              for (final action in actions)
+                                DropdownMenuItem(
+                                  value: action,
+                                  child: Text(
+                                    _formatAction(action),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                            ],
+                            onChanged: (value) => setDialogState(
+                              () => selectedAction = value ?? '',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () => setDialogState(() {
+                          search = '';
+                          selectedUniversity = '';
+                          selectedYear = '';
+                          selectedAction = '';
+                        }),
+                        child: const Text('Reset filters'),
+                      ),
+                    ),
+                    Expanded(
+                      child: filteredHistory.isEmpty
+                          ? Center(
+                              child: Text(history.isEmpty
+                                  ? 'No administrative actions have been recorded yet.'
+                                  : 'No audit entries match the selected filters.'),
+                            )
+                          : ListView.separated(
+                              itemCount: filteredHistory.length,
+                              separatorBuilder: (_, __) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final item = filteredHistory[index];
+                                final action =
+                                    (item['action'] ?? 'action').toString();
+                                final university =
+                                    (item['university_code'] ?? 'N/A')
+                                        .toString();
+                                final target =
+                                    (item['target_email'] ?? 'No email')
+                                        .toString();
+                                final date =
+                                    _timestamp(item['created_at']?.toString());
+                                return ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(_formatAction(action)),
+                                  subtitle: Text(
+                                    '$target • $university\n$date',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                  isThreeLine: true,
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                );
+              },
+            ),
           ),
           actions: [
             TextButton(

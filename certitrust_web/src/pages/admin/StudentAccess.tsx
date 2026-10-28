@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Sidebar from "@/Components/Organisms/Sidebar";
 import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
+import RecordFilterBar, { type RecordFilterValues } from "@/Components/Molecules/RecordFilterBar";
 import { deleteStudent, listUniversityStudents } from "../../services/adminApi";
+import { getAcademicLevel } from "../../utils/academicLevel";
 
 type Student = {
     id: number;
@@ -10,12 +12,17 @@ type Student = {
     student_id?: string;
     degree?: string;
     batch_year?: string;
-    credentials?: { degree?: string; certificate_code?: string }[];
+    credentials?: { degree?: string; certificate_code?: string; cert_hash?: string }[];
 };
 
 export default function StudentAccess() {
     const [students, setStudents] = useState<Student[]>([]);
-    const [search, setSearch] = useState("");
+    const [filters, setFilters] = useState<RecordFilterValues>({
+        academicLevel: "",
+        program: "",
+        year: "",
+        search: "",
+    });
     const [isLoading, setIsLoading] = useState(true);
     const [workingId, setWorkingId] = useState<number | null>(null);
     const [error, setError] = useState("");
@@ -40,15 +47,38 @@ export default function StudentAccess() {
         void refresh();
     }, []);
 
+    const programs = useMemo(
+        () => Array.from(new Set(students.map((student) => student.degree).filter(Boolean)))
+            .filter((degree): degree is string => Boolean(degree))
+            .sort((a, b) => a.localeCompare(b)),
+        [students],
+    );
+    const years = useMemo(
+        () => Array.from(new Set(students.map((student) => student.batch_year)
+            .filter((year): year is string => Boolean(year))))
+            .sort((a, b) => b.localeCompare(a)),
+        [students],
+    );
     const filtered = useMemo(() => {
-        const query = search.trim().toLowerCase();
-        return students.filter((student) => !query || [
-            student.name,
-            student.email,
-            student.student_id,
-            student.degree,
-        ].some((value) => String(value ?? "").toLowerCase().includes(query)));
-    }, [students, search]);
+        const query = filters.search.trim().toLowerCase();
+        return students.filter((student) => {
+            const matchesLevel = !filters.academicLevel ||
+                getAcademicLevel(student.degree || "") === filters.academicLevel;
+            const matchesProgram = !filters.program || student.degree === filters.program;
+            const matchesYear = !filters.year || student.batch_year === filters.year;
+            const matchesSearch = !query || [
+                student.name,
+                student.email,
+                student.student_id,
+                student.degree,
+                ...(student.credentials ?? []).flatMap((credential) => [
+                    credential.certificate_code,
+                    credential.cert_hash,
+                ]),
+            ].some((value) => String(value ?? "").toLowerCase().includes(query));
+            return matchesLevel && matchesProgram && matchesYear && matchesSearch;
+        });
+    }, [students, filters]);
 
     const requestRemoval = async (student: Student) => {
         if (!window.confirm(
@@ -85,8 +115,15 @@ export default function StudentAccess() {
                                 <h2 className="text-lg font-bold text-[#0A192F]">Students ({students.length})</h2>
                                 <button type="button" onClick={() => void refresh()} disabled={isLoading} className="min-h-10 rounded-lg border border-slate-300 px-4 font-semibold text-slate-700 disabled:opacity-50">Refresh</button>
                             </div>
-                            <input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search students" placeholder="Search name, email, student ID or course" className="mt-4 min-h-11 w-full rounded-lg border border-slate-300 px-3 outline-none focus:border-blue-600" />
                         </section>
+
+                        <RecordFilterBar
+                            value={filters}
+                            onChange={setFilters}
+                            programs={programs}
+                            years={years}
+                            searchPlaceholder="Search students by name, ID, email, or program..."
+                        />
 
                         <section className="mt-5 divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-white">
                             {isLoading ? (

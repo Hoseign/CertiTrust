@@ -25,20 +25,6 @@ class _StudentDashboardViewState extends State<StudentDashboardView> {
   int _degreeNumber(Map<String, dynamic> certificate) =>
       int.tryParse(certificate['degree_number']?.toString() ?? '') ?? 1;
 
-  String _ordinal(int number) {
-    if (number % 100 >= 11 && number % 100 <= 13) return '${number}th';
-    switch (number % 10) {
-      case 1:
-        return '${number}st';
-      case 2:
-        return '${number}nd';
-      case 3:
-        return '${number}rd';
-      default:
-        return '${number}th';
-    }
-  }
-
   String? _verificationCode(Map<String, dynamic> certificate) {
     final code = certificate['cert_hash'] ??
         certificate['ipfs_hash'] ??
@@ -127,30 +113,33 @@ class _StudentDashboardViewState extends State<StudentDashboardView> {
                   ?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final degreeNumber in degrees)
-                  ChoiceChip(
-                    label: Text('Your ${_ordinal(degreeNumber)} Degree'),
-                    selected: !_showMultipleDegrees &&
-                        _selectedDegreeNumber == degreeNumber,
-                    onSelected: (_) => setState(() {
-                      _showMultipleDegrees = false;
-                      _selectedDegreeNumber = degreeNumber;
-                    }),
-                  ),
+            DropdownButtonFormField<String>(
+              initialValue: _showMultipleDegrees
+                  ? 'all'
+                  : _selectedDegreeNumber.toString(),
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Credential View',
+                border: OutlineInputBorder(),
+              ),
+              items: [
                 if (multipleAvailable)
-                  ChoiceChip(
-                    avatar: const Icon(Icons.collections_bookmark_outlined),
-                    label: const Text('Your Multiple Degrees'),
-                    selected: _showMultipleDegrees,
-                    onSelected: (_) => setState(() {
-                      _showMultipleDegrees = true;
-                    }),
+                  const DropdownMenuItem(
+                    value: 'all',
+                    child: Text('All Credentials'),
+                  ),
+                for (final degreeNumber in degrees)
+                  DropdownMenuItem(
+                    value: degreeNumber.toString(),
+                    child: Text('Credential #$degreeNumber'),
                   ),
               ],
+              onChanged: (value) => setState(() {
+                _showMultipleDegrees = value == 'all';
+                if (value != null && value != 'all') {
+                  _selectedDegreeNumber = int.tryParse(value);
+                }
+              }),
             ),
             const SizedBox(height: 12),
             if (_showMultipleDegrees)
@@ -245,7 +234,7 @@ class _StudentDashboardViewState extends State<StudentDashboardView> {
                 Expanded(
                   child: Text(
                     multipleView
-                        ? 'Your ${_ordinal(degreeNumber)} Degree'
+                        ? 'Credential #$degreeNumber'
                         : 'Credential Status',
                     style: theme.textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.bold),

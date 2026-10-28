@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
 import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
+import RecordFilterBar, { type RecordFilterValues } from "@/Components/Molecules/RecordFilterBar";
 import { listUniversityStudents, listUniversities, setUniversityAccess } from "../../services/adminApi";
 import { updateStudentAccess as updateStudentAccessApi } from "../../services/certitrustApi";
+import { getAcademicLevel } from "../../utils/academicLevel";
 
 type Student = {
     id: string;
@@ -20,15 +22,6 @@ type Student = {
     freezeOwnerEmail?: string;
 };
 
-const degreeOptions = [
-    "All degrees",
-    "Masteral",
-    "Doctoral",
-    "Multiple degrees",
-    "1st degree",
-    "BSIT",
-];
-
 export default function SuperAdminStudentAccess() {
     const { code } = useParams<{ code: string }>();
     const universityCode = (code ?? "").toUpperCase();
@@ -38,11 +31,12 @@ export default function SuperAdminStudentAccess() {
     const [canManageUniversityFreeze, setCanManageUniversityFreeze] = useState(true);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
-    const [search, setSearch] = useState("");
-    const [selectedYear, setSelectedYear] = useState("all");
-    const [degree, setDegree] = useState("All degrees");
-    const [degreeOpen, setDegreeOpen] = useState(false);
-    const [degreeSearch, setDegreeSearch] = useState("");
+    const [filters, setFilters] = useState<RecordFilterValues>({
+        academicLevel: "",
+        program: "",
+        year: "",
+        search: "",
+    });
     const [openIds, setOpenIds] = useState<string[]>([]);
     const [menuId, setMenuId] = useState<string | null>(null);
 
@@ -67,8 +61,8 @@ export default function SuperAdminStudentAccess() {
                     email: String(record.email || ""),
                     studentId: String(record.student_id || "Not recorded"),
                     program: degree,
-                    degreeLevel: `${latestCredential?.degree_number || 1} degree`,
-                    level: /master/i.test(degree) ? "Masteral" : /doctor|ph\.?d/i.test(degree) ? "Doctoral" : "Undergraduate",
+                    degreeLevel: `Credential #${latestCredential?.degree_number || 1}`,
+                    level: getAcademicLevel(degree),
                     year: String(record.batch_year || "Unknown"),
                     universityCode,
                     frozen: Boolean(record.is_frozen),
@@ -98,42 +92,32 @@ export default function SuperAdminStudentAccess() {
     );
 
     const years = useMemo(
-        () =>
-            Array.from(new Set(universityStudents.map((s) => s.year))).sort((a, b) =>
-                b.localeCompare(a)
-            ),
-        [universityStudents]
+        () => Array.from(new Set(universityStudents.map((student) => student.year)))
+            .filter((year) => year !== "Unknown")
+            .sort((a, b) => b.localeCompare(a)),
+        [universityStudents],
     );
-
-    const visibleDegreeOptions = degreeOptions.filter((o) =>
-        o.toLowerCase().includes(degreeSearch.trim().toLowerCase())
+    const programs = useMemo(
+        () => Array.from(new Set(universityStudents.map((student) => student.program)))
+            .filter((program) => program !== "Credential not recorded")
+            .sort((a, b) => a.localeCompare(b)),
+        [universityStudents],
     );
-
-    useEffect(() => {
-        if (!degreeOpen) return;
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setDegreeOpen(false);
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [degreeOpen]);
 
     const filtered = useMemo(() => {
-        const q = search.trim().toLowerCase();
+        const q = filters.search.trim().toLowerCase();
 
         return universityStudents.filter((s) => {
-            const matchesYear = selectedYear === "all" || s.year === selectedYear;
-            const matchesDegree =
-                degree === "All degrees" ||
-                s.program === degree ||
-                s.degreeLevel === degree;
+            const matchesYear = !filters.year || s.year === filters.year;
+            const matchesProgram = !filters.program || s.program === filters.program;
+            const matchesLevel = !filters.academicLevel || s.level === filters.academicLevel;
             const matchesSearch =
                 q === "" ||
-                [s.name, s.studentId, s.program].join(" ").toLowerCase().includes(q);
+                [s.name, s.studentId, s.program, s.email].join(" ").toLowerCase().includes(q);
 
-            return matchesYear && matchesDegree && matchesSearch;
+            return matchesYear && matchesProgram && matchesLevel && matchesSearch;
         });
-    }, [universityStudents, search, selectedYear, degree]);
+    }, [universityStudents, filters]);
 
     const toggleOpen = (id: string) => {
         setOpenIds((prev) =>
@@ -162,27 +146,6 @@ export default function SuperAdminStudentAccess() {
             setError(message || "Unable to update university student access.");
         }
     };
-
-    const chipClass = (active: boolean) =>
-        `px-6 py-3 rounded-xl border text-base font-medium flex items-center gap-2 transition-all ${active
-            ? "bg-[#D9E6F7] border-[#D9E6F7] text-[#0A192F]"
-            : "bg-white border-gray-300 text-[#0A192F] hover:bg-gray-50"
-        }`;
-
-    const check = (
-        <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <polyline points="20 6 9 17 4 12" />
-        </svg>
-    );
 
     return (
         <div className="flex min-h-screen bg-[#F5F7FB]">
@@ -221,170 +184,13 @@ export default function SuperAdminStudentAccess() {
                                 </button>
                             </div>
 
-                            {/* SEARCH */}
-                            <div className="relative mb-8">
-                                <span className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-600">
-                                    <svg
-                                        width="24"
-                                        height="24"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeWidth="2.2"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                    >
-                                        <circle cx="11" cy="11" r="7" />
-                                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                                    </svg>
-                                </span>
-
-                                <input
-                                    type="text"
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="Search students or credentials"
-                                    className="w-full pl-14 pr-4 py-5 bg-white rounded-xl border border-gray-400 text-[#0A192F] placeholder-gray-500 outline-none focus:border-[#0A3A6B] focus:ring-2 focus:ring-blue-100 transition-all"
-                                />
-                            </div>
-
-                            {/* BATCH YEAR */}
-                            <h2 className="text-lg font-bold text-[#0A192F] mb-3">
-                                Student batch year
-                            </h2>
-
-                            <div className="flex flex-wrap gap-3 mb-6">
-                                <button
-                                    type="button"
-                                    onClick={() => setSelectedYear("all")}
-                                    className={chipClass(selectedYear === "all")}
-                                >
-                                    {selectedYear === "all" && check}
-                                    All batches
-                                </button>
-
-                                {years.map((year) => (
-                                    <button
-                                        key={year}
-                                        type="button"
-                                        onClick={() => setSelectedYear(year)}
-                                        className={chipClass(selectedYear === year)}
-                                    >
-                                        {selectedYear === year && check}
-                                        {year}
-                                    </button>
-                                ))}
-                            </div>
-
-                            {/* DEGREE FILTER */}
-                            <div className="relative mb-8">
-
-                                <label className="absolute -top-3 left-4 px-2 bg-[#F5F7FB] text-sm font-medium text-[#0A192F] z-10 pointer-events-none">
-                                    Filter by degree or program
-                                </label>
-
-                                <button
-                                    type="button"
-                                    aria-haspopup="dialog"
-                                    onClick={() => {
-                                        setDegreeSearch("");
-                                        setDegreeOpen(true);
-                                    }}
-                                    className="w-full flex items-center justify-between rounded-xl border border-gray-400 px-5 py-5 text-left text-lg text-[#0A192F] hover:border-[#0A3A6B] transition-colors"
-                                >
-                                    <span>{degree}</span>
-
-                                    <span className="text-[#333F4F]">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                                            <polygon points="3 7 21 7 12 18" />
-                                        </svg>
-                                    </span>
-                                </button>
-
-                            </div>
-
-                            {/* DEGREE PICKER */}
-                            {degreeOpen && (
-                                <div
-                                    className="fixed inset-0 z-50 flex items-center justify-center p-4"
-                                    role="dialog"
-                                    aria-modal="true"
-                                >
-                                    <div
-                                        className="absolute inset-0 bg-black/50"
-                                        onClick={() => setDegreeOpen(false)}
-                                    />
-
-                                    <div className="relative w-full max-w-md max-h-[80vh] overflow-y-auto bg-[#F2F4F9] rounded-3xl shadow-2xl px-6 py-8">
-
-                                        {/* SEARCH */}
-                                        <div className="relative mb-6">
-
-                                            <label
-                                                htmlFor="degree-search"
-                                                className="absolute -top-3 left-4 px-2 bg-[#F2F4F9] text-sm font-medium text-[#0A3A6B]"
-                                            >
-                                                Search degree or program
-                                            </label>
-
-                                            <div className="flex items-center gap-3 rounded-xl border-2 border-[#0A3A6B] px-4 py-4">
-                                                <span className="text-gray-700 shrink-0">
-                                                    <svg
-                                                        width="24"
-                                                        height="24"
-                                                        viewBox="0 0 24 24"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        strokeWidth="2.2"
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                    >
-                                                        <circle cx="11" cy="11" r="7" />
-                                                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                                                    </svg>
-                                                </span>
-
-                                                <input
-                                                    id="degree-search"
-                                                    type="text"
-                                                    autoFocus
-                                                    value={degreeSearch}
-                                                    onChange={(e) => setDegreeSearch(e.target.value)}
-                                                    className="flex-1 min-w-0 bg-transparent outline-none text-lg text-[#0A192F]"
-                                                />
-                                            </div>
-
-                                        </div>
-
-                                        {/* OPTIONS */}
-                                        <div>
-                                            {visibleDegreeOptions.map((option) => (
-                                                <button
-                                                    key={option}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setDegree(option);
-                                                        setDegreeOpen(false);
-                                                    }}
-                                                    className={`w-full text-left px-2 py-5 text-lg hover:bg-white/70 rounded-lg transition-colors ${degree === option
-                                                            ? "text-[#0A3A6B]"
-                                                            : "text-[#0A192F]"
-                                                        }`}
-                                                >
-                                                    {option}
-                                                </button>
-                                            ))}
-
-                                            {visibleDegreeOptions.length === 0 && (
-                                                <p className="px-2 py-5 text-gray-500">
-                                                    No degrees found.
-                                                </p>
-                                            )}
-                                        </div>
-
-                                    </div>
-                                </div>
-                            )}
+                            <RecordFilterBar
+                                value={filters}
+                                onChange={setFilters}
+                                programs={programs}
+                                years={years}
+                                searchPlaceholder="Search students by name, ID, email, or program..."
+                            />
 
                             {/* STUDENTS */}
                             {loading ? <CertiTrustLoadingIndicator size={28} message="Loading students..." className="w-full py-8 text-sm text-slate-500" /> : <div className="space-y-4">
@@ -459,7 +265,14 @@ export default function SuperAdminStudentAccess() {
                                                     <div className="pl-1 text-[17px] text-[#0A192F] leading-8">
                                                         <p>{s.email}</p>
                                                         <p>
-                                                            {s.degreeLevel}: {s.program} ({s.level})
+                                                            {s.degreeLevel}: {s.program} (
+                                                            {s.level === "masters"
+                                                                ? "Master's Degree"
+                                                                : s.level === "doctorate"
+                                                                    ? "Doctorate / Ph.D."
+                                                                    : s.level === "bachelors"
+                                                                        ? "Undergraduate / Bachelor's"
+                                                                        : "Other"})
                                                         </p>
                                                         <p>Batch: {s.year}</p>
                                                     </div>

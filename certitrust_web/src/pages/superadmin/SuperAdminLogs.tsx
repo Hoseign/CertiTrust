@@ -2,13 +2,19 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
 import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
+import RecordFilterBar, { type RecordFilterValues } from "@/Components/Molecules/RecordFilterBar";
 import { getSuperAdminOverview } from "../../services/adminApi";
+import { getAcademicLevel } from "../../utils/academicLevel";
 
 type CredentialActivity = {
     certificate_code?: string;
     student_name?: string;
     recipient_name?: string;
     university_code?: string;
+    student_id?: string;
+    student_email?: string;
+    degree?: string;
+    cert_hash?: string;
     issue_date?: string;
     created_at?: string;
     status?: string;
@@ -32,7 +38,14 @@ export default function SuperAdminLogs() {
     const [overview, setOverview] = useState<Overview | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
-    const [search, setSearch] = useState("");
+    const [filters, setFilters] = useState<RecordFilterValues>({
+        academicLevel: "",
+        program: "",
+        year: "",
+        search: "",
+        university: "",
+        status: "",
+    });
 
     const refresh = useCallback(async () => {
         try {
@@ -55,15 +68,40 @@ export default function SuperAdminLogs() {
     }, [refresh]);
 
     const activities = overview?.activity ?? [];
-    const query = search.trim().toLowerCase();
-    const filteredActivities = activities.filter((item) =>
-        [
+    const programs = Array.from(new Set(activities.map((item) => item.degree).filter(Boolean) as string[]))
+        .sort((a, b) => a.localeCompare(b));
+    const years = Array.from(new Set(activities.map((item) => item.issue_date?.slice(0, 4)).filter(Boolean) as string[]))
+        .sort((a, b) => b.localeCompare(a));
+    const universities = Array.from(new Set(activities.map((item) => item.university_code).filter(Boolean) as string[]))
+        .sort()
+        .map((code) => ({ value: code, label: code }));
+    const statuses = Array.from(new Set(activities.map((item) => item.status).filter(Boolean) as string[]))
+        .sort();
+    const query = filters.search.trim().toLowerCase();
+    const filteredActivities = activities.filter((item) => {
+        const program = item.degree ?? "";
+        const batchYear = item.issue_date?.slice(0, 4) ?? "";
+        const matchesLevel = !filters.academicLevel ||
+            getAcademicLevel(program) === filters.academicLevel;
+        const matchesProgram = !filters.program || program === filters.program;
+        const matchesYear = !filters.year || batchYear === filters.year;
+        const matchesUniversity = !filters.university ||
+            item.university_code === filters.university;
+        const matchesStatus = !filters.status || item.status === filters.status;
+        const matchesSearch = !query || [
             item.student_name,
             item.recipient_name,
+            item.student_id,
+            item.student_email,
             item.certificate_code,
+            item.cert_hash,
             item.university_code,
+            program,
             item.status,
-        ].some((value) => String(value ?? "").toLowerCase().includes(query)),
+        ].some((value) => String(value ?? "").toLowerCase().includes(query));
+        return matchesLevel && matchesProgram && matchesYear &&
+            matchesUniversity && matchesStatus && matchesSearch;
+    }
     );
     const stats = [
         { label: "Total Activities", value: overview?.total_credentials ?? 0, color: "text-[#071426]" },
@@ -123,13 +161,16 @@ export default function SuperAdminLogs() {
                                     Select a record to open its public verification page.
                                 </p>
                             </div>
-                            <input
-                                type="search"
-                                value={search}
-                                onChange={(event) => setSearch(event.target.value)}
-                                placeholder="Search credentials"
-                                aria-label="Search credential activity"
-                                className="min-h-10 w-full max-w-sm rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-600"
+                        </div>
+                        <div className="p-5 pb-0">
+                            <RecordFilterBar
+                                value={filters}
+                                onChange={setFilters}
+                                programs={programs}
+                                years={years}
+                                universities={universities}
+                                statuses={statuses}
+                                searchPlaceholder="Search credentials by student name, ID, or certificate hash..."
                             />
                         </div>
 

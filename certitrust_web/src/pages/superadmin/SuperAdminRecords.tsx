@@ -2,8 +2,10 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
 import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
+import RecordFilterBar, { type RecordFilterValues } from "@/Components/Molecules/RecordFilterBar";
 import { useCertificates } from "../../hooks/useCertificates";
 import { revokeCertificateRecord } from "../../services/adminApi";
+import { getAcademicLevel } from "../../utils/academicLevel";
 
 type RecordItem = {
   id: string;
@@ -18,11 +20,19 @@ type RecordItem = {
   status: string;
   year: string;
   blockchainStatus: string;
+  universityCode: string;
+  certHash: string;
 };
 
 export default function SuperAdminRecords() {
-  const [search, setSearch] = useState("");
-  const [selectedYear, setSelectedYear] = useState("all");
+  const [filters, setFilters] = useState<RecordFilterValues>({
+    academicLevel: "",
+    program: "",
+    year: "",
+    search: "",
+    university: "",
+    status: "",
+  });
   const [openIds, setOpenIds] = useState<string[]>([]);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [revokeError, setRevokeError] = useState("");
@@ -41,28 +51,50 @@ export default function SuperAdminRecords() {
     status: record.status,
     year: record.issue_date.slice(0, 4),
     blockchainStatus: record.blockchain_status || "not_configured",
+    universityCode: record.university_code || "",
+    certHash: record.cert_hash,
   }));
 
   const years = useMemo(
     () => Array.from(new Set(records.map((r) => r.year))).sort((a, b) => b.localeCompare(a)),
     [records]
   );
+  const programs = useMemo(
+    () => Array.from(new Set(records.map((record) => record.program))).sort((a, b) => a.localeCompare(b)),
+    [records],
+  );
+  const universities = useMemo(
+    () => Array.from(new Set(records.map((record) => record.universityCode).filter(Boolean)))
+      .sort()
+      .map((code) => ({ value: code, label: code })),
+    [records],
+  );
+  const statuses = useMemo(
+    () => Array.from(new Set(records.map((record) => record.status).filter(Boolean))).sort(),
+    [records],
+  );
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = filters.search.trim().toLowerCase();
 
     return records.filter((r) => {
-      const matchesYear = selectedYear === "all" || r.year === selectedYear;
+      const matchesYear = !filters.year || r.year === filters.year;
+      const matchesProgram = !filters.program || r.program === filters.program;
+      const matchesLevel = !filters.academicLevel ||
+        getAcademicLevel(r.program) === filters.academicLevel;
+      const matchesUniversity = !filters.university || r.universityCode === filters.university;
+      const matchesStatus = !filters.status || r.status === filters.status;
       const matchesSearch =
         q === "" ||
-        [r.studentName, r.studentId, r.program, r.email, r.certificateCode]
+        [r.studentName, r.studentId, r.program, r.email, r.certificateCode, r.certHash]
           .join(" ")
           .toLowerCase()
           .includes(q);
 
-      return matchesYear && matchesSearch;
+      return matchesYear && matchesProgram && matchesLevel &&
+        matchesUniversity && matchesStatus && matchesSearch;
     });
-  }, [search, selectedYear]);
+  }, [records, filters]);
 
   const groups = useMemo(
     () =>
@@ -111,7 +143,7 @@ export default function SuperAdminRecords() {
       {/* MAIN CONTENT */}
       <main className="flex-1 min-w-0 min-h-screen p-8">
 
-        <div className="max-w-3xl">
+        <div className="mx-auto max-w-6xl">
 
           {/* HEADER */}
           <div className="mb-8">
@@ -128,92 +160,14 @@ export default function SuperAdminRecords() {
             </p>
           </div>
 
-          {/* SEARCH */}
-          <div className="relative mb-8">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">
-              <svg
-                width="22"
-                height="22"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="7" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-            </span>
-
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search credentials"
-              className="w-full pl-12 pr-4 py-4 bg-white rounded-xl border border-gray-400 text-[#0A192F] placeholder-gray-500 outline-none focus:border-[#0A3A6B] focus:ring-2 focus:ring-blue-100 transition-all"
-            />
-          </div>
-
-          {/* BATCH YEAR */}
-          <h2 className="text-lg font-bold text-[#0A192F] mb-3">
-            Record batch year
-          </h2>
-
-          <div className="flex flex-wrap gap-3 mb-8">
-            <button
-              type="button"
-              onClick={() => setSelectedYear("all")}
-              className={`px-5 py-2.5 rounded-xl border text-sm font-medium flex items-center gap-2 transition-all ${selectedYear === "all"
-                  ? "bg-[#D9E6F7] border-[#D9E6F7] text-[#0A192F]"
-                  : "bg-white border-gray-300 text-[#0A192F] hover:bg-gray-50"
-                }`}
-            >
-              {selectedYear === "all" && (
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
-              All years
-            </button>
-
-            {years.map((year) => (
-              <button
-                key={year}
-                type="button"
-                onClick={() => setSelectedYear(year)}
-                className={`px-5 py-2.5 rounded-xl border text-sm font-medium flex items-center gap-2 transition-all ${selectedYear === year
-                    ? "bg-[#D9E6F7] border-[#D9E6F7] text-[#0A192F]"
-                    : "bg-white border-gray-300 text-[#0A192F] hover:bg-gray-50"
-                  }`}
-              >
-                {selectedYear === year && (
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )}
-                {year}
-              </button>
-            ))}
-          </div>
+          <RecordFilterBar
+            value={filters}
+            onChange={setFilters}
+            programs={programs}
+            years={years}
+            universities={universities}
+            statuses={statuses}
+          />
 
           {/* RECORD GROUPS */}
           {error && <p role="alert" className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
