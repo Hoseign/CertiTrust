@@ -69,7 +69,7 @@ export default function StudentCredentialGroups({
     const [openStudents, setOpenStudents] = useState<string[]>([]);
     const [openDegrees, setOpenDegrees] = useState<string[]>([]);
     const [masterHashes, setMasterHashes] = useState<Record<string, string>>({});
-    const [activeMasterQr, setActiveMasterQr] = useState<{ name: string; hash: string } | null>(null);
+    const [activeMasterQr, setActiveMasterQr] = useState<{ name: string; studentId: string; hash: string } | null>(null);
     const masterQrRef = useRef<HTMLDivElement>(null);
     const groups = useMemo(() => {
         const grouped = new Map<string, CertificateRecord[]>();
@@ -119,6 +119,7 @@ export default function StudentCredentialGroups({
             <div className="divide-y divide-slate-200 border-y border-slate-200">
                 {groups.map(([key, credentials]) => {
                     const name = credentials[0].student_name || "Student";
+                    const studentId = credentials.find((record) => record.student_id?.trim())?.student_id?.trim() || "N/A";
                     const degrees = new Map<string, CertificateRecord[]>();
                     credentials.forEach((record) => {
                         const degreeKey = `${record.degree.toLowerCase()}|${record.university_code || ""}`;
@@ -129,9 +130,9 @@ export default function StudentCredentialGroups({
                     return <section key={key}>
                         <div className="flex min-h-14 items-center gap-2 py-2">
                             <button type="button" aria-expanded={studentOpen} onClick={() => toggle(openStudents, key, setOpenStudents)} className="flex min-h-12 min-w-0 flex-1 items-center text-left">
-                                <span className="min-w-0"><span className="block truncate font-bold text-[#0A192F]">{name}</span><span className="mt-1 block text-xs text-slate-500">{credentials[0].student_id || "No student ID"} · {degrees.size} degree{degrees.size === 1 ? "" : "s"}</span></span>
+                                <span className="min-w-0"><span className="block truncate font-bold text-[#0A192F]">{name}</span><span className="mt-1 block text-xs text-slate-500">{studentId === "N/A" ? "No student ID" : studentId} · {degrees.size} degree{degrees.size === 1 ? "" : "s"}</span></span>
                             </button>
-                            {showStudentMasterQr && <button type="button" disabled={!masterHash} title={masterHash ? "View student master QR code" : "Preparing student master QR code"} aria-label={`View ${name}'s master QR code`} onClick={() => masterHash && setActiveMasterQr({ name, hash: masterHash })} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 text-[#0A192F] hover:bg-slate-50 disabled:opacity-40"><span aria-hidden="true">▦</span></button>}
+                            {showStudentMasterQr && <button type="button" disabled={!masterHash} title={masterHash ? "View student master QR code" : "Preparing student master QR code"} aria-label={`View ${name}'s master QR code`} onClick={() => masterHash && setActiveMasterQr({ name, studentId, hash: masterHash })} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 text-[#0A192F] hover:bg-slate-50 disabled:opacity-40"><span aria-hidden="true">▦</span></button>}
                             <button type="button" aria-label={`${studentOpen ? "Collapse" : "Expand"} ${name}'s degrees`} aria-expanded={studentOpen} onClick={() => toggle(openStudents, key, setOpenStudents)} className="grid h-10 w-8 shrink-0 place-items-center text-sm font-semibold text-slate-600">{studentOpen ? "−" : "+"}</button>
                         </div>
                         {studentOpen && <div className="pb-3 pl-3 sm:pl-6">
@@ -154,6 +155,7 @@ export default function StudentCredentialGroups({
                 <section role="dialog" aria-modal="true" aria-label={`${activeMasterQr.name} master portfolio QR code`} className="w-full max-w-sm rounded-xl bg-white p-5 text-center shadow-xl" onClick={(event) => event.stopPropagation()}>
                     <h3 className="text-lg font-bold text-[#0A192F]">{activeMasterQr.name} · Master Portfolio QR</h3>
                     <div ref={masterQrRef} className="my-4 flex justify-center"><QRCodeCanvas value={activeMasterQr.hash} size={240} includeMargin /></div>
+                    <p className="mb-2 text-sm font-semibold text-slate-700">Student ID: {activeMasterQr.studentId}</p>
                     <p className="break-all font-mono text-xs text-slate-500">{activeMasterQr.hash}</p>
                     <div className="mt-5 flex flex-wrap justify-center gap-2">
                         <button type="button" onClick={() => {

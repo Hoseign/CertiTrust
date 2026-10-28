@@ -224,7 +224,9 @@ class _RecordsScreenState extends State<RecordsScreen>
         }
         final first = student.value.first;
         final name = (first['student_name'] ?? first['recipient_name'] ?? 'Student').toString();
-        final id = first['student_id']?.toString();
+        final id = student.value
+            .map((record) => record['student_id']?.toString().trim() ?? '')
+            .firstWhere((studentId) => studentId.isNotEmpty, orElse: () => 'N/A');
         final studentEmails = student.value
             .map((record) => (record['student_email'] ?? record['email'])
                 ?.toString()
@@ -282,7 +284,7 @@ class _RecordsScreenState extends State<RecordsScreen>
                     visualDensity: VisualDensity.compact,
                     onPressed: () => showQRCodeDialog(
                       context,
-                      first,
+                      {...first, 'student_id': id},
                       code: masterHash,
                       title: 'Master Portfolio QR',
                       showVerifyOnChain: true,
@@ -291,7 +293,7 @@ class _RecordsScreenState extends State<RecordsScreen>
                   ),
               ],
             ),
-            subtitle: Text('${recordsByDegree.length} degree(s)${id == null ? '' : ' · $id'}'),
+            subtitle: Text('${recordsByDegree.length} degree(s)${id == 'N/A' ? '' : ' · $id'}'),
             children: recordsByDegree.entries.map((degreeGroup) {
               final parts = degreeGroup.key.split('|');
               return ExpansionTile(
@@ -1152,6 +1154,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       '${_portfolio?['degree_count'] ?? 0} credential(s) across institutions',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
+                    if (_portfolio?['student_id']?.toString().isNotEmpty == true)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Student ID: ${_portfolio!['student_id']}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
                     if (_portfolio?['master_hash'] != null) ...[
                       const SizedBox(height: 8),
                       SelectableText(

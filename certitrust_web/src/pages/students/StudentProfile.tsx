@@ -165,6 +165,7 @@ export default function StudentProfile() {
                             <p className="text-xs font-bold uppercase text-emerald-700">Academic portfolio</p>
                             <h2 className="mt-1 text-xl font-extrabold text-[#0A192F]">Master Portfolio QR Code</h2>
                             <p className="mt-2 text-sm text-slate-600">{portfolio?.degree_count ?? 0} verified credential(s) across institutions</p>
+                            {portfolio?.student_id && <p className="mt-1 text-sm font-semibold text-slate-700">Student ID: {portfolio.student_id}</p>}
                             {portfolio && <p className="mt-2 break-all font-mono text-xs text-slate-500">Master hash: {portfolio.master_hash}</p>}
                             {portfolioError && <p role="status" className="mt-2 text-sm text-amber-700">{portfolioError}</p>}
                             <div className="mt-4 flex flex-wrap gap-2">

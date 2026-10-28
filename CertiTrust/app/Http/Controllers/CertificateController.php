@@ -113,6 +113,7 @@ class CertificateController extends Controller
             'master_hash' => hash('sha256', implode('|', $hashes)),
             'portfolio_token' => $this->portfolioToken($normalizedEmail),
             'student_name' => $certificates->first()['student_name'] ?? $certificates->first()['recipient_name'] ?? null,
+            'student_id' => $certificates->first(fn (array $certificate) => filled($certificate['student_id'] ?? null))['student_id'] ?? null,
             'degree_count' => $certificates->count(),
             'status' => $certificates->every(fn (array $certificate) => in_array(
                 strtolower(trim((string) ($certificate['status'] ?? ''))),

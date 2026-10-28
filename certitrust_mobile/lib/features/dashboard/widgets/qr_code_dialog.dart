@@ -51,6 +51,14 @@ void showQRCodeDialog(
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
+              if ((cert['student_id']?.toString().trim().isNotEmpty ?? false)) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Student ID: ${cert['student_id']}',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  textAlign: TextAlign.center,
+                ),
+              ],
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(12),

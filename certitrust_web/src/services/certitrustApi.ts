@@ -39,6 +39,7 @@ export type StudentPortfolio = {
     master_hash: string;
     portfolio_token: string;
     student_name: string | null;
+    student_id?: string | null;
     degree_count: number;
     status: string;
     groups: {
