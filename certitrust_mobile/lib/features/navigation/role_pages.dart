@@ -7,6 +7,7 @@ import 'dart:async';
 import '../../services/api_service.dart';
 import '../../core/widgets/certitrust_loading_indicator.dart';
 import '../../core/utils/academic_degree.dart';
+import '../../core/utils/hash_util.dart';
 import '../dashboard/widgets/diploma_preview.dart';
 import '../dashboard/widgets/qr_code_dialog.dart';
 
@@ -23,7 +24,6 @@ class _RecordsScreenState extends State<RecordsScreen>
   late Future<List<Map<String, dynamic>>> _records;
   Timer? _refreshTimer;
   bool _isRefreshing = false;
-  bool _isRevoking = false;
   bool _isAppActive = true;
   String _selectedAcademicLevel = '';
   String? _selectedProgram;
@@ -71,57 +71,6 @@ class _RecordsScreenState extends State<RecordsScreen>
       debugPrint('Error refreshing certificate records: $error');
     } finally {
       if (mounted) setState(() => _isRefreshing = false);
-    }
-  }
-
-  Future<void> _revokeCredential(Map<String, dynamic> record) async {
-    final certificateId = int.tryParse(record['id']?.toString() ?? '');
-    if (certificateId == null || _isRevoking) return;
-    final certificateCode =
-        record['certificate_code']?.toString() ?? 'this credential';
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Remove credential?'),
-        content: Text(
-          'Permanently remove $certificateCode from the database? Its old QR code will report that it was removed. Blockchain transactions cannot be erased. Student IDs and email addresses can be used for a new registration.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Remove credential'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    setState(() => _isRevoking = true);
-    try {
-      await ApiService.revokeCertificateRecord(certificateId: certificateId);
-      await _refreshRecords();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-            '$certificateCode was removed. Its QR code will show the removed status.',
-          ),
-        ));
-      }
-    } catch (error) {
-      if (mounted) {
-        final message = error is ApiRequestException ? error.message : '$error';
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Could not remove credential: $message'),
-          backgroundColor: Colors.red.shade700,
-          duration: const Duration(seconds: 6),
-        ));
-      }
-    } finally {
-      if (mounted) setState(() => _isRevoking = false);
     }
   }
 
@@ -257,6 +206,7 @@ class _RecordsScreenState extends State<RecordsScreen>
   Widget _groupedStudentRecords(
     BuildContext context,
     List<Map<String, dynamic>> records,
+    List<Map<String, dynamic>> masterRecords,
   ) {
     final students = <String, List<Map<String, dynamic>>>{};
     for (final record in records) {
@@ -275,12 +225,72 @@ class _RecordsScreenState extends State<RecordsScreen>
         final first = student.value.first;
         final name = (first['student_name'] ?? first['recipient_name'] ?? 'Student').toString();
         final id = first['student_id']?.toString();
+        final studentEmails = student.value
+            .map((record) => (record['student_email'] ?? record['email'])
+                ?.toString()
+                .trim()
+                .toLowerCase())
+            .whereType<String>()
+            .where((email) => email.isNotEmpty)
+            .toSet();
+        final studentIds = student.value
+            .map((record) => record['student_id']?.toString().trim().toLowerCase())
+            .whereType<String>()
+            .where((studentId) => studentId.isNotEmpty)
+            .toSet();
+        for (final record in masterRecords) {
+          final email = (record['student_email'] ?? record['email'])
+              ?.toString()
+              .trim()
+              .toLowerCase();
+          final linkedId = record['student_id']?.toString().trim().toLowerCase();
+          if (email != null && studentEmails.contains(email) && linkedId != null && linkedId.isNotEmpty) {
+            studentIds.add(linkedId);
+          }
+        }
+        final portfolioRecords = masterRecords.where((record) {
+          final email = (record['student_email'] ?? record['email'])
+              ?.toString()
+              .trim()
+              .toLowerCase();
+          final recordId = record['student_id']?.toString().trim().toLowerCase();
+          return (email != null && studentEmails.contains(email)) ||
+              (recordId != null && studentIds.contains(recordId));
+        });
+        final hashes = portfolioRecords
+            .map((record) => record['cert_hash']?.toString().trim() ?? '')
+            .where((hash) => hash.isNotEmpty)
+            .toList()
+          ..sort();
+        final masterHash = hashes.isEmpty
+            ? null
+            : HashUtil.generateStringHash(hashes.join('|'));
         return Card(
           clipBehavior: Clip.antiAlias,
           child: ExpansionTile(
             key: PageStorageKey('student-${student.key}'),
             leading: const Icon(Icons.person_outline),
-            title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(name,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+                if (ApiService.isSuperAdmin && masterHash != null)
+                  IconButton(
+                    tooltip: 'View student master QR code',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => showQRCodeDialog(
+                      context,
+                      first,
+                      code: masterHash,
+                      title: 'Master Portfolio QR',
+                      showVerifyOnChain: true,
+                    ),
+                    icon: const Icon(Icons.qr_code_2),
+                  ),
+              ],
+            ),
             subtitle: Text('${recordsByDegree.length} degree(s)${id == null ? '' : ' · $id'}'),
             children: recordsByDegree.entries.map((degreeGroup) {
               final parts = degreeGroup.key.split('|');
@@ -444,15 +454,6 @@ class _RecordsScreenState extends State<RecordsScreen>
                   onPressed: () => _requestDeletion(record),
                   icon: const Icon(Icons.delete_outline),
                   label: const Text('Request deletion'),
-                ),
-              if (ApiService.isSuperAdmin)
-                TextButton.icon(
-                  onPressed:
-                      _isRevoking ? null : () => _revokeCredential(record),
-                  icon: const Icon(Icons.delete_forever_outlined),
-                  label: Text(_isRevoking
-                      ? 'Removing credential...'
-                      : 'Remove credential'),
                 ),
             ],
           ),
@@ -916,7 +917,8 @@ class _RecordsScreenState extends State<RecordsScreen>
               );
             }
             if (!_showMultipleDegreeOrganizer && visibleRecords.isNotEmpty) {
-              content.add(_groupedStudentRecords(context, visibleRecords));
+              content.add(_groupedStudentRecords(
+                  context, visibleRecords, allRecords));
             }
             if (!_showMultipleDegreeOrganizer && visibleRecords.isEmpty) {
               content.add(const Padding(

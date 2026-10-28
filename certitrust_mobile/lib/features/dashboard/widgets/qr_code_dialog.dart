@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 
@@ -14,6 +15,7 @@ void showQRCodeDialog(
   Map<String, dynamic> cert, {
   String? code,
   String? title,
+  bool showVerifyOnChain = false,
 }) {
   final qrData = (code ??
           cert['cert_hash'] ??
@@ -82,6 +84,15 @@ void showQRCodeDialog(
           ),
         ),
         actions: [
+          if (showVerifyOnChain)
+            TextButton.icon(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                context.go('/verify?hash=${Uri.encodeQueryComponent(qrData)}');
+              },
+              icon: const Icon(Icons.verified_outlined),
+              label: const Text('Verify on Chain'),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Close'),

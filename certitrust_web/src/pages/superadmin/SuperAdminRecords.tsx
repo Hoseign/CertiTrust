@@ -80,7 +80,12 @@ export default function SuperAdminRecords() {
             <CertiTrustLoadingIndicator size={28} message="Loading records..." className="w-full py-6 text-sm text-slate-500" />
           ) : (
             <div className="mt-6 rounded-xl bg-white px-4 shadow-sm sm:px-6">
-              <StudentCredentialGroups records={filtered} emptyMessage="No records match these filters." />
+              <StudentCredentialGroups
+                records={filtered}
+                masterRecords={certificates}
+                showStudentMasterQr
+                emptyMessage="No records match these filters."
+              />
             </div>
           )}
         </div>
