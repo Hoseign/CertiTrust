@@ -1599,11 +1599,7 @@ class AdminSubadminManagementTest extends TestCase
             ->assertJsonPath('count', 1);
 
         $this->getJson('/api/certificates/CERTITRUST-MULTI:' . str_repeat('n', 64))
-            ->assertOk()
-            ->assertJsonPath('data.multi_degree', true)
-            ->assertJsonPath('data.degree_count', 2)
-            ->assertJsonPath('data.certificates.0.university_code', 'UCU')
-            ->assertJsonPath('data.certificates.1.university_code', 'PSU');
+            ->assertNotFound();
 
         $this->postJson('/api/certificates/validate-batch', [
             'certificates' => [[

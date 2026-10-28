@@ -260,6 +260,7 @@ class _IssueScreenState extends State<IssueScreen> {
         'student_id': draft.studentId.text.trim(),
         'student_name': draft.studentName.text.trim(),
         'student_email': draft.studentEmail.text.trim().toLowerCase(),
+        'degree': draft.degree.text.trim(),
         'diploma_file_name': draft.diploma?.name,
         'additional_degree': draft.isAdditionalDegree,
         'degree_number': draft.degreeNumber,
@@ -271,20 +272,29 @@ class _IssueScreenState extends State<IssueScreen> {
     final nextDegree = candidate['next_degree_number'] as int;
     final previousDegrees =
         List<Map<String, dynamic>>.from(candidate['existing_degrees'] as List);
+    final isCrossUniversity = previousDegrees.any(
+      (degree) =>
+          degree['university_code']?.toString() != _issuanceUniversityCode,
+    );
+    final draft = _drafts[candidate['draft_index'] as int];
     final previousText = previousDegrees
         .map((degree) =>
-            '${_ordinal(degree['degree_number'] as int)}: ${degree['degree']}')
+            '${_ordinal(degree['degree_number'] as int)}: ${degree['degree']}'
+            '${degree['university_code'] == null ? '' : ' — ${degree['university_code']}'}')
         .join('\n');
     return await showDialog<bool>(
           context: context,
           barrierDismissible: false,
           builder: (dialogContext) => AlertDialog(
-            title:
-                Text('Is this the student’s ${_ordinal(nextDegree)} degree?'),
+            title: Text(isCrossUniversity
+                ? 'Link credentials across universities?'
+                : 'Is this the student’s ${_ordinal(nextDegree)} degree?'),
             content: Text(
-              '${candidate['student_name']} (ID ${candidate['student_id']}) already has:\n'
+              'A record with the same student name and email has these credentials:\n'
               '$previousText\n\n'
-              'Issue "${_drafts[candidate['draft_index'] as int].degree.text.trim()}" as their ${_ordinal(nextDegree)} degree?',
+              'If this is the same student, issue "${draft.degree.text.trim()}" '
+              'from ${_issuanceUniversityCode ?? 'this university'} as degree '
+              '${_ordinal(nextDegree)}. Previous university records will not be changed.',
             ),
             actions: [
               TextButton(
@@ -293,7 +303,7 @@ class _IssueScreenState extends State<IssueScreen> {
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(dialogContext, true),
-                child: Text('Issue ${_ordinal(nextDegree)} degree'),
+                child: Text('Confirm ${_ordinal(nextDegree)} degree'),
               ),
             ],
           ),

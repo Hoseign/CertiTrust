@@ -13,6 +13,67 @@ class MultipleDegreeVerificationTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_subadmin_can_issue_cross_university_degree_with_shared_student_identity(): void
+    {
+        config(['services.certitrust.enabled' => false]);
+        $email = 'shared-student@example.edu';
+        Certificate::create([
+            'certificate_code' => 'UCU-BACHELOR-001',
+            'recipient_name' => 'Jordan Student',
+            'student_name' => 'Jordan Student',
+            'student_id' => 'UCU-2020-001',
+            'student_email' => $email,
+            'email' => $email,
+            'degree' => 'Bachelor of Science in Information Technology',
+            'course_or_event' => 'BSIT',
+            'university_code' => 'UCU',
+            'issue_date' => '2024-06-01',
+            'degree_number' => 1,
+            'status' => 'Verified',
+            'cert_hash' => str_repeat('a', 64),
+        ]);
+        $psuAdmin = User::create([
+            'name' => 'PSU Admin',
+            'email' => 'psu-cross-degree-admin@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'PSU',
+        ]);
+        $credential = [
+            'student_id' => 'PSU-2026-009',
+            'student_name' => 'Jordan Student',
+            'student_email' => $email,
+            'degree' => 'Master of Science in Information Technology',
+            'diploma_file_name' => 'jordan-msit-diploma.jpg',
+        ];
+
+        $this->actingAs($psuAdmin, 'sanctum')
+            ->postJson('/api/certificates/validate-batch', [
+                'certificates' => [$credential],
+            ])
+            ->assertOk()
+            ->assertJsonPath('additional_degree_candidates.0.next_degree_number', 2)
+            ->assertJsonPath('additional_degree_candidates.0.existing_degrees.0.university_code', 'UCU');
+
+        $this->postJson('/api/certificates/batch', [
+            'certificates' => [$credential + [
+                'additional_degree' => true,
+                'degree_number' => 2,
+                'university_code' => 'PSU',
+                'issue_date' => '2026-10-28',
+                'cert_hash' => str_repeat('b', 64),
+            ]],
+        ])->assertCreated();
+
+        $this->getJson('/api/certificates/CERTITRUST-MULTI:' . str_repeat('a', 64))
+            ->assertOk()
+            ->assertJsonPath('data.multi_degree', true)
+            ->assertJsonPath('data.degree_count', 2)
+            ->assertJsonPath('data.certificates.0.university_code', 'UCU')
+            ->assertJsonPath('data.certificates.1.university_code', 'PSU')
+            ->assertJsonPath('data.certificates.1.student_id', 'PSU-2026-009');
+    }
+
     public function test_multiple_degree_code_returns_all_degrees_for_one_student_and_school(): void
     {
         $firstDegree = Certificate::create([

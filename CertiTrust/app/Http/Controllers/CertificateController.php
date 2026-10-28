@@ -82,16 +82,27 @@ class CertificateController extends Controller
 
         if ($certificate && $isMultipleDegreeCode) {
             $degreesQuery = Certificate::query();
-            if (filled($certificate->student_id)) {
+            $studentEmail = $certificate->student_email ?: $certificate->email;
+            if (filled($studentEmail)) {
+                $normalizedEmail = strtolower(trim((string) $studentEmail));
+                $degreesQuery->where(function ($certificates) use ($normalizedEmail) {
+                    $certificates->whereRaw('LOWER(TRIM(student_email)) = ?', [$normalizedEmail])
+                        ->orWhereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail]);
+                });
+                $studentName = strtolower(trim((string) (
+                    $certificate->student_name ?: $certificate->recipient_name
+                )));
+                if ($studentName !== '') {
+                    $degreesQuery->where(function ($certificates) use ($studentName) {
+                        $certificates->whereRaw('LOWER(TRIM(student_name)) = ?', [$studentName])
+                            ->orWhereRaw('LOWER(TRIM(recipient_name)) = ?', [$studentName]);
+                    });
+                }
+            } elseif (filled($certificate->student_id)) {
                 $degreesQuery->whereRaw(
                     'LOWER(TRIM(student_id)) = ?',
                     [strtolower(trim((string) $certificate->student_id))],
-                );
-            } elseif (filled($certificate->student_email)) {
-                $degreesQuery->whereRaw(
-                    'LOWER(TRIM(student_email)) = ?',
-                    [strtolower(trim((string) $certificate->student_email))],
-                );
+                )->where('university_code', $certificate->university_code);
             } else {
                 return response()->json([
                     'message' => 'This credential cannot be grouped with other degrees.',
@@ -300,12 +311,29 @@ class CertificateController extends Controller
         $limit = $request->integer('limit', 5);
         $verifications = $query
             ->limit(max(1, min($limit, 20)))
+            ->get();
+        $universityCodes = $verifications
+            ->map(fn (CertificateVerification $verification) => $verification->certificate?->university_code)
+            ->filter()
+            ->unique()
+            ->values();
+        $universities = University::whereIn('code', $universityCodes)
             ->get()
-            ->map(function (CertificateVerification $verification) {
+            ->keyBy('code');
+
+        $verifications = $verifications
+            ->map(function (CertificateVerification $verification) use ($universities) {
                 $certificate = $verification->certificate;
+                $university = $universities->get($certificate->university_code);
                 return array_merge(
                     $certificate->toArray(),
-                    $this->universityDetails($certificate->university_code),
+                    [
+                        'university_name' => $university?->university_name
+                            ?: $certificate->university_code
+                            ?: 'Verified academic institution',
+                        'branch_campus' => $university?->branch_campus,
+                        'display_name' => $university?->display_name ?: $certificate->university_code,
+                    ],
                     ['verified_at' => $verification->created_at],
                 );
             });
@@ -510,19 +538,37 @@ class CertificateController extends Controller
             $existingStudent = $this->findStudentByIds([
                 strtolower(trim($certificate['student_id'])),
             ], $universityCode);
+            $crossUniversityStudent = $existingStudent
+                ? null
+                : $this->findStudentByEmailAndName(
+                    $certificate['student_email'],
+                    $certificate['student_name'],
+                    $universityCode,
+                );
+            $degreeOwner = $existingStudent ?: $crossUniversityStudent;
             $isAdditionalDegree = (bool) ($certificate['additional_degree'] ?? false);
-            if (!$existingStudent && $isAdditionalDegree) {
+            if (!$degreeOwner && $isAdditionalDegree) {
                 return response()->json([
                     'message' => 'An additional degree can only be issued for an existing student.',
                 ], 422);
             }
-            if ($existingStudent) {
+            if ($degreeOwner) {
                 if (!$isAdditionalDegree) {
+                    $message = $existingStudent
+                        ? 'Student ID "' . $existingStudent->student_id . '" already belongs to '
+                            . $this->studentOwnerLabel($existingStudent)
+                            . '. Confirm this as an additional degree to continue.'
+                        : 'This student already has credentials at another university. Confirm this as an additional degree to continue.';
                     return response()->json([
-                        'message' => 'Student ID "' . $existingStudent->student_id . '" already belongs to ' . $this->studentOwnerLabel($existingStudent) . '. Confirm this as an additional degree to continue.',
+                        'message' => $message,
                     ], 422);
                 }
-                $nextDegreeNumber = $this->nextDegreeNumber($universityCode, $certificate['student_id']);
+                $nextDegreeNumber = $this->nextDegreeNumber(
+                    $universityCode,
+                    $certificate['student_id'],
+                    $certificate['student_email'],
+                    $certificate['student_name'],
+                );
                 if ((int) ($certificate['degree_number'] ?? 0) !== $nextDegreeNumber) {
                     return response()->json([
                         'message' => 'This student is ready for degree ' . $nextDegreeNumber . '. Refresh issuance validation and confirm the suggested degree number.',
@@ -544,9 +590,11 @@ class CertificateController extends Controller
             $emailOwner = $this->findStudentByEmail($studentEmail);
             if ($emailOwner) {
                 $emailCertificate = DB::table('certificates')
-                    ->whereRaw('LOWER(TRIM(student_email)) = ?', [$studentEmail])
-                    ->orWhereRaw('LOWER(TRIM(email)) = ?', [$studentEmail])
-                    ->first(['student_id', 'university_code']);
+                    ->where(function ($query) use ($studentEmail) {
+                        $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$studentEmail])
+                            ->orWhereRaw('LOWER(TRIM(email)) = ?', [$studentEmail]);
+                    })
+                    ->first(['student_name', 'recipient_name', 'student_id', 'university_code']);
                 $batchCredential = $certificates->first(
                     fn (array $certificate) => strtolower(trim($certificate['student_email'])) === $studentEmail
                 );
@@ -556,6 +604,15 @@ class CertificateController extends Controller
                     && strtolower(trim((string) $emailCertificate->student_id))
                         === strtolower(trim($batchCredential['student_id']))
                     && $emailCertificate->university_code === $universityCode
+                ) {
+                    continue;
+                }
+                if (
+                    $batchCredential
+                    && $emailCertificate
+                    && $emailCertificate->university_code !== $universityCode
+                    && strtolower(trim((string) ($emailCertificate->student_name ?: $emailCertificate->recipient_name)))
+                        === strtolower(trim($batchCredential['student_name']))
                 ) {
                     continue;
                 }
@@ -705,6 +762,7 @@ class CertificateController extends Controller
             'certificates.*.student_id' => ['required', 'string', 'max:255'],
             'certificates.*.student_name' => ['required', 'string', 'max:255'],
             'certificates.*.student_email' => ['required', 'email'],
+            'certificates.*.degree' => ['nullable', 'string', 'max:255'],
             'certificates.*.diploma_file_name' => ['nullable', 'string', 'max:255'],
             'certificates.*.additional_degree' => ['nullable', 'boolean'],
             'certificates.*.degree_number' => ['nullable', 'integer', 'min:1', 'max:65535'],
@@ -735,12 +793,21 @@ class CertificateController extends Controller
             $existingStudent = $this->findStudentByIds([
                 strtolower(trim($certificate['student_id'])),
             ], $universityCode);
+            $crossUniversityStudent = $existingStudent
+                ? null
+                : $this->findStudentByEmailAndName(
+                    $certificate['student_email'],
+                    $certificate['student_name'],
+                    $universityCode,
+                );
+            $degreeOwner = $existingStudent ?: $crossUniversityStudent;
             $isAdditionalDegree = (bool) ($certificate['additional_degree'] ?? false);
-            if ($existingStudent && !$isAdditionalDegree) {
-                $degreeRecords = Certificate::where('university_code', $universityCode)
-                    ->whereRaw('LOWER(TRIM(student_id)) = ?', [strtolower(trim($certificate['student_id']))])
-                    ->orderBy('degree_number')
-                    ->get(['degree', 'degree_number']);
+            if ($degreeOwner && !$isAdditionalDegree) {
+                $degreeRecords = $this->degreesForStudent(
+                    $degreeOwner,
+                    $crossUniversityStudent !== null,
+                    $certificate['student_email'],
+                );
                 $additionalDegreeCandidates[] = [
                     'draft_index' => $index,
                     'student_name' => $certificate['student_name'],
@@ -748,16 +815,21 @@ class CertificateController extends Controller
                     'existing_degrees' => $degreeRecords->map(fn (Certificate $degree) => [
                         'degree' => $degree->degree,
                         'degree_number' => $degree->degree_number,
+                        'university_code' => $degree->university_code,
                     ])->values(),
                     'next_degree_number' => $this->nextDegreeNumber(
                         $universityCode,
                         $certificate['student_id'],
+                        $certificate['student_email'],
+                        $certificate['student_name'],
                     ),
                 ];
-            } elseif ($existingStudent && $isAdditionalDegree) {
+            } elseif ($degreeOwner && $isAdditionalDegree) {
                 if ((int) ($certificate['degree_number'] ?? 0) !== $this->nextDegreeNumber(
                     $universityCode,
                     $certificate['student_id'],
+                    $certificate['student_email'],
+                    $certificate['student_name'],
                 )) {
                     return response()->json([
                         'message' => 'The degree number changed because another credential was issued. Please try again.',
@@ -779,19 +851,30 @@ class CertificateController extends Controller
         foreach ($emails as $email) {
             $emailOwner = $this->findStudentByEmail($email);
             if ($emailOwner) {
-                $emailCertificate = DB::table('certificates')
-                    ->whereRaw('LOWER(TRIM(student_email)) = ?', [$email])
-                    ->orWhereRaw('LOWER(TRIM(email)) = ?', [$email])
-                    ->first(['student_id', 'university_code']);
                 $batchCredential = $certificates->first(
                     fn (array $certificate) => strtolower(trim($certificate['student_email'])) === $email
                 );
+                $emailCertificate = DB::table('certificates')
+                    ->where(function ($query) use ($email) {
+                        $query->whereRaw('LOWER(TRIM(student_email)) = ?', [$email])
+                            ->orWhereRaw('LOWER(TRIM(email)) = ?', [$email]);
+                    })
+                    ->first(['student_name', 'recipient_name', 'student_id', 'university_code']);
                 if (
                     $batchCredential
                     && $emailCertificate
                     && strtolower(trim((string) $emailCertificate->student_id))
                         === strtolower(trim($batchCredential['student_id']))
                     && $emailCertificate->university_code === $universityCode
+                ) {
+                    continue;
+                }
+                if (
+                    $batchCredential
+                    && $emailCertificate
+                    && $emailCertificate->university_code !== $universityCode
+                    && strtolower(trim((string) ($emailCertificate->student_name ?: $emailCertificate->recipient_name)))
+                        === strtolower(trim($batchCredential['student_name']))
                 ) {
                     continue;
                 }
@@ -859,11 +942,95 @@ class CertificateController extends Controller
         ]);
     }
 
-    private function nextDegreeNumber(string $universityCode, string $studentId): int
-    {
-        return (int) Certificate::where('university_code', $universityCode)
-            ->whereRaw('LOWER(TRIM(student_id)) = ?', [strtolower(trim($studentId))])
-            ->max('degree_number') + 1;
+    private function nextDegreeNumber(
+        string $universityCode,
+        string $studentId,
+        ?string $studentEmail = null,
+        ?string $studentName = null,
+    ): int {
+        $query = Certificate::query();
+        if (
+            $studentEmail
+            && $studentName
+            && $this->findStudentByEmailAndName($studentEmail, $studentName, null)
+        ) {
+            $normalizedEmail = strtolower(trim($studentEmail));
+            $normalizedName = strtolower(trim($studentName));
+            $query->where(function ($certificates) use ($normalizedEmail, $normalizedName) {
+                $certificates->where(function ($identity) use ($normalizedEmail) {
+                    $identity->whereRaw('LOWER(TRIM(student_email)) = ?', [$normalizedEmail])
+                        ->orWhereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail]);
+                })->where(function ($identity) use ($normalizedName) {
+                    $identity->whereRaw('LOWER(TRIM(student_name)) = ?', [$normalizedName])
+                        ->orWhereRaw('LOWER(TRIM(recipient_name)) = ?', [$normalizedName]);
+                });
+            });
+        } else {
+            $query->where('university_code', $universityCode)
+                ->whereRaw('LOWER(TRIM(student_id)) = ?', [strtolower(trim($studentId))]);
+        }
+
+        return (int) $query->max('degree_number') + 1;
+    }
+
+    private function findStudentByEmailAndName(
+        string $email,
+        ?string $name,
+        ?string $excludeUniversity,
+    ): ?Certificate {
+        $normalizedEmail = strtolower(trim($email));
+        $query = Certificate::query()
+            ->where(function ($certificates) use ($normalizedEmail) {
+                $certificates->whereRaw('LOWER(TRIM(student_email)) = ?', [$normalizedEmail])
+                    ->orWhereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail]);
+            });
+        if ($name !== null) {
+            $normalizedName = strtolower(trim($name));
+            $query->where(function ($certificates) use ($normalizedName) {
+                $certificates->whereRaw('LOWER(TRIM(student_name)) = ?', [$normalizedName])
+                    ->orWhereRaw('LOWER(TRIM(recipient_name)) = ?', [$normalizedName]);
+            });
+        }
+        if ($excludeUniversity !== null) {
+            $query->where('university_code', '!=', $excludeUniversity);
+        }
+
+        return $query->orderBy('id')->first();
+    }
+
+    private function degreesForStudent(
+        Certificate $degreeOwner,
+        bool $crossUniversity,
+        string $studentEmail,
+    ) {
+        if ($crossUniversity) {
+            $normalizedEmail = strtolower(trim($studentEmail));
+
+            return Certificate::query()
+                ->where(function ($certificates) use ($normalizedEmail) {
+                    $certificates->whereRaw('LOWER(TRIM(student_email)) = ?', [$normalizedEmail])
+                        ->orWhereRaw('LOWER(TRIM(email)) = ?', [$normalizedEmail]);
+                })
+                ->where(function ($certificates) use ($degreeOwner) {
+                    $normalizedName = strtolower(trim((string) (
+                        $degreeOwner->student_name ?: $degreeOwner->recipient_name
+                    )));
+                    $certificates->whereRaw('LOWER(TRIM(student_name)) = ?', [$normalizedName])
+                        ->orWhereRaw('LOWER(TRIM(recipient_name)) = ?', [$normalizedName]);
+                })
+                ->orderBy('degree_number')
+                ->orderBy('issue_date')
+                ->orderBy('id')
+                ->get(['degree', 'degree_number', 'university_code']);
+        }
+
+        return Certificate::query()
+            ->where('university_code', $degreeOwner->university_code)
+            ->whereRaw('LOWER(TRIM(student_id)) = ?', [strtolower(trim((string) $degreeOwner->student_id))])
+            ->orderBy('degree_number')
+            ->orderBy('issue_date')
+            ->orderBy('id')
+            ->get(['degree', 'degree_number', 'university_code']);
     }
 
     private function studentOwnerLabel(object $certificate): string

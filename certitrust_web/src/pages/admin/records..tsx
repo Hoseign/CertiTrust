@@ -15,6 +15,8 @@ type Student = {
     university: string;
     fileName: string;
     file?: File;
+    additionalDegree: boolean;
+    degreeNumber: number;
 };
 
 type RecordItem = {
@@ -49,6 +51,8 @@ const newStudent = (): Student => ({
     program: "",
     university: getSessionUser()?.university_code || "",
     fileName: "",
+    additionalDegree: false,
+    degreeNumber: 1,
 });
 
 async function sha256Hex(text: string): Promise<string> {
@@ -441,13 +445,60 @@ export default function Records() {
                 student_id: student.studentId.trim(),
                 student_name: student.fullName.trim(),
                 student_email: student.email.trim().toLowerCase(),
+                degree: student.program.trim(),
                 diploma_file_name: student.fileName || undefined,
-                additional_degree: false,
-                degree_number: 1,
+                additional_degree: student.additionalDegree,
+                degree_number: student.degreeNumber,
             })));
-            if (Array.isArray(result.additional_degree_candidates) && result.additional_degree_candidates.length > 0) {
-                showToast("An existing student was found. Use the additional-degree workflow before issuing.");
-                return;
+            const candidates = Array.isArray(result.additional_degree_candidates)
+                ? result.additional_degree_candidates as {
+                    draft_index: number;
+                    next_degree_number: number;
+                    existing_degrees: {
+                        degree: string;
+                        degree_number: number;
+                        university_code?: string;
+                    }[];
+                }[]
+                : [];
+            if (candidates.length > 0) {
+                const updatedStudents = [...students];
+                for (const candidate of candidates) {
+                    const student = updatedStudents[candidate.draft_index];
+                    const previousDegrees = candidate.existing_degrees
+                        .map((degree) =>
+                            `${degree.degree_number}. ${degree.degree} (${degree.university_code || "University"})`,
+                        )
+                        .join("\n");
+                    const confirmed = window.confirm(
+                        `A student with the same name and email has prior credentials:\n${previousDegrees}\n\n` +
+                        `If this is the same student, issue ${student.program} from ${student.university} ` +
+                        `as degree ${candidate.next_degree_number}?`,
+                    );
+                    if (!confirmed) {
+                        showToast("Issuance cancelled. No credentials were issued.");
+                        return;
+                    }
+                    student.additionalDegree = true;
+                    student.degreeNumber = candidate.next_degree_number;
+                }
+                const confirmedValidation = await validateCertificateBatch(updatedStudents.map((student) => ({
+                    student_id: student.studentId.trim(),
+                    student_name: student.fullName.trim(),
+                    student_email: student.email.trim().toLowerCase(),
+                    degree: student.program.trim(),
+                    diploma_file_name: student.fileName || undefined,
+                    additional_degree: student.additionalDegree,
+                    degree_number: student.degreeNumber,
+                })));
+                if (
+                    Array.isArray(confirmedValidation.additional_degree_candidates) &&
+                    confirmedValidation.additional_degree_candidates.length > 0
+                ) {
+                    showToast("Student credential data changed. Review the batch again before issuing.");
+                    return;
+                }
+                setStudents(updatedStudents);
             }
             setReviewOpen(true);
         } catch (error) {
@@ -465,8 +516,8 @@ export default function Records() {
                 student_email: student.email.trim().toLowerCase(),
                 degree: student.program.trim(),
                 issue_date: new Date().toISOString().slice(0, 10),
-                degree_number: 1,
-                additional_degree: false,
+                degree_number: student.degreeNumber,
+                additional_degree: student.additionalDegree,
                 diploma_file: student.file,
             })));
             setStudents([]);

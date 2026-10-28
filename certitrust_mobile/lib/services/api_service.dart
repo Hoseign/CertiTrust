@@ -1114,7 +1114,7 @@ class ApiService {
     final uri = Uri.parse('$baseUrl/admin/recent-verifications')
         .replace(queryParameters: {'limit': '$limit'});
     final response = await http.get(uri, headers: _getHeaders).timeout(
-          const Duration(seconds: 8),
+          const Duration(seconds: 25),
         );
     if (response.statusCode != 200) {
       final body = jsonDecode(response.body) as Map<String, dynamic>? ?? {};

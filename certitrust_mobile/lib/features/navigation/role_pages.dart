@@ -264,16 +264,25 @@ class _RecordsScreenState extends State<RecordsScreen>
   }
 
   String? _studentGroupKey(Map<String, dynamic> record) {
-    final studentId = record['student_id']?.toString().trim().toLowerCase();
-    if (studentId != null && studentId.isNotEmpty) {
-      return 'id:$studentId';
-    }
     final email = (record['student_email'] ?? record['email'])
         ?.toString()
         .trim()
         .toLowerCase();
     if (email != null && email.isNotEmpty) {
-      return 'email:$email';
+      final name = (record['student_name'] ?? record['recipient_name'])
+          ?.toString()
+          .trim()
+          .toLowerCase();
+      return 'email:$email:name:${name ?? ''}';
+    }
+    final studentId = record['student_id']?.toString().trim().toLowerCase();
+    final universityCode =
+        record['university_code']?.toString().trim().toLowerCase();
+    if (studentId != null &&
+        studentId.isNotEmpty &&
+        universityCode != null &&
+        universityCode.isNotEmpty) {
+      return 'id:$universityCode:$studentId';
     }
     return null;
   }
