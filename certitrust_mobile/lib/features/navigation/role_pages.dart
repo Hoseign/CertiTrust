@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'dart:async';
 import '../../services/api_service.dart';
 import '../../core/widgets/certitrust_loading_indicator.dart';
+import '../../core/utils/academic_degree.dart';
 import '../dashboard/widgets/diploma_preview.dart';
 import '../dashboard/widgets/qr_code_dialog.dart';
 
@@ -211,38 +212,8 @@ class _RecordsScreenState extends State<RecordsScreen>
       int.tryParse(record['degree_number']?.toString() ?? '') ?? 1;
 
   String _degreeType(Map<String, dynamic> record) {
-    final degree = (record['degree'] ?? record['course_or_event'] ?? '')
-        .toString()
-        .toLowerCase();
-    final acronym = degree.replaceAll(RegExp(r'[^a-z0-9]'), '');
-    if (degree.contains('master') ||
-        acronym.startsWith('mba') ||
-        acronym.startsWith('ma') ||
-        acronym.startsWith('ms') ||
-        acronym.startsWith('mpa') ||
-        acronym.startsWith('mph') ||
-        acronym.startsWith('mfa')) {
-      return 'masters';
-    }
-    if (degree.contains('doctor') ||
-        const ['phd', 'edd', 'dba', 'dpa', 'deng', 'md', 'jd']
-            .any((code) => acronym == code || acronym.startsWith(code))) {
-      return 'doctorate';
-    }
-    if (degree.contains('bachelor') ||
-        acronym.startsWith('bs') ||
-        acronym.startsWith('ba') ||
-        const [
-          'beed',
-          'bsed',
-          'bshm',
-          'bstm',
-          'bsn',
-          'bsa',
-        ].any((code) => acronym.startsWith(code))) {
-      return 'bachelors';
-    }
-    return 'other';
+    final degree = (record['degree'] ?? record['course_or_event'] ?? '').toString();
+    return AcademicDegree.classify(degree, degreeNumber: _degreeNumber(record));
   }
 
   bool _matchesRecordFilter(
@@ -687,20 +658,13 @@ class _RecordsScreenState extends State<RecordsScreen>
                 for (final year in batchYears)
                   DropdownMenuItem(value: year, child: Text(year)),
               ];
-              final academicLevels = const [
+              final academicLevels = [
                 DropdownMenuItem(value: '', child: Text('All Levels')),
-                DropdownMenuItem(
-                  value: 'bachelors',
-                  child: Text("Undergraduate / Bachelor's"),
-                ),
-                DropdownMenuItem(
-                  value: 'masters',
-                  child: Text("Master's Degree"),
-                ),
-                DropdownMenuItem(
-                  value: 'doctorate',
-                  child: Text('Doctorate / Ph.D.'),
-                ),
+                for (final level in AcademicDegree.levelOptions)
+                  DropdownMenuItem(
+                    value: level.$1,
+                    child: Text(level.$2),
+                  ),
               ];
 
               content.insert(

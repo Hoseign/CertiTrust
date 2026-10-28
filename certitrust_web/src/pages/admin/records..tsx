@@ -5,6 +5,7 @@ import { useCertificates } from "../../hooks/useCertificates";
 import { useCertificateBatch } from "../../hooks/useCertificateBatch";
 import { validateCertificateBatch } from "../../services/certitrustApi";
 import { getSessionUser } from "../../services/authService";
+import { PROGRAM_SUGGESTIONS } from "../../utils/academicLevel";
 
 type Student = {
     uid: string;
@@ -27,21 +28,6 @@ type RecordItem = {
     status: string;
     blockchainStatus?: string;
 };
-
-const PROGRAM_SUGGESTIONS = [
-    "BS Information Technology",
-    "BSIT",
-    "BS Computer Science",
-    "BSCS",
-    "BS Accountancy",
-    "BSA",
-    "BS Business Administration",
-    "BSBA",
-    "BS Nursing",
-    "BSN",
-    "Master of Information Technology",
-    "Doctor of Philosophy",
-];
 
 const newStudent = (): Student => ({
     uid: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -244,7 +230,7 @@ function StudentCard({
             student_name: student.fullName.trim(),
             student_email: student.email.trim().toLowerCase(),
             degree: student.program.trim(),
-            university_code: getSessionUser()?.university_code?.trim().toUpperCase() ?? "",
+            university_code: student.university.trim().toUpperCase(),
         });
         const hashPromise = student.file
             ? student.file.arrayBuffer().then(sha256HexBytes)
@@ -260,6 +246,7 @@ function StudentCard({
         student.fullName,
         student.email,
         student.program,
+        student.university,
         student.file,
     ]);
 
@@ -446,10 +433,10 @@ export default function Records() {
                 student_name: student.fullName.trim(),
                 student_email: student.email.trim().toLowerCase(),
                 degree: student.program.trim(),
-                diploma_file_name: student.fileName || undefined,
+                diploma_file_name: student.fileName || null,
                 additional_degree: student.additionalDegree,
-                degree_number: student.degreeNumber,
-            })));
+                degree_number: student.additionalDegree ? student.degreeNumber : null,
+            })), students[0]?.university.trim().toUpperCase());
             const candidates = Array.isArray(result.additional_degree_candidates)
                 ? result.additional_degree_candidates as {
                     draft_index: number;
@@ -487,10 +474,10 @@ export default function Records() {
                     student_name: student.fullName.trim(),
                     student_email: student.email.trim().toLowerCase(),
                     degree: student.program.trim(),
-                    diploma_file_name: student.fileName || undefined,
+                    diploma_file_name: student.fileName || null,
                     additional_degree: student.additionalDegree,
                     degree_number: student.degreeNumber,
-                })));
+                })), updatedStudents[0]?.university.trim().toUpperCase());
                 if (
                     Array.isArray(confirmedValidation.additional_degree_candidates) &&
                     confirmedValidation.additional_degree_candidates.length > 0
@@ -515,6 +502,7 @@ export default function Records() {
                 student_name: student.fullName.trim(),
                 student_email: student.email.trim().toLowerCase(),
                 degree: student.program.trim(),
+                university_code: student.university.trim().toUpperCase(),
                 issue_date: new Date().toISOString().slice(0, 10),
                 degree_number: student.degreeNumber,
                 additional_degree: student.additionalDegree,

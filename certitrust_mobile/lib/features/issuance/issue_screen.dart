@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../core/widgets/certitrust_loading_indicator.dart';
 import '../../core/utils/hash_util.dart';
+import '../../core/utils/academic_degree.dart';
 import '../navigation/role_pages.dart';
 import '../../services/api_service.dart';
 
@@ -46,71 +47,7 @@ class _CredentialDraft {
 class _IssueScreenState extends State<IssueScreen> {
   final _formKey = GlobalKey<FormState>();
   final List<_CredentialDraft> _drafts = [];
-  static const _degreeSuggestions = [
-    'Bachelor of Science in Information Technology (BSIT)',
-    'Bachelor of Science in Computer Science (BSCS)',
-    'Bachelor of Science in Information Systems (BSIS)',
-    'Bachelor of Science in Computer Engineering (BSCpE)',
-    'Bachelor of Science in Electronics Engineering (BSECE)',
-    'Bachelor of Science in Electrical Engineering (BSEE)',
-    'Bachelor of Science in Civil Engineering (BSCE)',
-    'Bachelor of Science in Mechanical Engineering (BSME)',
-    'Bachelor of Science in Industrial Engineering (BSIE)',
-    'Bachelor of Science in Environmental Science (BSES)',
-    'Bachelor of Science in Biology (BS Biology)',
-    'Bachelor of Science in Mathematics (BS Math)',
-    'Bachelor of Science in Psychology (BS Psychology)',
-    'Bachelor of Science in Nursing (BSN)',
-    'Bachelor of Science in Pharmacy (BS Pharmacy)',
-    'Bachelor of Science in Medical Technology (BSMT)',
-    'Bachelor of Science in Physical Therapy (BSPT)',
-    'Bachelor of Science in Accountancy (BSA)',
-    'Bachelor of Science in Management Accounting (BSMA)',
-    'Bachelor of Science in Business Administration (BSBA)',
-    'Bachelor of Science in Hospitality Management (BSHM)',
-    'Bachelor of Science in Tourism Management (BSTM)',
-    'Bachelor of Elementary Education (BEEd)',
-    'Bachelor of Secondary Education (BSEd)',
-    'Bachelor of Early Childhood Education (BECEd)',
-    'Bachelor of Physical Education (BPEd)',
-    'Bachelor of Arts in Communication (BA Communication)',
-    'Bachelor of Arts in Political Science (BA Political Science)',
-    'Bachelor of Arts in English Language (BA English)',
-    'Bachelor of Arts in Sociology (BA Sociology)',
-    'Bachelor of Public Administration (BPA)',
-    'Bachelor of Science in Agriculture (BSA)',
-    'Bachelor of Science in Fisheries (BS Fisheries)',
-    'Bachelor of Science in Criminology (BS Criminology)',
-    'Bachelor of Science in Social Work (BSSW)',
-    'Bachelor of Science in Architecture (BS Architecture)',
-    'Bachelor of Science in Statistics (BS Statistics)',
-    'Master of Science in Information Technology (MSIT)',
-    'Master of Science in Computer Science (MSCS)',
-    'Master of Science in Information Systems (MSIS)',
-    'Master of Science in Engineering (MSE)',
-    'Master of Science in Nursing (MSN)',
-    'Master of Public Health (MPH)',
-    'Master of Public Administration (MPA)',
-    'Master of Business Administration (MBA)',
-    'Master of Arts in Communication (MA Communication)',
-    'Master of Arts in Psychology (MA Psychology)',
-    'Master of Arts in Education (MAEd)',
-    'Master of Arts in English (MA English)',
-    'Master of Arts in Teaching (MAT)',
-    'Master of Education (MEd)',
-    'Master of Engineering (MEng)',
-    'Master of Science in Agriculture (MS Agriculture)',
-    'Master of Science in Biology (MS Biology)',
-    'Master of Science in Mathematics (MS Mathematics)',
-    'Master of Science in Social Work (MSSW)',
-    'Doctor of Philosophy (PhD)',
-    'Doctor of Education (EdD)',
-    'Doctor of Business Administration (DBA)',
-    'Doctor of Public Administration (DPA)',
-    'Doctor of Engineering (DEng)',
-    'Doctor of Medicine (MD)',
-    'Juris Doctor (JD)',
-  ];
+  static const _degreeSuggestions = AcademicDegree.programSuggestions;
   bool _isLoadingAdminCheck = true;
   bool _isAdmin = false;
   bool _isProcessing = false;

@@ -5,7 +5,7 @@ import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndi
 import RecordFilterBar, { type RecordFilterValues } from "@/Components/Molecules/RecordFilterBar";
 import { listUniversityStudents, listUniversities, setUniversityAccess } from "../../services/adminApi";
 import { updateStudentAccess as updateStudentAccessApi } from "../../services/certitrustApi";
-import { getAcademicLevel } from "../../utils/academicLevel";
+import { getAcademicLevel, getAcademicLevelLabel } from "../../utils/academicLevel";
 
 type Student = {
     id: string;
@@ -62,7 +62,10 @@ export default function SuperAdminStudentAccess() {
                     studentId: String(record.student_id || "Not recorded"),
                     program: degree,
                     degreeLevel: `Credential #${latestCredential?.degree_number || 1}`,
-                    level: getAcademicLevel(degree),
+                    level: getAcademicLevel(
+                        degree,
+                        Number(latestCredential?.degree_number || 1),
+                    ),
                     year: String(record.batch_year || "Unknown"),
                     universityCode,
                     frozen: Boolean(record.is_frozen),
@@ -266,13 +269,10 @@ export default function SuperAdminStudentAccess() {
                                                         <p>{s.email}</p>
                                                         <p>
                                                             {s.degreeLevel}: {s.program} (
-                                                            {s.level === "masters"
-                                                                ? "Master's Degree"
-                                                                : s.level === "doctorate"
-                                                                    ? "Doctorate / Ph.D."
-                                                                    : s.level === "bachelors"
-                                                                        ? "Undergraduate / Bachelor's"
-                                                                        : "Other"})
+                                                            {getAcademicLevelLabel(
+                                                                s.program,
+                                                                Number(s.degreeLevel.replace(/\D/g, "")) || 1,
+                                                            )})
                                                         </p>
                                                         <p>Batch: {s.year}</p>
                                                     </div>

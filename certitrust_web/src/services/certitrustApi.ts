@@ -117,8 +117,8 @@ export async function issueCertificateBatch(drafts: CertificateDraft[]) {
             degree_number: draft.degree_number ?? 1,
             additional_degree: draft.additional_degree ?? false,
             cert_hash: await sha256Hex(hashInput),
-            diploma_url: uploaded?.diploma_url,
-            diploma_file_name: uploaded?.diploma_file_name,
+            diploma_url: uploaded?.diploma_url ?? null,
+            diploma_file_name: uploaded?.diploma_file_name ?? null,
         };
     }));
 
@@ -153,8 +153,14 @@ export async function updateStudentAccess(userId: number, frozen: boolean) {
     return data;
 }
 
-export async function validateCertificateBatch(certificates: Record<string, unknown>[]) {
-    const { data } = await apiClient.post("/certificates/validate-batch", { certificates });
+export async function validateCertificateBatch(
+    certificates: Record<string, unknown>[],
+    universityCode?: string,
+) {
+    const { data } = await apiClient.post("/certificates/validate-batch", {
+        certificates,
+        university_code: universityCode || undefined,
+    });
     return data as Record<string, unknown>;
 }
 

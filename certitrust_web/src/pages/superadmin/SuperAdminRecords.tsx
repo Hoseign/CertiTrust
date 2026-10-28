@@ -77,7 +77,7 @@ export default function SuperAdminRecords() {
       const matchesYear = !filters.year || r.year === filters.year;
       const matchesProgram = !filters.program || r.program === filters.program;
       const matchesLevel = !filters.academicLevel ||
-        getAcademicLevel(r.program) === filters.academicLevel;
+        getAcademicLevel(r.program, Number(r.degreeNumber)) === filters.academicLevel;
       const matchesUniversity = !filters.university || r.universityCode === filters.university;
       const matchesStatus = !filters.status || r.status === filters.status;
       const matchesSearch =

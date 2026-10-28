@@ -24,9 +24,42 @@ import 'package:certitrust_mobile/features/issuance/issue_screen.dart';
 import 'package:certitrust_mobile/features/navigation/role_pages.dart';
 import 'package:certitrust_mobile/features/qr_scanner/verify_screen.dart';
 import 'package:certitrust_mobile/core/widgets/certitrust_loading_indicator.dart';
+import 'package:certitrust_mobile/core/utils/academic_degree.dart';
 import 'package:certitrust_mobile/services/api_service.dart';
 
 void main() {
+  test('degree suggestions and classifications match the shared catalog', () {
+    expect(
+      AcademicDegree.programSuggestions,
+      orderedEquals([
+        'Doctor of Information Technology (DIT)',
+        'Doctor of Philosophy (PhD)',
+        'MS Information Technology (MSIT)',
+        'Master in Business Administration (MBA)',
+        'BS Information Technology (BSIT)',
+        'BS Computer Science (BSCS)',
+        'BS Business Administration (BSBA)',
+        'BS Education (BSEd)',
+        'Cert. in Cybersecurity & Web Security',
+        'Professional Certificate in Cybersecurity',
+      ]),
+    );
+    expect(AcademicDegree.classify('BS Information Technology (BSIT)'),
+        'bachelors_first');
+    expect(
+      AcademicDegree.classify('BS Computer Science (BSCS)', degreeNumber: 2),
+      'second_degree',
+    );
+    expect(
+        AcademicDegree.classify('MS Information Technology (MSIT)'), 'masters');
+    expect(AcademicDegree.classify('Doctor of Information Technology (DIT)'),
+        'doctoral');
+    expect(
+      AcademicDegree.classify('Professional Certificate in Cybersecurity'),
+      'professional',
+    );
+  });
+
   testWidgets('branded loading indicator renders the filling CertiTrust logo',
       (WidgetTester tester) async {
     await tester.pumpWidget(
@@ -870,7 +903,7 @@ void main() {
 
         await tester.tap(find.byType(DropdownButtonFormField<String>).first);
         await tester.pumpAndSettle();
-        await tester.tap(find.text("Master's Degree").last);
+        await tester.tap(find.text("Master's").last);
         await tester.pumpAndSettle();
         await tester.tap(find.text('Filter certificate records'));
         await tester.pumpAndSettle();
@@ -927,7 +960,7 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.byType(DropdownButtonFormField<String>).first);
         await tester.pumpAndSettle();
-        await tester.tap(find.text("Master's Degree").last);
+        await tester.tap(find.text("Master's").last);
         await tester.pumpAndSettle();
         await tester.tap(find.text('Filter certificate records'));
         await tester.pumpAndSettle();
@@ -941,7 +974,7 @@ void main() {
         );
         await tester.tap(find.text('Filter certificate records'));
         await tester.pumpAndSettle();
-        expect(find.text("Master's Degree"), findsOneWidget);
+        expect(find.text("Master's"), findsOneWidget);
         await tester.ensureVisible(find.text('Reset filters'));
         await tester.tap(find.text('Reset filters'));
         await tester.pumpAndSettle();
@@ -1001,9 +1034,10 @@ void main() {
 
     final degreeField = find.byType(TextFormField).at(3);
     await tester.tap(degreeField);
+    await tester.enterText(degreeField, 'BS Information');
     await tester.pumpAndSettle();
     expect(
-      find.text('Bachelor of Science in Information Technology (BSIT)'),
+      find.text('BS Information Technology (BSIT)'),
       findsOneWidget,
     );
 
@@ -1011,7 +1045,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.text('Bachelor of Science in Information Technology (BSIT)'),
+      find.text('BS Information Technology (BSIT)'),
       findsNothing,
     );
     expect(find.text('Credential batch'), findsOneWidget);

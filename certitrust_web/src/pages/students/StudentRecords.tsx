@@ -33,7 +33,7 @@ export default function StudentRecords() {
         const query = filters.search.trim().toLowerCase();
         return certificates.filter((certificate) => {
             const matchesLevel = !filters.academicLevel ||
-                getAcademicLevel(certificate.degree) === filters.academicLevel;
+                getAcademicLevel(certificate.degree, certificate.degree_number ?? 1) === filters.academicLevel;
             const matchesProgram = !filters.program || certificate.degree === filters.program;
             const matchesYear = !filters.year || certificate.issue_date.slice(0, 4) === filters.year;
             const matchesSearch = !query || [

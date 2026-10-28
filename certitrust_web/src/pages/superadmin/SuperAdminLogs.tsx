@@ -14,6 +14,7 @@ type CredentialActivity = {
     student_id?: string;
     student_email?: string;
     degree?: string;
+    degree_number?: number;
     cert_hash?: string;
     issue_date?: string;
     created_at?: string;
@@ -82,7 +83,7 @@ export default function SuperAdminLogs() {
         const program = item.degree ?? "";
         const batchYear = item.issue_date?.slice(0, 4) ?? "";
         const matchesLevel = !filters.academicLevel ||
-            getAcademicLevel(program) === filters.academicLevel;
+            getAcademicLevel(program, Number(item.degree_number ?? 1)) === filters.academicLevel;
         const matchesProgram = !filters.program || program === filters.program;
         const matchesYear = !filters.year || batchYear === filters.year;
         const matchesUniversity = !filters.university ||

@@ -1,3 +1,5 @@
+import { ACADEMIC_LEVELS } from "../../utils/academicLevel";
+
 export type RecordFilterValues = {
     academicLevel: string;
     program: string;
@@ -75,9 +77,11 @@ export default function RecordFilterBar({
                         onChange={(event) => update({ academicLevel: event.target.value })}
                     >
                         <option value="">All Levels</option>
-                        <option value="bachelors">Undergraduate / Bachelor's</option>
-                        <option value="masters">Master's Degree</option>
-                        <option value="doctorate">Doctorate / Ph.D.</option>
+                        {ACADEMIC_LEVELS.map((level) => (
+                            <option key={level.value} value={level.value}>
+                                {level.label}
+                            </option>
+                        ))}
                     </select>
                 </label>
 

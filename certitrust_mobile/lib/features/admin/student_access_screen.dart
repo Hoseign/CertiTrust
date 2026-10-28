@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/utils/academic_degree.dart';
 import '../../core/widgets/certitrust_loading_indicator.dart';
 import '../../services/api_service.dart';
 
@@ -264,16 +265,12 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
     }
     return credentials.any((credential) {
       final degree = credential['degree']?.toString() ?? '';
-      final type = (credential['degree_type']?.toString() ?? '').toLowerCase();
-      final level = type.contains('master')
-          ? 'masters'
-          : type.contains('doctor') || type.contains('phd')
-              ? 'doctorate'
-              : type.contains('bachelor') || type.contains('undergraduate')
-                  ? 'bachelors'
-                  : _inferAcademicLevel(degree);
       final degreeNumber =
-          int.tryParse(credential['degree_number']?.toString() ?? '');
+          int.tryParse(credential['degree_number']?.toString() ?? '') ?? 1;
+      final level = AcademicDegree.classify(
+        degree,
+        degreeNumber: degreeNumber,
+      );
       return (_selectedAcademicLevel.isEmpty ||
               level == _selectedAcademicLevel) &&
           (_selectedProgram == null || degree == _selectedProgram) &&
@@ -282,37 +279,20 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
     });
   }
 
-  String _inferAcademicLevel(String degree) {
-    final normalized = degree.toLowerCase().replaceAll(
-          RegExp(r'[^a-z0-9]'),
-          '',
-        );
-    if (degree.toLowerCase().contains('master') ||
-        RegExp(r'^(mba|ma|ms|mpa|mph|mfa)').hasMatch(normalized)) {
-      return 'masters';
-    }
-    if (degree.toLowerCase().contains('doctor') ||
-        const ['phd', 'edd', 'dba', 'dpa', 'deng', 'md', 'jd']
-            .any(normalized.startsWith)) {
-      return 'doctorate';
-    }
-    if (degree.toLowerCase().contains('bachelor') ||
-        RegExp(r'^(bs|ba|beed|bsed|bshm|bstm|bsn|bsa)').hasMatch(normalized)) {
-      return 'bachelors';
-    }
-    return 'other';
-  }
-
   String _credentialLevelLabel(Map<String, dynamic> credential) {
-    final type = (credential['degree_type']?.toString() ?? '').toLowerCase();
-    if (type.contains('master')) return "Master's Degree";
-    if (type.contains('doctor') || type.contains('phd')) {
-      return 'Doctorate / Ph.D.';
-    }
-    if (type.contains('bachelor') || type.contains('undergraduate')) {
-      return "Undergraduate / Bachelor's";
-    }
-    return 'Other';
+    final degree = credential['degree']?.toString() ?? '';
+    final degreeNumber =
+        int.tryParse(credential['degree_number']?.toString() ?? '') ?? 1;
+    final level = AcademicDegree.classify(
+      degree,
+      degreeNumber: degreeNumber,
+    );
+    return AcademicDegree.levelOptions
+        .firstWhere(
+          (option) => option.$1 == level,
+          orElse: () => ('other', 'Other'),
+        )
+        .$2;
   }
 
   String _studentSubtitle(Map<String, dynamic> student) {
@@ -489,24 +469,17 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
                                         labelText: 'Academic Level',
                                         border: OutlineInputBorder(),
                                       ),
-                                      items: const [
+                                      items: [
                                         DropdownMenuItem(
                                           value: '',
                                           child: Text('All Levels'),
                                         ),
-                                        DropdownMenuItem(
-                                          value: 'bachelors',
-                                          child: Text(
-                                              "Undergraduate / Bachelor's"),
-                                        ),
-                                        DropdownMenuItem(
-                                          value: 'masters',
-                                          child: Text("Master's Degree"),
-                                        ),
-                                        DropdownMenuItem(
-                                          value: 'doctorate',
-                                          child: Text('Doctorate / Ph.D.'),
-                                        ),
+                                        for (final level
+                                            in AcademicDegree.levelOptions)
+                                          DropdownMenuItem(
+                                            value: level.$1,
+                                            child: Text(level.$2),
+                                          ),
                                       ],
                                       onChanged: (value) => setState(
                                         () => _selectedAcademicLevel =

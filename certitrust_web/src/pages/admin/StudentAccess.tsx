@@ -12,7 +12,13 @@ type Student = {
     student_id?: string;
     degree?: string;
     batch_year?: string;
-    credentials?: { degree?: string; certificate_code?: string; cert_hash?: string }[];
+    credentials?: {
+        degree?: string;
+        degree_number?: number;
+        certificate_code?: string;
+        cert_hash?: string;
+    }[];
+    degree_number?: number;
     student_removal_status?: string | null;
 };
 
@@ -63,8 +69,10 @@ export default function StudentAccess() {
     const filtered = useMemo(() => {
         const query = filters.search.trim().toLowerCase();
         return students.filter((student) => {
+            const degreeNumber = student.degree_number ??
+                Math.max(1, ...(student.credentials ?? []).map((credential) => credential.degree_number ?? 1));
             const matchesLevel = !filters.academicLevel ||
-                getAcademicLevel(student.degree || "") === filters.academicLevel;
+                getAcademicLevel(student.degree || "", degreeNumber) === filters.academicLevel;
             const matchesProgram = !filters.program || student.degree === filters.program;
             const matchesYear = !filters.year || student.batch_year === filters.year;
             const matchesSearch = !query || [

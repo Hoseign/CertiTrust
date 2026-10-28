@@ -41,7 +41,7 @@ const mapCertificate = (record: CertificateRecord): Certificate => ({
     institutionalEmail: record.student_email,
     degreeProgram: record.degree,
     degreeNumber: String(record.degree_number ?? 1),
-    level: getAcademicLevel(record.degree),
+    level: getAcademicLevel(record.degree, record.degree_number ?? 1),
     certificateCode: record.certificate_code,
     fileName: record.diploma_file_name || "No file attached",
     diplomaUrl: record.diploma_url || undefined,
