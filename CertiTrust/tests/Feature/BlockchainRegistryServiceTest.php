@@ -282,6 +282,51 @@ class BlockchainRegistryServiceTest extends TestCase
         $this->assertSame('ethereum-sepolia', $result['network']);
     }
 
+    public function test_issuance_selects_a_working_rpc_once_instead_of_retrying_dead_primary_for_each_call(): void
+    {
+        config([
+            'services.certitrust.enabled' => true,
+            'services.certitrust.rpc_url' => 'https://primary.example',
+            'services.certitrust.rpc_fallback_urls' => ['https://fallback.example'],
+            'services.certitrust.chain_id' => 11155111,
+            'services.certitrust.network' => 'ethereum-sepolia',
+            'services.certitrust.contract_address' => '0x1111111111111111111111111111111111111111',
+            'services.certitrust.private_key' => str_repeat('1', 64),
+        ]);
+        Http::fake([
+            'https://primary.example' => function () {
+                throw new ConnectionException('Primary RPC could not be reached.');
+            },
+            'https://fallback.example' => function ($request) {
+                $result = match ($request['method']) {
+                    'eth_chainId' => '0xaa36a7',
+                    'eth_call' => '0x00000000000000000000000019e7e376e7c213b7e7e7e46cc70a5dd086daff2a',
+                    'eth_getTransactionCount' => '0x0',
+                    'eth_gasPrice' => '0x3b9aca00',
+                    'eth_estimateGas' => '0x5208',
+                    'eth_sendRawTransaction' => '0x' . str_repeat('b', 64),
+                    default => throw new \RuntimeException('Unexpected RPC method: ' . $request['method']),
+                };
+
+                return Http::response(['jsonrpc' => '2.0', 'id' => 1, 'result' => $result]);
+            },
+        ]);
+
+        $result = app(BlockchainRegistryService::class)->issueCertificate(
+            str_repeat('a', 64),
+            'Alice Student',
+            'Master of Science',
+            '2026-10-28',
+        );
+
+        $this->assertSame('submitted', $result['status']);
+        Http::assertSentCount(6);
+        Http::assertSent(fn ($request) => $request->url() === 'https://fallback.example'
+            && $request['method'] === 'eth_chainId');
+        Http::assertSent(fn ($request) => $request->url() === 'https://fallback.example'
+            && $request['method'] === 'eth_sendRawTransaction');
+    }
+
     private function encodedVerificationResult(bool $isValid): string
     {
         $word = static fn (int $value): string => str_pad(

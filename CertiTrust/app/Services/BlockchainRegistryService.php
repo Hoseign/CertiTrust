@@ -15,6 +15,8 @@ use kornrunner\Keccak;
 class BlockchainRegistryService
 {
     private const VERIFICATION_RPC_TIMEOUT_SECONDS = 3;
+    private const ISSUANCE_RPC_TIMEOUT_SECONDS = 5;
+    private const RPC_DISCOVERY_TIMEOUT_SECONDS = 3;
 
     public function issueCertificate(
         string $sha256,
@@ -51,15 +53,12 @@ class BlockchainRegistryService
 
         $sender = $this->addressFromPrivateKey($privateKey);
         $chainId = (int) $configuration['chain_id'];
-        $rpcChainId = hexdec($this->rpc($configuration['rpc_url'], 'eth_chainId', []));
-        if ((int) $rpcChainId !== $chainId) {
-            throw new RuntimeException('The configured blockchain RPC is not on the expected chain ID.');
-        }
+        $rpcUrl = $this->resolveIssuanceRpcUrl($configuration, $chainId);
         $ownerCall = '0x' . substr(Keccak::hash('owner()', 256), 0, 8);
-        $ownerOutput = $this->rpc($configuration['rpc_url'], 'eth_call', [[
+        $ownerOutput = $this->rpc($rpcUrl, 'eth_call', [[
             'to' => $configuration['contract_address'],
             'data' => $ownerCall,
-        ], 'latest']);
+        ], 'latest'], self::ISSUANCE_RPC_TIMEOUT_SECONDS, false);
         $contractOwner = '0x' . substr($ownerOutput, -40);
         if (strtolower($contractOwner) !== strtolower($sender)) {
             throw new RuntimeException('The configured signer is not the deployed contract owner.');
@@ -71,9 +70,27 @@ class BlockchainRegistryService
             'data' => $callData,
             'value' => '0x0',
         ];
-        $nonce = $this->rpc($configuration['rpc_url'], 'eth_getTransactionCount', [$sender, 'pending']);
-        $gasPrice = $this->rpc($configuration['rpc_url'], 'eth_gasPrice', []);
-        $estimatedGas = hexdec($this->rpc($configuration['rpc_url'], 'eth_estimateGas', [$transactionRequest]));
+        $nonce = $this->rpc(
+            $rpcUrl,
+            'eth_getTransactionCount',
+            [$sender, 'pending'],
+            self::ISSUANCE_RPC_TIMEOUT_SECONDS,
+            false,
+        );
+        $gasPrice = $this->rpc(
+            $rpcUrl,
+            'eth_gasPrice',
+            [],
+            self::ISSUANCE_RPC_TIMEOUT_SECONDS,
+            false,
+        );
+        $estimatedGas = hexdec($this->rpc(
+            $rpcUrl,
+            'eth_estimateGas',
+            [$transactionRequest],
+            self::ISSUANCE_RPC_TIMEOUT_SECONDS,
+            false,
+        ));
 
         $transaction = new Transaction([
             'nonce' => $nonce,
@@ -90,9 +107,11 @@ class BlockchainRegistryService
         }
 
         $transactionHash = $this->rpc(
-            $configuration['rpc_url'],
+            $rpcUrl,
             'eth_sendRawTransaction',
             [$rawTransaction],
+            self::ISSUANCE_RPC_TIMEOUT_SECONDS,
+            false,
         );
 
         return [
@@ -322,11 +341,12 @@ class BlockchainRegistryService
         string $method,
         array $params,
         int $timeoutSeconds = 25,
+        bool $tryFallbacks = true,
     ): string
     {
         $urls = array_values(array_unique(array_filter(array_merge(
             [$url],
-            (array) config('services.certitrust.rpc_fallback_urls', []),
+            $tryFallbacks ? (array) config('services.certitrust.rpc_fallback_urls', []) : [],
         ))));
         $lastFailure = null;
 
@@ -354,14 +374,14 @@ class BlockchainRegistryService
 
             if (!$response->successful()) {
                 $lastFailure = new RuntimeException(
-                    "Polygon RPC returned HTTP {$response->status()}."
+                    "Ethereum RPC returned HTTP {$response->status()}."
                 );
                 continue;
             }
 
             $payload = $response->json();
             if (isset($payload['error'])) {
-                throw new RuntimeException($payload['error']['message'] ?? 'Polygon RPC request failed.');
+                throw new RuntimeException($payload['error']['message'] ?? 'Ethereum RPC request failed.');
             }
             if (!is_array($payload) || !array_key_exists('result', $payload)) {
                 $lastFailure = new RuntimeException('Polygon RPC returned an invalid response.');
@@ -372,9 +392,49 @@ class BlockchainRegistryService
         }
 
         throw new RuntimeException(
-            'All configured blockchain RPC endpoints failed: '
+            'All configured Ethereum RPC endpoints failed: '
                 . ($lastFailure?->getMessage() ?? 'no RPC endpoints are configured.'),
             previous: $lastFailure,
+        );
+    }
+
+    private function resolveIssuanceRpcUrl(array $configuration, int $expectedChainId): string
+    {
+        $urls = array_values(array_unique(array_filter(array_merge(
+            [$configuration['rpc_url']],
+            $configuration['rpc_fallback_urls'] ?? [],
+        ))));
+
+        foreach ($urls as $index => $url) {
+            try {
+                $chainId = hexdec($this->rpc(
+                    $url,
+                    'eth_chainId',
+                    [],
+                    self::RPC_DISCOVERY_TIMEOUT_SECONDS,
+                    false,
+                ));
+            } catch (\Throwable $exception) {
+                Log::warning('Ethereum issuance RPC endpoint is unavailable; trying a fallback.', [
+                    'endpoint_index' => $index,
+                    'exception' => $exception->getMessage(),
+                ]);
+                continue;
+            }
+
+            if ($chainId === $expectedChainId) {
+                return $url;
+            }
+
+            Log::warning('Ethereum issuance RPC endpoint returned the wrong chain ID.', [
+                'endpoint_index' => $index,
+                'expected_chain_id' => $expectedChainId,
+                'actual_chain_id' => $chainId,
+            ]);
+        }
+
+        throw new RuntimeException(
+            'No configured Ethereum RPC endpoint is reachable on the expected chain.'
         );
     }
 
