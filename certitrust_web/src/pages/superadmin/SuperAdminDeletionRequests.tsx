@@ -25,6 +25,7 @@ type DeletionRequest = {
 type StudentDeletionRequest = {
     id: number;
     student: string;
+    studentId: string;
     email: string;
     school: string;
     requestedBy: string;
@@ -63,6 +64,7 @@ export default function SuperAdminDeletionRequests() {
             setStudentRequests(studentRecords.map((record) => ({
                 id: Number(record.id),
                 student: String(record.student_name || "Student"),
+                studentId: String(record.student_id || "Not recorded"),
                 email: String(record.student_email || "Not recorded"),
                 school: String(record.university_code || ""),
                 requestedBy: String(record.requester_name || "University subadmin"),
@@ -146,10 +148,14 @@ export default function SuperAdminDeletionRequests() {
 
                 <div className="max-w-3xl mx-auto">
 
-                    {/* HEADER */}
-                    <h1 className="text-3xl font-extrabold text-[#0A192F] mb-8">
-                        Deletion Requests
-                    </h1>
+                    <button
+                        type="button"
+                        onClick={() => navigate("/superadmin")}
+                        className="mb-5 inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 font-semibold text-slate-700 hover:bg-white"
+                    >
+                        <span aria-hidden="true">←</span> Back
+                    </button>
+                    <h1 className="mb-8 text-3xl font-extrabold text-[#0A192F]">Deletion Requests</h1>
                     {error && <p role="alert" className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
                     <h2 className="mb-4 text-xl font-bold text-[#0A192F]">Student account removal requests</h2>
@@ -161,7 +167,7 @@ export default function SuperAdminDeletionRequests() {
                             <article key={request.id} className="flex flex-wrap items-center justify-between gap-4 p-5">
                                 <div>
                                     <p className="font-semibold text-[#0A192F]">{request.student}</p>
-                                    <p className="mt-1 text-sm text-slate-600">{request.email} · {request.school}</p>
+                                    <p className="mt-1 text-sm text-slate-600">ID: {request.studentId} · {request.email} · {request.school}</p>
                                     <p className="mt-1 text-xs text-slate-500">Requested by {request.requestedBy} · {request.status}</p>
                                 </div>
                                 {request.status === "pending" && (

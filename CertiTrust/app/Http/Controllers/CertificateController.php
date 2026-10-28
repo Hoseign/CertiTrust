@@ -12,6 +12,7 @@ use Illuminate\Support\Str;
 use App\Models\User;
 use App\Models\Certificate;
 use App\Models\CertificateVerification;
+use App\Models\ChatMessage;
 use App\Models\University;
 use App\Models\AdminActionLog;
 use App\Services\SupabaseDiplomaStorage;
@@ -232,6 +233,25 @@ class CertificateController extends Controller
                 'updated_at' => now(),
             ]);
             $certificate->delete();
+            if (Schema::hasTable('chat_messages')) {
+                $subadmin = User::where('role', 'admin')
+                    ->where('university_code', $universityCode)
+                    ->whereRaw('LOWER(TRIM(email)) != ?', ['certitrust256@gmail.com'])
+                    ->first();
+                if ($subadmin) {
+                    ChatMessage::create([
+                        'user_id' => $actor->id,
+                        'recipient_user_id' => $subadmin->id,
+                        'university_code' => $universityCode,
+                        'sender_email' => $actor->email,
+                        'sender_name' => 'CertiTrust Super Admin',
+                        'message' => 'Credential ' . $certificateCode . ' for '
+                            . ($certificate->student_name ?: $certificate->recipient_name)
+                            . ' was removed by the Super Admin and moved to Junk.',
+                        'deleted_by' => [],
+                    ]);
+                }
+            }
             if (Schema::hasTable('admin_action_logs')) {
                 AdminActionLog::create([
                     'actor_email' => $actor->email,

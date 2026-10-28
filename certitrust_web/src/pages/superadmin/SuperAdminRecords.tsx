@@ -4,7 +4,6 @@ import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
 import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 import RecordFilterBar, { type RecordFilterValues } from "@/Components/Molecules/RecordFilterBar";
 import { useCertificates } from "../../hooks/useCertificates";
-import { revokeCertificateRecord } from "../../services/adminApi";
 import { getAcademicLevel } from "../../utils/academicLevel";
 
 type RecordItem = {
@@ -34,10 +33,7 @@ export default function SuperAdminRecords() {
     status: "",
   });
   const [openIds, setOpenIds] = useState<string[]>([]);
-  const [revokingId, setRevokingId] = useState<string | null>(null);
-  const [revokeError, setRevokeError] = useState("");
-  const [revokeMessage, setRevokeMessage] = useState("");
-  const { certificates: apiRecords, loading, error, refresh } = useCertificates();
+  const { certificates: apiRecords, loading, error } = useCertificates();
   const records: RecordItem[] = apiRecords.map((record) => ({
     id: String(record.id),
     studentName: record.student_name,
@@ -113,28 +109,6 @@ export default function SuperAdminRecords() {
     );
   };
 
-  const revokeRecord = async (record: RecordItem) => {
-    if (!window.confirm(
-      `Permanently remove ${record.studentName}'s database credential (${record.certificateCode})? Its old QR code will show that it was removed. Blockchain transactions cannot be erased. The student ID and email can be used for a new registration.`,
-    )) return;
-
-    setRevokingId(record.id);
-    setRevokeError("");
-    setRevokeMessage("");
-    try {
-      await revokeCertificateRecord(Number(record.id));
-      setOpenIds((prev) => prev.filter((id) => id !== record.id));
-      await refresh(true);
-      setRevokeMessage(`${record.certificateCode} was removed from the database. Its QR code no longer resolves; its blockchain transaction remains on-chain.`);
-    } catch (requestError) {
-      const message = (requestError as { response?: { data?: { message?: string } } })
-        .response?.data?.message;
-      setRevokeError(message || "Unable to revoke this credential record.");
-    } finally {
-      setRevokingId(null);
-    }
-  };
-
   return (
     <div className="min-h-screen flex bg-[#F5F8FC]">
 
@@ -171,8 +145,6 @@ export default function SuperAdminRecords() {
 
           {/* RECORD GROUPS */}
           {error && <p role="alert" className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-          {revokeError && <p role="alert" className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{revokeError}</p>}
-          {revokeMessage && <p role="status" className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{revokeMessage}</p>}
           {loading && <CertiTrustLoadingIndicator size={28} message="Loading records..." className="w-full py-6 text-sm text-slate-500" />}
           {!loading && groups.length === 0 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center text-gray-500">
@@ -300,15 +272,6 @@ export default function SuperAdminRecords() {
                               </svg>
                               Verify this record
                             </Link>
-
-                            <button
-                              type="button"
-                              disabled={revokingId === r.id}
-                              onClick={() => void revokeRecord(r)}
-                              className="inline-flex items-center gap-2 font-semibold text-red-700 hover:underline disabled:cursor-wait disabled:opacity-60"
-                            >
-                              {revokingId === r.id ? "Revoking credential..." : "Revoke database credential"}
-                            </button>
 
                             <button
                               type="button"

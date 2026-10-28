@@ -193,6 +193,7 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
   }
 
   Future<void> _deleteStudentAccount(Map<String, dynamic> student) async {
+    if (widget.superAdminView) return;
     final studentId = int.tryParse(student['id']?.toString() ?? '');
     if (studentId == null) return;
     final label = student['name']?.toString() ??

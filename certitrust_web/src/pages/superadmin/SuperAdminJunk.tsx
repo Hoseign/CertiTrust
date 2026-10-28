@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
 import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 import {
     listJunkItems,
     permanentlyDeleteJunkItem,
+    restoreJunkItem,
     type JunkItem,
 } from "../../services/adminApi";
 
@@ -18,6 +20,7 @@ function sourceLabel(sourceValue: unknown) {
 }
 
 export default function SuperAdminJunk() {
+    const navigate = useNavigate();
     const [items, setItems] = useState<JunkItem[]>([]);
     const [search, setSearch] = useState("");
     const [isLoading, setIsLoading] = useState(true);
@@ -76,18 +79,42 @@ export default function SuperAdminJunk() {
         }
     };
 
+    const restore = async (item: JunkItem) => {
+        setWorkingId(item.id);
+        setError("");
+        setMessage("");
+        try {
+            const result = await restoreJunkItem(item.id);
+            setItems((current) => current.filter((candidate) => candidate.id !== item.id));
+            setMessage(result.message);
+        } catch (requestError) {
+            const responseMessage = (requestError as { response?: { data?: { message?: string } } })
+                .response?.data?.message;
+            setError(responseMessage || "Unable to restore this item.");
+        } finally {
+            setWorkingId(null);
+        }
+    };
+
     return (
         <div className="flex min-h-screen bg-[#F5F7FB]">
             <SuperAdminSideBar />
             <main className="h-screen min-w-0 flex-1 overflow-y-auto p-5 md:p-10">
                 <div className="mx-auto max-w-5xl">
+                    <button
+                        type="button"
+                        onClick={() => navigate("/superadmin")}
+                        className="mb-5 inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 font-semibold text-slate-700 hover:bg-white"
+                    >
+                        <span aria-hidden="true">←</span> Back
+                    </button>
                     <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#2563EB]">Super Admin</p>
                     <h1 className="mt-2 text-3xl font-extrabold text-[#0A192F]">Junk / Recycle Bin</h1>
                     <p className="mt-3 max-w-3xl leading-7 text-slate-600">
-                        Deleted subadmins and student accounts approved for removal are held here before permanent deletion. Database credentials are removed from active verification when an item enters Junk; blockchain history remains immutable.
+                        Deleted accounts and credentials are held here until restored or permanently deleted. Database credentials are removed from active verification while in Junk; blockchain history remains immutable.
                     </p>
                     <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
-                        Use “Permanently delete” to erase the selected item from the recycle bin. This cannot be undone.
+                        Restore an item to return its account or credential to active records. Permanently deleting an item cannot be undone.
                     </div>
 
                     {error && <p role="alert" className="mt-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
@@ -145,14 +172,24 @@ export default function SuperAdminJunk() {
                                         {item.deleted_by_email ? ` by ${item.deleted_by_email}` : ""}
                                     </p>
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => setSelected(item)}
-                                        disabled={workingId === item.id}
-                                        className="min-h-10 rounded-lg bg-red-700 px-4 font-bold text-white hover:bg-red-800 disabled:opacity-50"
-                                    >
-                                        Permanently delete
-                                    </button>
+                                    <div className="flex flex-wrap gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => void restore(item)}
+                                            disabled={workingId !== null}
+                                            className="min-h-10 rounded-lg border border-emerald-300 px-4 font-bold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50"
+                                        >
+                                            {workingId === item.id ? "Restoring..." : "Restore"}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelected(item)}
+                                            disabled={workingId !== null}
+                                            className="min-h-10 rounded-lg bg-red-700 px-4 font-bold text-white hover:bg-red-800 disabled:opacity-50"
+                                        >
+                                            Permanently delete
+                                        </button>
+                                    </div>
                                 </article>
                             );
                         })}

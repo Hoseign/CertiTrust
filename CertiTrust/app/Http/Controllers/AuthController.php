@@ -597,13 +597,22 @@ class AuthController extends Controller
         $freezeOwners = User::whereIn('id', $freezeOwnerIds)
             ->get(['id', 'name', 'email'])
             ->keyBy('id');
-        $students = $studentAccounts->map(function (User $student) use (
+            $studentDeletionRequests = Schema::hasTable('student_deletion_requests')
+                ? DB::table('student_deletion_requests')
+                    ->whereIn('student_user_id', $studentAccounts->pluck('id'))
+                    ->orderByDesc('id')
+                    ->get(['id', 'student_user_id', 'status'])
+                    ->unique('student_user_id')
+                    ->keyBy('student_user_id')
+                : collect();
+            $students = $studentAccounts->map(function (User $student) use (
                 $actor,
                 $university,
                 $policyOwnerId,
                 $universityAccessControl,
                 $certificatesByStudentEmail,
                 $freezeOwners,
+                $studentDeletionRequests,
             ) {
                 $certificates = $certificatesByStudentEmail[
                     strtolower(trim((string) $student->email))
@@ -636,6 +645,7 @@ class AuthController extends Controller
                     || ($student->access_frozen === null
                         && (bool) $universityAccessControl?->students_frozen);
                 $freezeOwner = $freezeOwnerId ? $freezeOwners->get($freezeOwnerId) : null;
+                $deletionRequest = $studentDeletionRequests->get($student->id);
 
                 return [
                     'id' => $student->id,
@@ -678,6 +688,8 @@ class AuthController extends Controller
                     'freeze_owner_name' => $freezeOwner?->name,
                     'can_manage_access' => !$isFrozen
                         || $freezeOwnerId === (int) $actor->id,
+                    'student_removal_status' => $deletionRequest?->status,
+                    'student_removal_request_id' => $deletionRequest?->id,
                 ];
             });
         $actorIsSuperAdmin = $this->isSuperAdmin($actor);
@@ -913,6 +925,11 @@ class AuthController extends Controller
                     $certificates = is_array($payload['certificates'] ?? null)
                         ? $payload['certificates']
                         : [];
+                    foreach (['student', 'subadmin'] as $accountKey) {
+                        if (is_array($payload[$accountKey] ?? null)) {
+                            unset($payload[$accountKey]['password'], $payload[$accountKey]['remember_token']);
+                        }
+                    }
 
                     return [
                         'id' => (int) $item->id,
@@ -931,6 +948,131 @@ class AuthController extends Controller
                     ];
                 }),
         ]);
+    }
+
+    public function restoreJunkItem(Request $request, int $junkItem)
+    {
+        $this->ensureSuperAdmin($request);
+        if (!Schema::hasTable('junk_items')) {
+            return response()->json(['message' => 'The recycle bin migration has not been applied.'], 503);
+        }
+
+        return DB::transaction(function () use ($junkItem, $request) {
+            $item = DB::table('junk_items')->lockForUpdate()->where('id', $junkItem)->first();
+            if (!$item) {
+                return response()->json(['message' => 'Junk item not found.'], 404);
+            }
+
+            $payload = json_decode((string) $item->payload, true);
+            if (!is_array($payload)) {
+                return response()->json(['message' => 'This item has an invalid recycle-bin snapshot and cannot be restored.'], 422);
+            }
+
+            $accountKey = match ($item->record_type) {
+                'student_account' => 'student',
+                'subadmin_account' => 'subadmin',
+                'credential_record' => null,
+                default => 'unsupported',
+            };
+            if ($accountKey === 'unsupported') {
+                return response()->json(['message' => 'This recycle-bin record type cannot be restored.'], 422);
+            }
+
+            $account = $accountKey ? ($payload[$accountKey] ?? null) : null;
+            if ($accountKey && (!is_array($account)
+                || empty($account['id'])
+                || empty($account['email'])
+                || empty($account['password']))) {
+                return response()->json([
+                    'message' => 'This account snapshot does not contain the original sign-in data and cannot be restored.',
+                ], 409);
+            }
+            if ($accountKey) {
+                $expectedRole = $accountKey === 'student' ? ['student', 'user'] : ['admin'];
+                if (!in_array($account['role'] ?? null, $expectedRole, true)
+                    || strtolower(trim((string) ($account['email'] ?? ''))) === 'certitrust256@gmail.com') {
+                    return response()->json(['message' => 'This account snapshot is not eligible for restoration.'], 422);
+                }
+                if (User::whereKey($account['id'])->exists()
+                    || User::where('email', $account['email'])->exists()) {
+                    return response()->json([
+                        'message' => 'An account with this ID or email already exists. Resolve the account conflict before restoring this item.',
+                    ], 409);
+                }
+            }
+
+            $certificates = $payload['certificates'] ?? [];
+            if (!is_array($certificates)) {
+                return response()->json(['message' => 'This item has an invalid credential snapshot and cannot be restored.'], 422);
+            }
+            if ($item->record_type === 'credential_record' && $certificates === []) {
+                return response()->json(['message' => 'This item does not contain credential data to restore.'], 422);
+            }
+            foreach ($certificates as $certificate) {
+                if (!is_array($certificate)
+                    || empty($certificate['certificate_code'])
+                    || empty($certificate['university_code'])) {
+                    return response()->json(['message' => 'This item has an invalid credential snapshot and cannot be restored.'], 422);
+                }
+                if (Certificate::where('certificate_code', $certificate['certificate_code'])->exists()) {
+                    return response()->json([
+                        'message' => 'A credential with this certificate code already exists. Resolve the credential conflict before restoring this item.',
+                    ], 409);
+                }
+            }
+
+            if ($accountKey) {
+                $userAttributes = array_intersect_key(
+                    $account,
+                    array_flip(Schema::getColumnListing('users')),
+                );
+                $userAttributes['remember_token'] = null;
+                DB::table('users')->insert($userAttributes);
+            }
+
+            foreach ($certificates as $certificate) {
+                $certificateAttributes = array_intersect_key(
+                    $certificate,
+                    array_flip(Schema::getColumnListing('certificates')),
+                );
+                DB::table('certificates')->insert($certificateAttributes);
+                if (Schema::hasTable('revoked_credentials')) {
+                    DB::table('revoked_credentials')
+                        ->where('university_code', $certificate['university_code'])
+                        ->where(function ($query) use ($certificate) {
+                            if (!empty($certificate['certificate_code'])) {
+                                $query->where('certificate_code', $certificate['certificate_code']);
+                            }
+                            if (!empty($certificate['cert_hash'])) {
+                                $method = !empty($certificate['certificate_code']) ? 'orWhere' : 'where';
+                                $query->{$method}('cert_hash', $certificate['cert_hash']);
+                            }
+                        })
+                        ->delete();
+                }
+            }
+
+            if ($item->record_type === 'student_account' && Schema::hasTable('student_deletion_requests')) {
+                DB::table('student_deletion_requests')
+                    ->where('student_user_id', $item->student_user_id)
+                    ->where('status', 'approved')
+                    ->update([
+                        'status' => 'restored',
+                        'reviewed_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+            }
+
+            DB::table('junk_items')->where('id', $junkItem)->delete();
+            $this->logAdminAction(
+                'restored_junk_item',
+                $item->student_email,
+                $item->university_code,
+                ['junk_item_id' => $junkItem, 'record_type' => $item->record_type],
+            );
+
+            return response()->json(['message' => 'The item was restored from Junk.']);
+        });
     }
 
     public function listStudentDeletionRequests(Request $request)
@@ -1434,7 +1576,7 @@ class AuthController extends Controller
                 'source' => 'subadmin_removed',
                 'deleted_by_email' => $request->user()?->email,
                 'payload' => json_encode([
-                    'subadmin' => $user->only(['id', 'name', 'email', 'role', 'university_code']),
+                    'subadmin' => $user->getAttributes(),
                 ], JSON_THROW_ON_ERROR),
                 'deleted_at' => now(),
                 'created_at' => now(),
@@ -1701,14 +1843,7 @@ class AuthController extends Controller
             'source' => $source,
             'deleted_by_email' => $actorEmail,
             'payload' => json_encode([
-                'student' => $student->only([
-                    'id',
-                    'name',
-                    'email',
-                    'role',
-                    'university_code',
-                    'created_at',
-                ]),
+                'student' => $student->getAttributes(),
                 'certificates' => $certificatePayload,
             ], JSON_THROW_ON_ERROR),
             'deleted_at' => now(),

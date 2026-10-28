@@ -68,6 +68,11 @@ class AdminSubadminManagementTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.certificate_code', 'PSU-QR-REVOKE-TEST');
 
+        $this->assertTrue(ChatMessage::where('user_id', $superAdmin->id)
+            ->where('recipient_user_id', $universityAdmin->id)
+            ->where('message', 'like', '%PSU-QR-REVOKE-TEST%removed by the Super Admin%')
+            ->exists());
+
         $this->assertDatabaseMissing('certificates', ['id' => $certificate->id]);
         $this->getJson('/api/certificates/PSU-QR-REVOKE-TEST')
             ->assertStatus(410)
@@ -282,6 +287,10 @@ class AdminSubadminManagementTest extends TestCase
             ->deleteJson('/api/admin/students/' . $student->id)
             ->assertStatus(202)
             ->assertJsonPath('data.status', 'pending');
+        $this->actingAs($ucuAdmin, 'sanctum')
+            ->getJson('/api/admin/students')
+            ->assertOk()
+            ->assertJsonPath('data.0.student_removal_status', 'pending');
 
         $requestId = DB::table('student_deletion_requests')
             ->where('student_user_id', $student->id)
@@ -315,6 +324,27 @@ class AdminSubadminManagementTest extends TestCase
             ->getJson('/api/admin/subadmins')
             ->assertOk()
             ->assertJsonCount(0, 'data.0.frozen_students');
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->postJson('/api/admin/junk/' . $junkItem->id . '/restore')
+            ->assertOk()
+            ->assertJsonPath('message', 'The item was restored from Junk.');
+        $this->assertDatabaseHas('users', ['id' => $student->id, 'email' => $student->email]);
+        $this->assertDatabaseHas('certificates', [
+            'certificate_code' => 'CERT-REVOKE-AFTER-STUDENT-DELETE',
+            'cert_hash' => str_repeat('e', 64),
+        ]);
+        $this->assertDatabaseMissing('revoked_credentials', [
+            'certificate_code' => 'CERT-REVOKE-AFTER-STUDENT-DELETE',
+        ]);
+        $this->assertDatabaseMissing('junk_items', ['id' => $junkItem->id]);
+        $this->assertDatabaseHas('student_deletion_requests', [
+            'id' => $requestId,
+            'status' => 'restored',
+        ]);
+        $this->getJson('/api/certificates/CERT-REVOKE-AFTER-STUDENT-DELETE')
+            ->assertOk()
+            ->assertJsonPath('data.student_id', 'UCU-DELETE-1001');
     }
 
     public function test_removing_subadmins_moves_their_accounts_and_students_into_the_shared_junk_bin(): void

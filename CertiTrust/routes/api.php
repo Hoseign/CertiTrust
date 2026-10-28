@@ -82,6 +82,7 @@ Route::middleware(['auth:sanctum', EnsureAccountIsNotFrozen::class])->group(func
     Route::delete('/admin/accounts-and-credentials', [AuthController::class, 'purgeAccountsAndCredentials']);
     Route::get('/admin/subadmins', [AuthController::class, 'listSubadmins']);
     Route::get('/admin/junk', [AuthController::class, 'listJunkItems']);
+    Route::post('/admin/junk/{junkItem}/restore', [AuthController::class, 'restoreJunkItem']);
     Route::delete('/admin/junk/{junkItem}', [AuthController::class, 'permanentlyDeleteJunkItem']);
     Route::get('/admin/student-deletion-requests', [AuthController::class, 'listStudentDeletionRequests']);
     Route::patch('/admin/student-deletion-requests/{deletionRequest}', [AuthController::class, 'reviewStudentDeletionRequest']);

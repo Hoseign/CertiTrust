@@ -52,6 +52,11 @@ export async function permanentlyDeleteJunkItem(junkItemId: number) {
     return data as { message: string };
 }
 
+export async function restoreJunkItem(junkItemId: number) {
+    const { data } = await apiClient.post(`/admin/junk/${junkItemId}/restore`);
+    return data as { message: string };
+}
+
 export async function listSubadmins(universityCode?: string) {
     const { data } = await apiClient.get<ApiCollection<AdminAccount>>("/admin/subadmins", {
         params: universityCode ? { university_code: universityCode } : undefined,

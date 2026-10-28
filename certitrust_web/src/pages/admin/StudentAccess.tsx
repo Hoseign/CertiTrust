@@ -13,6 +13,7 @@ type Student = {
     degree?: string;
     batch_year?: string;
     credentials?: { degree?: string; certificate_code?: string; cert_hash?: string }[];
+    student_removal_status?: string | null;
 };
 
 export default function StudentAccess() {
@@ -90,6 +91,7 @@ export default function StudentAccess() {
         try {
             const result = await deleteStudent(student.id);
             setMessage(String(result.message || "Removal request sent to the Super Admin."));
+            await refresh();
         } catch (requestError) {
             const responseMessage = (requestError as { response?: { data?: { message?: string } } })
                 .response?.data?.message;
@@ -138,9 +140,15 @@ export default function StudentAccess() {
                                         <p className="mt-1 text-sm text-slate-500">
                                             ID: {student.student_id || "Not recorded"} · {student.degree || "No course recorded"} · {student.credentials?.length || 0} credential(s)
                                         </p>
+                                        {student.student_removal_status === "pending" && (
+                                            <p className="mt-2 text-sm font-semibold text-amber-700">Removal request pending Super Admin approval</p>
+                                        )}
+                                        {student.student_removal_status === "rejected" && (
+                                            <p className="mt-2 text-sm font-semibold text-slate-500">Previous removal request rejected</p>
+                                        )}
                                     </div>
-                                    <button type="button" onClick={() => void requestRemoval(student)} disabled={workingId !== null} className="min-h-10 rounded-lg border border-red-300 px-4 font-bold text-red-700 hover:bg-red-50 disabled:opacity-50">
-                                        {workingId === student.id ? "Sending..." : "Request removal"}
+                                    <button type="button" onClick={() => void requestRemoval(student)} disabled={workingId !== null || student.student_removal_status === "pending"} className="min-h-10 rounded-lg border border-red-300 px-4 font-bold text-red-700 hover:bg-red-50 disabled:opacity-50">
+                                        {workingId === student.id ? "Sending..." : student.student_removal_status === "pending" ? "Request pending" : "Request removal"}
                                     </button>
                                 </article>
                             ))}
