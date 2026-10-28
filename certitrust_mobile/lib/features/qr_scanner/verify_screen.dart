@@ -90,9 +90,18 @@ class _VerifyScreenState extends State<VerifyScreen> {
         if (result != null &&
             (result['multi_degree'] == true ||
                 _isCertificateVerified(result))) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
             if (mounted && attempt == _verificationAttempt) {
-              context.push('/verification-confirmation', extra: result);
+              await context.push<void>(
+                '/verification-confirmation',
+                extra: result,
+              );
+              if (!mounted || attempt != _verificationAttempt) return;
+              setState(() {
+                _certResult = null;
+                _verificationMessage = null;
+                _hasSearched = false;
+              });
             }
           });
         }
