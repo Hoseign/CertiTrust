@@ -409,11 +409,13 @@ class AuthController extends Controller
 
         DB::transaction(function () use ($request, $universityCode, $scope, $frozen, $admin): void {
             if ($admin) {
-                $admin->forceFill([
-                    'access_frozen' => $frozen,
+                DB::table('users')->where('id', $admin->id)->update([
+                    'access_frozen' => DB::raw($frozen ? 'TRUE' : 'FALSE'),
                     'access_frozen_at' => $frozen ? now() : null,
                     'access_frozen_by' => $frozen ? $request->user()->id : null,
-                ])->save();
+                    'updated_at' => now(),
+                ]);
+                $admin->refresh();
                 if ($frozen) {
                     $admin->tokens()->delete();
                 }
@@ -423,14 +425,14 @@ class AuthController extends Controller
                 UniversityAccessControl::updateOrCreate(
                     ['university_code' => $universityCode],
                     [
-                        'students_frozen' => $frozen,
+                        'students_frozen' => DB::raw($frozen ? 'TRUE' : 'FALSE'),
                         'updated_by' => $request->user()->id,
                     ],
                 );
                 if ($frozen) {
                     User::whereIn('role', ['student', 'user'])
                         ->where('university_code', $universityCode)
-                        ->where('access_frozen', false)
+                        ->whereRaw('access_frozen IS FALSE')
                         ->update([
                             'access_frozen' => null,
                             'access_frozen_at' => null,
@@ -443,10 +445,10 @@ class AuthController extends Controller
                 } else {
                     User::whereIn('role', ['student', 'user'])
                         ->where('university_code', $universityCode)
-                        ->where('access_frozen', true)
+                        ->whereRaw('access_frozen IS TRUE')
                         ->where('access_frozen_by', $request->user()->id)
                         ->update([
-                            'access_frozen' => false,
+                            'access_frozen' => DB::raw('FALSE'),
                             'access_frozen_at' => null,
                             'access_frozen_by' => null,
                         ]);
@@ -475,7 +477,7 @@ class AuthController extends Controller
     ): array {
         return User::whereIn('role', ['student', 'user'])
             ->where('university_code', $universityCode)
-            ->where('access_frozen', true)
+            ->whereRaw('access_frozen IS TRUE')
             ->where(function ($query) use ($actorId) {
                 $query->whereNull('access_frozen_by')
                     ->orWhere('access_frozen_by', '!=', $actorId);
@@ -758,11 +760,13 @@ class AuthController extends Controller
                 ], 403);
             }
         }
-        $user->forceFill([
-            'access_frozen' => $frozen,
+        DB::table('users')->where('id', $user->id)->update([
+            'access_frozen' => DB::raw($frozen ? 'TRUE' : 'FALSE'),
             'access_frozen_at' => $frozen ? now() : null,
             'access_frozen_by' => $frozen ? $admin->id : null,
-        ])->save();
+            'updated_at' => now(),
+        ]);
+        $user->refresh();
         if ($frozen) {
             $user->tokens()->delete();
         }
@@ -1259,12 +1263,15 @@ class AuthController extends Controller
         DB::transaction(function () use ($admin, $frozen): void {
             UniversityAccessControl::updateOrCreate(
                 ['university_code' => $admin->university_code],
-                ['students_frozen' => $frozen, 'updated_by' => $admin->id],
+                [
+                    'students_frozen' => DB::raw($frozen ? 'TRUE' : 'FALSE'),
+                    'updated_by' => $admin->id,
+                ],
             );
             if ($frozen) {
                 User::whereIn('role', ['student', 'user'])
                     ->where('university_code', $admin->university_code)
-                    ->where('access_frozen', false)
+                    ->whereRaw('access_frozen IS FALSE')
                     ->update([
                         'access_frozen' => null,
                         'access_frozen_at' => null,
@@ -1277,10 +1284,10 @@ class AuthController extends Controller
             } else {
                 User::whereIn('role', ['student', 'user'])
                     ->where('university_code', $admin->university_code)
-                    ->where('access_frozen', true)
+                    ->whereRaw('access_frozen IS TRUE')
                     ->where('access_frozen_by', $admin->id)
                     ->update([
-                        'access_frozen' => false,
+                        'access_frozen' => DB::raw('FALSE'),
                         'access_frozen_at' => null,
                         'access_frozen_by' => null,
                     ]);
