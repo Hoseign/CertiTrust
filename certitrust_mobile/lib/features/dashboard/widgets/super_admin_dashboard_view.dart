@@ -352,6 +352,7 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
     var selectedYear = '';
     var selectedAction = '';
     final searchController = TextEditingController();
+    final searchFocusNode = FocusNode();
     final universities = history
         .map((item) => item['university_code']?.toString() ?? '')
         .where((value) => const {'UCU', 'PSU'}.contains(value.toUpperCase()))
@@ -422,6 +423,7 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                   children: [
                     TextField(
                       controller: searchController,
+                      focusNode: searchFocusNode,
                       decoration: const InputDecoration(
                         prefixIcon: Icon(Icons.search),
                         labelText: 'Search audit history',
@@ -431,7 +433,7 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                     ),
                     const SizedBox(height: 8),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(0, 8, 0, 4),
+                      padding: const EdgeInsets.fromLTRB(0, 8, 0, 0),
                       child: LayoutBuilder(
                         builder: (context, constraints) {
                           final compact = constraints.maxWidth < 520;
@@ -607,13 +609,22 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
+              onPressed: () async {
+                searchFocusNode.unfocus();
+                await WidgetsBinding.instance.endOfFrame;
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop();
+                }
+              },
               child: const Text('Close'),
             ),
           ],
         );
       },
-    ).whenComplete(searchController.dispose);
+    ).whenComplete(() {
+      searchFocusNode.dispose();
+      searchController.dispose();
+    });
   }
 
   Widget _statCard(BuildContext context, _OverviewCard card) {
