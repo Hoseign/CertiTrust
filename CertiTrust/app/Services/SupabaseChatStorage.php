@@ -51,7 +51,16 @@ class SupabaseChatStorage
                 ->withHeaders($headers)
                 ->get($bucketEndpoint);
 
-            if ($bucketResponse->status() === 404) {
+            $bucketError = strtolower(implode(' ', array_filter([
+                $bucketResponse->json('message'),
+                $bucketResponse->json('error'),
+                $bucketResponse->json('statusCode'),
+            ], 'is_string')));
+            $bucketDoesNotExist = $bucketResponse->status() === 404
+                || ($bucketResponse->status() === 400
+                    && str_contains($bucketError, 'bucket not found'));
+
+            if ($bucketDoesNotExist) {
                 $created = Http::connectTimeout(3)
                     ->timeout(8)
                     ->withHeaders($headers)
@@ -63,16 +72,18 @@ class SupabaseChatStorage
                         'allowed_mime_types' => self::ALLOWED_MIME_TYPES,
                     ]);
                 if (!$created->successful() && $created->status() !== 409) {
-                    return $this->storageError('create the chat attachment bucket', $created->status());
+                    return $this->storageError(
+                        'create the chat attachment bucket',
+                        $created->status(),
+                        $created->json('message') ?? $created->json('error'),
+                    );
                 }
-                if ($created->status() === 409) {
-                    $bucketResponse = Http::connectTimeout(3)
-                        ->timeout(8)
-                        ->withHeaders($headers)
-                        ->get($bucketEndpoint);
-                } else {
-                    $bucketResponse = $created;
-                }
+            } elseif (!$bucketResponse->successful()) {
+                return $this->storageError(
+                    'check the chat attachment bucket',
+                    $bucketResponse->status(),
+                    $bucketResponse->json('message') ?? $bucketResponse->json('error'),
+                );
             }
 
             $extension = match ($mimeType) {
@@ -85,20 +96,31 @@ class SupabaseChatStorage
                 default => throw new \LogicException('Unsupported chat attachment MIME type.'),
             };
             $objectName = 'chat/' . Str::uuid() . '.' . $extension;
+            $contents = $file->getContent();
+            if ($contents === '') {
+                return [
+                    'status' => 422,
+                    'message' => 'The selected chat attachment is empty.',
+                ];
+            }
             $upload = Http::connectTimeout(3)
                 ->timeout(30)
                 ->withHeaders($headers + [
                     'x-upsert' => 'false',
                     'Content-Type' => $mimeType,
                 ])
-                ->withBody($file->getContent(), $mimeType)
+                ->withBody($contents, $mimeType)
                 ->post(
                     $baseUrl . '/storage/v1/object/' . rawurlencode($bucket) . '/'
                         . implode('/', array_map('rawurlencode', explode('/', $objectName))),
                 );
 
             if (!$upload->successful()) {
-                return $this->storageError('upload the chat attachment', $upload->status());
+                return $this->storageError(
+                    'upload the chat attachment',
+                    $upload->status(),
+                    $upload->json('message') ?? $upload->json('error'),
+                );
             }
 
             return [
@@ -175,16 +197,22 @@ class SupabaseChatStorage
         }
     }
 
-    private function storageError(string $operation, int $status): array
+    private function storageError(
+        string $operation,
+        int $status,
+        ?string $details = null,
+    ): array
     {
         Log::warning('Supabase Storage rejected a chat attachment operation.', [
             'operation' => $operation,
             'status' => $status,
+            'details' => $details,
         ]);
 
         return [
             'status' => 502,
-            'message' => 'Supabase Storage could not ' . $operation . ' (HTTP ' . $status . '). Check the chat bucket and service role key.',
+            'message' => 'Supabase Storage could not ' . $operation . ' (HTTP ' . $status . ').'
+                . ($details ? ' ' . $details : ' Check the chat bucket and service role key.'),
         ];
     }
 }
