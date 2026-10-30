@@ -75,7 +75,49 @@ class ChatController extends Controller
             return !in_array((int) $user->id, $deletedBy, true);
         })->values();
 
-        return response()->json(['data' => $visibleMessages]);
+        return response()->json([
+            'data' => $visibleMessages->map(
+                fn (ChatMessage $message) => $this->messagePayload($request, $message),
+            ),
+        ]);
+    }
+
+    public function attachment(Request $request, ChatMessage $chatMessage, SupabaseChatStorage $chatStorage)
+    {
+        $userId = (int) $request->user()->id;
+        if (
+            !in_array($userId, [(int) $chatMessage->user_id, (int) $chatMessage->recipient_user_id], true)
+            || $chatMessage->deleted_for_everyone_at
+            || in_array($userId, (array) $chatMessage->deleted_by, true)
+            || !$chatMessage->attachment_url
+            || !in_array($chatMessage->attachment_type, ['image', 'video'], true)
+        ) {
+            abort(404);
+        }
+
+        $file = $chatStorage->download($chatMessage->attachment_url);
+        if (!isset($file['body'])) {
+            return response()->json([
+                'message' => $file['message'] ?? 'Chat attachment could not be loaded.',
+            ], $file['status'] ?? 502);
+        }
+
+        return response($file['body'], 200, [
+            'Content-Type' => $file['content_type'],
+            'Cache-Control' => 'private, max-age=300',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    private function messagePayload(Request $request, ChatMessage $message): array
+    {
+        $payload = $message->toArray();
+        if ($message->attachment_url) {
+            $path = route('chat.messages.attachment', ['chatMessage' => $message->id], false);
+            $payload['attachment_url'] = rtrim($request->getSchemeAndHttpHost(), '/') . $path;
+        }
+
+        return $payload;
     }
 
     public function contacts(Request $request)
@@ -451,7 +493,9 @@ class ChatController extends Controller
             'deleted_by' => [],
         ]);
 
-        return response()->json(['data' => $message->load('replyTo:id,user_id,sender_name,message')], 201);
+        $message->load('replyTo:id,user_id,sender_name,message');
+
+        return response()->json(['data' => $this->messagePayload($request, $message)], 201);
     }
 
     private function contactsFor(User $user)

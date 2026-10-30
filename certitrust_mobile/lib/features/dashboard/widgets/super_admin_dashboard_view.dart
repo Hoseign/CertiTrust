@@ -352,6 +352,8 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
     var selectedUniversity = '';
     var selectedYear = '';
     var selectedAction = '';
+    final searchController = TextEditingController();
+    final filterFormKey = GlobalKey<FormState>();
     final universities = history
         .map((item) => item['university_code']?.toString() ?? '')
         .where((value) => const {'UCU', 'PSU'}.contains(value.toUpperCase()))
@@ -415,6 +417,7 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                 return Column(
                   children: [
                     TextField(
+                      controller: searchController,
                       decoration: const InputDecoration(
                         prefixIcon: Icon(Icons.search),
                         labelText: 'Search audit history',
@@ -426,102 +429,112 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                     ),
                     const SizedBox(height: 8),
                     Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          SizedBox(
-                            width: 150,
-                            child: DropdownButtonFormField<String>(
-                              initialValue: selectedUniversity,
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                labelText: 'University',
-                                border: OutlineInputBorder(),
-                              ),
-                              items: [
-                                const DropdownMenuItem(
-                                  value: '',
-                                  child: Text('All Universities'),
-                                ),
-                                for (final university in universities)
-                                  DropdownMenuItem(
-                                    value: university,
-                                    child: Text(university),
+                      padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
+                      child: Form(
+                        key: filterFormKey,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 150,
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: selectedUniversity,
+                                  isExpanded: true,
+                                  decoration: const InputDecoration(
+                                    labelText: 'University',
+                                    border: OutlineInputBorder(),
                                   ),
-                              ],
-                              onChanged: (value) => setDialogState(
-                                () => selectedUniversity = value ?? '',
-                              ),
-                            ),
-                          ),
-                          SizedBox(
-                            width: 130,
-                            child: DropdownButtonFormField<String>(
-                              initialValue: selectedYear,
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                labelText: 'Year',
-                                border: OutlineInputBorder(),
-                              ),
-                              items: [
-                                const DropdownMenuItem(
-                                  value: '',
-                                  child: Text('All Years'),
-                                ),
-                                for (final year in years)
-                                  DropdownMenuItem(
-                                    value: year,
-                                    child: Text(year),
-                                  ),
-                              ],
-                              onChanged: (value) => setDialogState(
-                                () => selectedYear = value ?? '',
-                              ),
-                            ),
-                          ),
-                          SizedBox(
-                            width: 150,
-                            child: DropdownButtonFormField<String>(
-                              initialValue: selectedAction,
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                labelText: 'Action',
-                                border: OutlineInputBorder(),
-                              ),
-                              items: [
-                                const DropdownMenuItem(
-                                  value: '',
-                                  child: Text('All Actions'),
-                                ),
-                                for (final action in actions)
-                                  DropdownMenuItem(
-                                    value: action,
-                                    child: Text(
-                                      _formatAction(action),
-                                      overflow: TextOverflow.ellipsis,
+                                  items: [
+                                    const DropdownMenuItem(
+                                      value: '',
+                                      child: Text('All Universities'),
                                     ),
+                                    for (final university in universities)
+                                      DropdownMenuItem(
+                                        value: university,
+                                        child: Text(university),
+                                      ),
+                                  ],
+                                  onChanged: (value) => setDialogState(
+                                    () => selectedUniversity = value ?? '',
                                   ),
-                              ],
-                              onChanged: (value) => setDialogState(
-                                () => selectedAction = value ?? '',
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 8),
+                              SizedBox(
+                                width: 130,
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: selectedYear,
+                                  isExpanded: true,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Year',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: [
+                                    const DropdownMenuItem(
+                                      value: '',
+                                      child: Text('All Years'),
+                                    ),
+                                    for (final year in years)
+                                      DropdownMenuItem(
+                                        value: year,
+                                        child: Text(year),
+                                      ),
+                                  ],
+                                  onChanged: (value) => setDialogState(
+                                    () => selectedYear = value ?? '',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              SizedBox(
+                                width: 150,
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: selectedAction,
+                                  isExpanded: true,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Action',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: [
+                                    const DropdownMenuItem(
+                                      value: '',
+                                      child: Text('All Actions'),
+                                    ),
+                                    for (final action in actions)
+                                      DropdownMenuItem(
+                                        value: action,
+                                        child: Text(
+                                          _formatAction(action),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                  ],
+                                  onChanged: (value) => setDialogState(
+                                    () => selectedAction = value ?? '',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              TextButton(
+                                onPressed: () {
+                                  searchController.clear();
+                                  setDialogState(() {
+                                    search = '';
+                                    selectedUniversity = '';
+                                    selectedYear = '';
+                                    selectedAction = '';
+                                  });
+                                  WidgetsBinding.instance.addPostFrameCallback(
+                                    (_) => filterFormKey.currentState?.reset(),
+                                  );
+                                },
+                                child: const Text('Reset filters'),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: () => setDialogState(() {
-                          search = '';
-                          selectedUniversity = '';
-                          selectedYear = '';
-                          selectedAction = '';
-                        }),
-                        child: const Text('Reset filters'),
+                        ),
                       ),
                     ),
                     Expanded(
@@ -572,7 +585,7 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
           ],
         );
       },
-    );
+    ).whenComplete(searchController.dispose);
   }
 
   Widget _statCard(BuildContext context, _OverviewCard card) {

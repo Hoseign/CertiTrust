@@ -361,6 +361,12 @@ class ApiService {
     return headers;
   }
 
+  static Map<String, String> get chatAttachmentHeaders => {
+        'Accept': 'image/*, video/*',
+        if (authToken != null && authToken!.isNotEmpty)
+          'Authorization': 'Bearer $authToken',
+      };
+
   /// Fetch recent issued certificates for dashboard
   static Future<List<dynamic>> getCertificates() async {
     try {

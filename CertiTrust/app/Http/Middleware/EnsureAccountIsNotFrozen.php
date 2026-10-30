@@ -15,7 +15,11 @@ class EnsureAccountIsNotFrozen
             $isAccessStateRequest = $request->isMethod('GET')
                 && $request->is('api/user');
             $isFrozenChatRead = $request->isMethod('GET')
-                && ($request->is('api/chat/contacts') || $request->is('api/chat/messages'));
+                && (
+                    $request->is('api/chat/contacts')
+                    || $request->is('api/chat/messages')
+                    || $request->is('api/chat/messages/*/attachment')
+                );
             $isFrozenChatSend = $request->isMethod('POST')
                 && $request->is('api/chat/messages');
 

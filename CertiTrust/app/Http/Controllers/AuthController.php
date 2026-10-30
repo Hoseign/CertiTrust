@@ -362,6 +362,7 @@ class AuthController extends Controller
         $frozen = (bool) $validated['frozen'];
         $scope = $validated['scope'];
         $admin = null;
+        $restoreAllStudentAccess = !$frozen && $scope === 'both';
 
         if (in_array($scope, ['admin', 'both'], true)) {
             $admin = User::where('role', 'admin')
@@ -375,10 +376,10 @@ class AuthController extends Controller
         }
 
         $actorId = (int) $request->user()->id;
-        $protectedStudents = !$frozen && in_array($scope, ['students', 'both'], true)
+        $protectedStudents = !$frozen && !$restoreAllStudentAccess && $scope === 'students'
             ? $this->studentsFrozenByOtherAdministrators($universityCode, $actorId)
             : [];
-        if (!$frozen && $admin?->access_frozen) {
+        if (!$frozen && !$restoreAllStudentAccess && $admin?->access_frozen) {
             if ((int) $admin->access_frozen_by !== $actorId) {
                 return response()->json([
                     'message' => 'Only the administrator who froze this subadmin account can restore its access.',
@@ -391,7 +392,8 @@ class AuthController extends Controller
                 $universityCode,
             )->first();
             if (
-                $studentAccessControl?->students_frozen
+                !$restoreAllStudentAccess
+                && $studentAccessControl?->students_frozen
                 && (int) $studentAccessControl->updated_by !== $actorId
             ) {
                 $protectedStudents = array_merge(
@@ -407,7 +409,7 @@ class AuthController extends Controller
             }
         }
 
-        DB::transaction(function () use ($request, $universityCode, $scope, $frozen, $admin): void {
+        DB::transaction(function () use ($request, $universityCode, $scope, $frozen, $admin, $restoreAllStudentAccess): void {
             if ($admin) {
                 DB::table('users')->where('id', $admin->id)->update([
                     'access_frozen' => DB::raw($frozen ? 'TRUE' : 'FALSE'),
@@ -443,15 +445,17 @@ class AuthController extends Controller
                         ->get()
                         ->each(fn (User $student) => $student->tokens()->delete());
                 } else {
-                    User::whereIn('role', ['student', 'user'])
+                    $studentsToRestore = User::whereIn('role', ['student', 'user'])
                         ->where('university_code', $universityCode)
-                        ->whereRaw('access_frozen IS TRUE')
-                        ->where('access_frozen_by', $request->user()->id)
-                        ->update([
-                            'access_frozen' => DB::raw('FALSE'),
-                            'access_frozen_at' => null,
-                            'access_frozen_by' => null,
-                        ]);
+                        ->whereRaw('access_frozen IS TRUE');
+                    if (!$restoreAllStudentAccess) {
+                        $studentsToRestore->where('access_frozen_by', $request->user()->id);
+                    }
+                    $studentsToRestore->update([
+                        'access_frozen' => DB::raw('FALSE'),
+                        'access_frozen_at' => null,
+                        'access_frozen_by' => null,
+                    ]);
                 }
             }
         });

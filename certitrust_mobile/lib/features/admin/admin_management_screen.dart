@@ -321,7 +321,11 @@ class _AdminManagementScreenState extends State<AdminManagementScreen>
               Text(
                 frozen
                     ? 'Choose which accounts at $universityCode to freeze. Student-only or combined freezing affects all current and future student accounts.'
-                    : 'Choose which accounts at $universityCode to restore. Student accounts frozen individually by a university subadmin will remain frozen.',
+                    : selectedScope == 'both'
+                        ? 'Restore the subadmin and all student accounts at $universityCode, including students frozen individually.'
+                        : selectedScope == 'students'
+                            ? 'Restore university student access. Individual student freezes remain in place.'
+                            : 'Restore only the subadmin account for $universityCode.',
               ),
               const SizedBox(height: 12),
               Wrap(

@@ -128,6 +128,63 @@ class SupabaseChatStorage
         }
     }
 
+    public function download(string $publicUrl): array
+    {
+        $baseUrl = rtrim((string) config('services.supabase.url'), '/');
+        $serviceRoleKey = (string) config('services.supabase.service_role_key');
+        $bucket = (string) config('services.supabase.chat_bucket', 'chat-attachments');
+        $url = parse_url($publicUrl);
+        $base = parse_url($baseUrl);
+        $publicPrefix = '/storage/v1/object/public/' . $bucket . '/';
+
+        if (
+            $baseUrl === ''
+            || $serviceRoleKey === ''
+            || !is_array($url)
+            || !is_array($base)
+            || strtolower((string) ($url['host'] ?? '')) !== strtolower((string) ($base['host'] ?? ''))
+            || !str_starts_with((string) ($url['path'] ?? ''), $publicPrefix)
+        ) {
+            return ['status' => 404, 'message' => 'Chat attachment not found.'];
+        }
+
+        $objectPath = substr($url['path'], strlen($publicPrefix));
+        $objectPath = implode('/', array_map(
+            'rawurlencode',
+            array_map('rawurldecode', explode('/', $objectPath)),
+        ));
+        if ($objectPath === '') {
+            return ['status' => 404, 'message' => 'Chat attachment not found.'];
+        }
+
+        $headers = ['apikey' => $serviceRoleKey];
+        if (str_starts_with($serviceRoleKey, 'eyJ')) {
+            $headers['Authorization'] = 'Bearer ' . $serviceRoleKey;
+        }
+
+        try {
+            $response = Http::connectTimeout(3)
+                ->timeout(20)
+                ->withHeaders($headers)
+                ->get($baseUrl . '/storage/v1/object/' . rawurlencode($bucket) . '/' . $objectPath);
+
+            if (!$response->successful()) {
+                return ['status' => $response->status() === 404 ? 404 : 502, 'message' => 'Chat attachment could not be loaded.'];
+            }
+
+            return [
+                'body' => $response->body(),
+                'content_type' => $response->header('Content-Type') ?: 'application/octet-stream',
+            ];
+        } catch (ConnectionException $exception) {
+            Log::warning('Supabase Storage could not provide a chat attachment.', [
+                'exception' => $exception->getMessage(),
+            ]);
+
+            return ['status' => 502, 'message' => 'Chat file storage could not be reached.'];
+        }
+    }
+
     private function storageError(string $operation, int $status): array
     {
         Log::warning('Supabase Storage rejected a chat attachment operation.', [

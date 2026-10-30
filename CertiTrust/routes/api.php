@@ -119,6 +119,8 @@ Route::middleware(['auth:sanctum', EnsureAccountIsNotFrozen::class])->group(func
     Route::get('/admin/certificate-deletion-requests', [CertificateDeletionRequestController::class, 'index']);
     Route::patch('/admin/certificate-deletion-requests/{deletionRequest}', [CertificateDeletionRequestController::class, 'review']);
     Route::get('/chat/messages', [ChatController::class, 'index']);
+    Route::get('/chat/messages/{chatMessage}/attachment', [ChatController::class, 'attachment'])
+        ->name('chat.messages.attachment');
     Route::get('/chat/contacts', [ChatController::class, 'contacts']);
     Route::get('/chat/presence', [ChatController::class, 'presence']);
     Route::post('/chat/messages', [ChatController::class, 'store']);
