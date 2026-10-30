@@ -75,16 +75,6 @@ class SupabaseChatStorage
                 }
             }
 
-            if (!$bucketResponse->successful()) {
-                return $this->storageError('check the chat attachment bucket', $bucketResponse->status());
-            }
-            if (($bucketResponse->json('public') ?? true) !== true) {
-                return [
-                    'status' => 503,
-                    'message' => 'The configured chat attachment bucket must be public so conversation participants can view files.',
-                ];
-            }
-
             $extension = match ($mimeType) {
                 'image/jpeg' => 'jpg',
                 'image/png' => 'png',
