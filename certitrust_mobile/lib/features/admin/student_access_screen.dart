@@ -462,7 +462,8 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
                                 child: Column(
                                   children: [
                                     DropdownButtonFormField<String>(
-                                      key: ValueKey(_selectedAcademicLevel),
+                                      key: ValueKey(
+                                          'academic-level-$_selectedAcademicLevel'),
                                       initialValue: _selectedAcademicLevel,
                                       isExpanded: true,
                                       decoration: const InputDecoration(
@@ -488,7 +489,8 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
                                     ),
                                     const SizedBox(height: 12),
                                     DropdownButtonFormField<String>(
-                                      key: ValueKey(_selectedProgram ?? ''),
+                                      key: ValueKey(
+                                          'program-${_selectedProgram ?? ''}'),
                                       initialValue: _selectedProgram ?? '',
                                       isExpanded: true,
                                       decoration: const InputDecoration(
@@ -518,7 +520,8 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
                                     ),
                                     const SizedBox(height: 12),
                                     DropdownButtonFormField<String>(
-                                      key: ValueKey(_selectedBatchYear ?? ''),
+                                      key: ValueKey(
+                                          'batch-year-${_selectedBatchYear ?? ''}'),
                                       initialValue: _selectedBatchYear ?? '',
                                       isExpanded: true,
                                       decoration: const InputDecoration(
@@ -546,8 +549,7 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
                                     const SizedBox(height: 12),
                                     DropdownButtonFormField<String>(
                                       key: ValueKey(
-                                          _selectedDegreeNumber?.toString() ??
-                                              ''),
+                                          'degree-number-${_selectedDegreeNumber?.toString() ?? ''}'),
                                       initialValue:
                                           _selectedDegreeNumber?.toString() ??
                                               '',
