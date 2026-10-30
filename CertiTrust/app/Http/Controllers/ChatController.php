@@ -118,13 +118,13 @@ class ChatController extends Controller
                     'role_label' => 'School administrator',
                 ]));
             $reporterIds = ChatMessage::where('recipient_user_id', $user->id)
-                ->where('is_report', true)
+                ->whereRaw('"is_report" IS TRUE')
                 ->distinct()
                 ->pluck('user_id');
             $frozenUniversityCodes = UniversityAccessControl::where('updated_by', $user->id)
-                ->where('students_frozen', true)
+                ->whereRaw('"students_frozen" IS TRUE')
                 ->pluck('university_code');
-            $frozenUserIds = User::where('access_frozen', true)
+            $frozenUserIds = User::whereRaw('"access_frozen" IS TRUE')
                 ->where('access_frozen_by', $user->id)
                 ->pluck('id')
                 ->concat(
@@ -181,14 +181,14 @@ class ChatController extends Controller
 
             $frozenStudentIds = User::whereIn('role', ['student', 'user'])
                 ->where('university_code', $user->university_code)
-                ->where('access_frozen', true)
+                ->whereRaw('"access_frozen" IS TRUE')
                 ->where('access_frozen_by', $user->id)
                 ->pluck('id');
             $universityFreeze = UniversityAccessControl::where(
                 'university_code',
                 $user->university_code,
             )->where('updated_by', $user->id)
-                ->where('students_frozen', true)
+                ->whereRaw('"students_frozen" IS TRUE')
                 ->exists();
             if ($universityFreeze) {
                 $frozenStudentIds = $frozenStudentIds->concat(
@@ -460,7 +460,7 @@ class ChatController extends Controller
         if ($isSuperAdmin) {
             $targets = User::where('role', 'admin')->whereNotNull('university_code')->get();
             $reporterIds = ChatMessage::where('recipient_user_id', $user->id)
-                ->where('is_report', true)->distinct()->pluck('user_id');
+                ->whereRaw('"is_report" IS TRUE')->distinct()->pluck('user_id');
             $targets = $targets->concat(User::whereIn('id', $reporterIds)->where('role', 'student')->get());
         } elseif ($user->role === 'admin') {
             $studentEmails = Certificate::where('university_code', $user->university_code)
@@ -541,7 +541,7 @@ class ChatController extends Controller
                 return $target->accessFrozenById() === (int) $user->id
                     || ($target->role === 'student' && ChatMessage::where('user_id', $target->id)
                         ->where('recipient_user_id', $user->id)
-                        ->where('is_report', true)
+                        ->whereRaw('"is_report" IS TRUE')
                         ->exists());
             }
             return false;
