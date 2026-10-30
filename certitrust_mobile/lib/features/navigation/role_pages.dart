@@ -1453,8 +1453,18 @@ class _ChatScreenState extends State<ChatScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(widget.restrictedMode
-                  ? 'Could not open the administrator chat: $_loadError'
+                  ? 'Could not open the administrator chat.'
                   : 'Could not load this chat.'),
+              if (_loadError != null) ...[
+                const SizedBox(height: 8),
+                SelectableText(
+                  _loadError.toString(),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                ),
+              ],
               const SizedBox(height: 8),
               TextButton(
                 onPressed: () => _loadItems(showLoading: true),
