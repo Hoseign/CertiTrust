@@ -258,7 +258,9 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                       crossAxisCount: 2,
                       crossAxisSpacing: 12,
                       mainAxisSpacing: 12,
-                      childAspectRatio: 1.55),
+                      // Give the icon, value, and label enough vertical room
+                      // on narrow phones and with larger system text settings.
+                      childAspectRatio: 1.35),
                   itemBuilder: (context, index) =>
                       _statCard(context, cards[index]),
                 ),
