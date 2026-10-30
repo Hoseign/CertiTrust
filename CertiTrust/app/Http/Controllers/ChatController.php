@@ -489,9 +489,12 @@ class ChatController extends Controller
             'attachment_url' => $attachmentUrl,
             'attachment_type' => $attachmentType,
             'reply_to_id' => $replyTo?->id,
-            'is_report' => $isReport,
+            // Laravel's PostgreSQL bindings turn PHP booleans into 0/1;
+            // use a native SQL boolean expression for this boolean column.
+            'is_report' => DB::raw($isReport ? 'TRUE' : 'FALSE'),
             'deleted_by' => [],
         ]);
+        $message->setAttribute('is_report', $isReport);
 
         $message->load('replyTo:id,user_id,sender_name,message');
 
