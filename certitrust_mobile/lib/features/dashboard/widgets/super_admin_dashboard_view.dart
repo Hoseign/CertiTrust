@@ -351,8 +351,6 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
     var selectedUniversity = '';
     var selectedYear = '';
     var selectedAction = '';
-    final searchController = TextEditingController();
-    final searchFocusNode = FocusNode();
     final universities = history
         .map((item) => item['university_code']?.toString() ?? '')
         .where((value) => const {'UCU', 'PSU'}.contains(value.toUpperCase()))
@@ -376,8 +374,9 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
 
     showDialog<void>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
+      builder: (dialogContext) => _HistoryDialogResources(
+        builder: (dialogContext, searchController, searchFocusNode) =>
+            AlertDialog(
           title: const Text('Super Admin Action History'),
           content: SizedBox(
             width: double.maxFinite,
@@ -619,12 +618,9 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
               child: const Text('Close'),
             ),
           ],
-        );
-      },
-    ).whenComplete(() {
-      searchFocusNode.dispose();
-      searchController.dispose();
-    });
+        ),
+      ),
+    );
   }
 
   Widget _statCard(BuildContext context, _OverviewCard card) {
@@ -919,6 +915,43 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
     if (parsed == null) return value;
     String two(int number) => number.toString().padLeft(2, '0');
     return '${parsed.year}-${two(parsed.month)}-${two(parsed.day)} ${two(parsed.hour)}:${two(parsed.minute)}';
+  }
+}
+
+class _HistoryDialogResources extends StatefulWidget {
+  final Widget Function(
+    BuildContext context,
+    TextEditingController searchController,
+    FocusNode searchFocusNode,
+  ) builder;
+
+  const _HistoryDialogResources({required this.builder});
+
+  @override
+  State<_HistoryDialogResources> createState() =>
+      _HistoryDialogResourcesState();
+}
+
+class _HistoryDialogResourcesState extends State<_HistoryDialogResources> {
+  late final TextEditingController _searchController;
+  late final FocusNode _searchFocusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController();
+    _searchFocusNode = FocusNode();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      widget.builder(context, _searchController, _searchFocusNode);
+
+  @override
+  void dispose() {
+    _searchFocusNode.dispose();
+    _searchController.dispose();
+    super.dispose();
   }
 }
 
