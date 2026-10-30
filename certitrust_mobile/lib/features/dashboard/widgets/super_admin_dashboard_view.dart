@@ -348,7 +348,6 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
 
   void _showHistoryDialog(
       BuildContext context, List<Map<String, dynamic>> history) {
-    var search = '';
     var selectedUniversity = '';
     var selectedYear = '';
     var selectedAction = '';
@@ -388,31 +387,6 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                 .toDouble(),
             child: StatefulBuilder(
               builder: (context, setDialogState) {
-                final query = search.trim().toLowerCase();
-                final filteredHistory = history.where((item) {
-                  final action = item['action']?.toString() ?? '';
-                  final university =
-                      (item['university_code']?.toString() ?? '').toUpperCase();
-                  final year = (item['created_at']?.toString() ?? '').substring(
-                    0,
-                    (item['created_at']?.toString() ?? '').length >= 4 ? 4 : 0,
-                  );
-                  final searchable = [
-                    action,
-                    item['actor_email'],
-                    item['target_email'],
-                    item['details'],
-                    university,
-                    item['created_at'],
-                  ].map((value) => value.toString().toLowerCase());
-                  return (selectedUniversity.isEmpty ||
-                          university == selectedUniversity) &&
-                      (selectedYear.isEmpty || year == selectedYear) &&
-                      (selectedAction.isEmpty || action == selectedAction) &&
-                      (query.isEmpty ||
-                          searchable.any((value) => value.contains(query)));
-                }).toList();
-
                 Widget filterDropdown({
                   required String label,
                   required String value,
@@ -435,6 +409,7 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                           child: DropdownButton<String>(
                             value: value,
                             isExpanded: true,
+                            isDense: true,
                             menuMaxHeight: 320,
                             items: items,
                             onChanged: onChanged,
@@ -453,8 +428,6 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                         hintText: 'Action, administrator, email, or details',
                         border: OutlineInputBorder(),
                       ),
-                      onChanged: (value) =>
-                          setDialogState(() => search = value),
                     ),
                     const SizedBox(height: 8),
                     Padding(
@@ -472,7 +445,7 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                               items: [
                                 const DropdownMenuItem(
                                   value: '',
-                                  child: Text('All Universities'),
+                                  child: Text('All'),
                                 ),
                                 for (final university in universities)
                                   DropdownMenuItem(
@@ -510,7 +483,7 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                               items: [
                                 const DropdownMenuItem(
                                   value: '',
-                                  child: Text('All Actions'),
+                                  child: Text('All'),
                                 ),
                                 for (final action in actions)
                                   DropdownMenuItem(
@@ -530,7 +503,6 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                             onPressed: () {
                               searchController.clear();
                               setDialogState(() {
-                                search = '';
                                 selectedUniversity = '';
                                 selectedYear = '';
                                 selectedAction = '';
@@ -556,39 +528,77 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                       ),
                     ),
                     Expanded(
-                      child: filteredHistory.isEmpty
-                          ? Center(
+                      child: ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: searchController,
+                        builder: (context, searchValue, _) {
+                          final query = searchValue.text.trim().toLowerCase();
+                          final filteredHistory = history.where((item) {
+                            final action = item['action']?.toString() ?? '';
+                            final university =
+                                (item['university_code']?.toString() ?? '')
+                                    .toUpperCase();
+                            final createdAt =
+                                item['created_at']?.toString() ?? '';
+                            final year = createdAt.substring(
+                              0,
+                              createdAt.length >= 4 ? 4 : 0,
+                            );
+                            final searchable = [
+                              action,
+                              item['actor_email'],
+                              item['target_email'],
+                              item['details'],
+                              university,
+                              createdAt,
+                            ].map((value) => value.toString().toLowerCase());
+                            return (selectedUniversity.isEmpty ||
+                                    university == selectedUniversity) &&
+                                (selectedYear.isEmpty ||
+                                    year == selectedYear) &&
+                                (selectedAction.isEmpty ||
+                                    action == selectedAction) &&
+                                (query.isEmpty ||
+                                    searchable.any(
+                                      (value) => value.contains(query),
+                                    ));
+                          }).toList();
+
+                          if (filteredHistory.isEmpty) {
+                            return Center(
                               child: Text(history.isEmpty
                                   ? 'No administrative actions have been recorded yet.'
                                   : 'No audit entries match the selected filters.'),
-                            )
-                          : ListView.separated(
-                              itemCount: filteredHistory.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (context, index) {
-                                final item = filteredHistory[index];
-                                final action =
-                                    (item['action'] ?? 'action').toString();
-                                final university =
-                                    (item['university_code'] ?? 'N/A')
-                                        .toString();
-                                final target =
-                                    (item['target_email'] ?? 'No email')
-                                        .toString();
-                                final date =
-                                    _timestamp(item['created_at']?.toString());
-                                return ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  title: Text(_formatAction(action)),
-                                  subtitle: Text(
-                                    '$target • $university\n$date',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                  isThreeLine: true,
-                                );
-                              },
-                            ),
+                            );
+                          }
+
+                          return ListView.separated(
+                            itemCount: filteredHistory.length,
+                            separatorBuilder: (_, __) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final item = filteredHistory[index];
+                              final action =
+                                  (item['action'] ?? 'action').toString();
+                              final university =
+                                  (item['university_code'] ?? 'N/A').toString();
+                              final target =
+                                  (item['target_email'] ?? 'No email')
+                                      .toString();
+                              final date =
+                                  _timestamp(item['created_at']?.toString());
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(_formatAction(action)),
+                                subtitle: Text(
+                                  '$target • $university\n$date',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                isThreeLine: true,
+                              );
+                            },
+                          );
+                        },
+                      ),
                     ),
                   ],
                 );
