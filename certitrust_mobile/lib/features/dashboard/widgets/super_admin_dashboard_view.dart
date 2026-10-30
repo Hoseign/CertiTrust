@@ -382,8 +382,8 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
             width: double.maxFinite,
             height: (MediaQuery.sizeOf(dialogContext).height -
                     MediaQuery.viewInsetsOf(dialogContext).bottom -
-                    180)
-                .clamp(180.0, MediaQuery.sizeOf(dialogContext).height * 0.72)
+                    320)
+                .clamp(160.0, MediaQuery.sizeOf(dialogContext).height * 0.72)
                 .toDouble(),
             child: StatefulBuilder(
               builder: (context, setDialogState) {
@@ -425,9 +425,11 @@ class _SuperAdminDashboardViewState extends State<SuperAdminDashboardView>
                           setDialogState(() => search = value),
                     ),
                     const SizedBox(height: 8),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
                           SizedBox(
                             width: 150,
