@@ -9,7 +9,6 @@ const menuItems = [
     { name: "Junk / Recycle Bin", path: "/superadmin/junk", icon: "▣" },
     { name: "Global Credential Logs", path: "/superadmin/logs", icon: "EQ" },
     { name: "Records", path: "/superadmin/records", icon: "▤" },
-    { name: "Issue Certificates", path: "/superadmin/issue", icon: "↑" },
     { name: "Verify", path: "/superadmin/verify", icon: "✓" },
     { name: "AnsQ", path: "/superadmin/ask", icon: "?" },
 ];
