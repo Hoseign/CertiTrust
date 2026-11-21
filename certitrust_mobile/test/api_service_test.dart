@@ -48,6 +48,18 @@ void main() {
     );
   });
 
+  test('chat attachments use authenticated API paths only', () {
+    expect(
+      ApiService.resolveChatAttachmentUrl('/chat/messages/42/attachment'),
+      '${ApiService.baseUrl}/chat/messages/42/attachment',
+    );
+    expect(
+      () => ApiService.resolveChatAttachmentUrl(
+          'https://storage.example/image.jpg'),
+      throwsFormatException,
+    );
+  });
+
   test('logout clears local credentials without waiting for the API', () async {
     SharedPreferences.setMockInitialValues({});
     ApiService.authToken = 'session-token';

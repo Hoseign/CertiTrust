@@ -659,6 +659,74 @@ class AdminSubadminManagementTest extends TestCase
         $this->assertFalse($ucuAdmin->fresh()->isAccessFrozen());
         $this->assertFalse($ucuStudent->fresh()->isAccessFrozen());
         $this->assertFalse($psuStudent->fresh()->isAccessFrozen());
+        $newUcuStudent = User::create([
+            'name' => 'New UCU Student',
+            'email' => 'new-ucu-student-freeze@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'UCU',
+        ]);
+        $this->assertFalse($newUcuStudent->isAccessFrozen());
+    }
+
+    public function test_superadmin_can_move_a_student_and_credentials_to_junk_from_student_access(): void
+    {
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+        $psuAdmin = User::create([
+            'name' => 'PSU Admin',
+            'email' => 'psu-force-remove-admin@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'PSU',
+        ]);
+        $student = User::create([
+            'name' => 'Student to force-remove',
+            'email' => 'force-remove-student@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'PSU',
+        ]);
+        Certificate::create([
+            'certificate_code' => 'PSU-FORCE-REMOVE-TEST',
+            'student_name' => 'Student to force-remove',
+            'recipient_name' => 'Student to force-remove',
+            'student_id' => 'PSU-FORCE-REMOVE-TEST',
+            'student_email' => 'force-remove-student@example.edu',
+            'degree' => 'BSIT',
+            'course_or_event' => 'BSIT',
+            'university_code' => 'PSU',
+            'issue_date' => '2026-06-01',
+            'status' => 'Verified',
+            'cert_hash' => str_repeat('d', 64),
+        ]);
+
+        $this->actingAs($psuAdmin, 'sanctum')
+            ->deleteJson('/api/admin/students/' . $student->id . '/force-remove')
+            ->assertForbidden();
+        $this->assertDatabaseHas('users', ['id' => $student->id]);
+
+        $this->actingAs($superAdmin, 'sanctum')
+            ->deleteJson('/api/admin/students/' . $student->id . '/force-remove')
+            ->assertOk()
+            ->assertJsonPath('message', 'Student account and credentials were removed from active records and moved to Junk.');
+
+        $this->assertDatabaseMissing('users', ['id' => $student->id]);
+        $this->assertDatabaseMissing('certificates', [
+            'certificate_code' => 'PSU-FORCE-REMOVE-TEST',
+        ]);
+        $this->assertDatabaseHas('junk_items', [
+            'record_type' => 'student_account',
+            'student_email' => 'force-remove-student@example.edu',
+            'source' => 'superadmin_forced_removal',
+        ]);
+        $this->assertDatabaseHas('revoked_credentials', [
+            'certificate_code' => 'PSU-FORCE-REMOVE-TEST',
+        ]);
     }
 
     public function test_subadmin_can_freeze_only_its_university_students(): void
@@ -1806,19 +1874,30 @@ class AdminSubadminManagementTest extends TestCase
             ->assertJsonPath('data', []);
     }
 
-    public function test_chat_attachment_is_saved_to_public_supabase_storage(): void
+    public function test_chat_attachment_is_saved_privately_and_served_to_participants(): void
     {
         config([
             'services.supabase.url' => 'https://chat-test.supabase.co',
             'services.supabase.service_role_key' => 'test-service-role-key',
             'services.supabase.chat_bucket' => 'chat-attachments',
         ]);
-        Http::fake([
-            'https://chat-test.supabase.co/storage/v1/bucket/chat-attachments' =>
-                Http::response(['id' => 'chat-attachments', 'public' => true]),
-            'https://chat-test.supabase.co/storage/v1/object/chat-attachments/*' =>
-                Http::response(['Key' => 'chat/test.jpg'], 200),
-        ]);
+        Http::fake(function (HttpRequest $request) {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+            if ($request->method() === 'GET' && str_ends_with($path, '/storage/v1/bucket/chat-attachments')) {
+                return Http::response(['id' => 'chat-attachments', 'public' => true]);
+            }
+            if ($request->method() === 'PUT' && str_ends_with($path, '/storage/v1/bucket/chat-attachments')) {
+                return Http::response(['id' => 'chat-attachments', 'public' => false]);
+            }
+            if ($request->method() === 'POST' && str_contains($path, '/storage/v1/object/chat-attachments/chat/')) {
+                return Http::response(['Key' => 'chat/test.jpg'], 200);
+            }
+            if ($request->method() === 'GET' && str_contains($path, '/storage/v1/object/chat-attachments/chat/')) {
+                return Http::response('private image bytes', 200, ['Content-Type' => 'image/jpeg']);
+            }
+
+            return Http::response(['message' => 'Unexpected storage request.'], 404);
+        });
         $admin = User::create([
             'name' => 'UCU Attachment Admin',
             'email' => 'ucu-chat-attachment-admin@example.edu',
@@ -1857,14 +1936,49 @@ class AdminSubadminManagementTest extends TestCase
 
         $response->assertCreated()
             ->assertJsonPath('data.attachment_type', 'image');
-        $this->assertStringStartsWith(
-            'https://chat-test.supabase.co/storage/v1/object/public/chat-attachments/chat/',
-            $response->json('data.attachment_url'),
+        $attachmentPath = '/chat/messages/' . $response->json('data.id') . '/attachment';
+        $this->assertSame($attachmentPath, $response->json('data.attachment_url'));
+        Http::assertSent(fn (HttpRequest $request) =>
+            $request->method() === 'PUT'
+            && str_ends_with($request->url(), '/storage/v1/bucket/chat-attachments')
         );
         Http::assertSent(fn (HttpRequest $request) =>
             $request->method() === 'POST'
             && str_contains($request->url(), '/storage/v1/object/chat-attachments/chat/')
         );
+
+        $this->actingAs($student, 'sanctum')
+            ->get('/api' . $attachmentPath)
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/jpeg')
+            ->assertContent('private image bytes');
+
+        $outsider = User::create([
+            'name' => 'Unrelated Chat User',
+            'email' => 'unrelated-chat-attachment@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'UCU',
+        ]);
+        $this->actingAs($outsider, 'sanctum')
+            ->get('/api' . $attachmentPath)
+            ->assertNotFound();
+
+        $legacyMessage = ChatMessage::create([
+            'user_id' => $admin->id,
+            'recipient_user_id' => $student->id,
+            'university_code' => 'UCU',
+            'sender_email' => $admin->email,
+            'sender_name' => $admin->name,
+            'message' => '',
+            'attachment_url' => 'https://chat-test.supabase.co/storage/v1/object/public/chat-attachments/chat/legacy.jpg',
+            'attachment_type' => 'image',
+            'deleted_by' => [],
+        ]);
+        $this->actingAs($student, 'sanctum')
+            ->get('/api/chat/messages/' . $legacyMessage->id . '/attachment')
+            ->assertOk()
+            ->assertContent('private image bytes');
     }
 
     public function test_chat_messages_and_unread_previews_are_shared_between_participants(): void
@@ -2001,6 +2115,32 @@ class AdminSubadminManagementTest extends TestCase
                 'data.0.credential_search',
                 'UCU-2026-SEARCH Bachelor of Science in Information Technology BSIT CERT-STUDENT-ACCESS-2026',
             );
+    }
+
+    public function test_student_without_credentials_has_no_credential_batch_year(): void
+    {
+        $admin = User::create([
+            'name' => 'UCU Access Admin',
+            'email' => 'ucu-access-empty-admin@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UCU',
+        ]);
+        User::create([
+            'name' => 'Student Without Credentials',
+            'email' => 'student-without-credentials@example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'student',
+            'university_code' => 'UCU',
+            'created_at' => '2026-01-15 00:00:00',
+        ]);
+
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/admin/students')
+            ->assertOk()
+            ->assertJsonPath('data.0.credentials', [])
+            ->assertJsonPath('data.0.degree', null)
+            ->assertJsonPath('data.0.batch_year', null);
     }
 
     public function test_student_reports_and_super_admin_reply_and_approves_deletion_requests(): void

@@ -97,6 +97,7 @@ Route::middleware(['auth:sanctum', EnsureAccountIsNotFrozen::class])->group(func
     Route::delete('/admin/certificates/{certificate}', [CertificateController::class, 'revoke']);
     Route::patch('/admin/students/{user}/access', [AuthController::class, 'updateStudentAccess']);
     Route::delete('/admin/students/{user}', [AuthController::class, 'deleteStudentAccount']);
+    Route::delete('/admin/students/{user}/force-remove', [AuthController::class, 'forceRemoveStudentAccount']);
     Route::patch('/admin/students/access', [AuthController::class, 'updateAllStudentAccess']);
     Route::post('/admin/subadmins', [AuthController::class, 'bindSubadmin']);
     Route::put('/admin/subadmins/{user}', [AuthController::class, 'updateSubadmin']);

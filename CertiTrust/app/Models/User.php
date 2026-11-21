@@ -85,7 +85,7 @@ class User extends Authenticatable
 
             return (bool) UniversityAccessControl::query()
                 ->where('university_code', $universityCode)
-                ->value('students_frozen');
+                ->first()?->students_frozen;
         }
 
         return (bool) $this->access_frozen;

@@ -30,6 +30,19 @@ type FieldProps = {
     helper?: string;
 };
 
+function generatedUniversityCode(university: string, branch: string) {
+    const initials = (value: string) =>
+        value
+            .replace(/[^A-Za-z0-9 ]/g, " ")
+            .trim()
+            .split(/\s+/)
+            .filter((word) => word && !["of", "the", "and", "branch", "campus"].includes(word.toLowerCase()))
+            .map((word) => word[0].toUpperCase())
+            .join("");
+
+    return `${initials(university)}${initials(branch)}`.replace(/[^A-Z0-9]/g, "").slice(0, 10);
+}
+
 function Field({ label, value, onChange, type = "text", error, helper }: FieldProps) {
     const [focused, setFocused] = useState(false);
     const floating = focused || value !== "";
@@ -77,6 +90,7 @@ export default function SuperAdminCreateSubadmin() {
     const [university, setUniversity] = useState("");
     const [branch, setBranch] = useState("");
     const [shortCode, setShortCode] = useState("");
+    const [shortCodeWasEdited, setShortCodeWasEdited] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [subadmins, setSubadmins] = useState<Subadmin[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -84,6 +98,16 @@ export default function SuperAdminCreateSubadmin() {
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
     const navigate = useNavigate();
     const [editingId, setEditingId] = useState<string | null>(null);
+
+    const updateUniversity = (value: string) => {
+        setUniversity(value);
+        if (!shortCodeWasEdited) setShortCode(generatedUniversityCode(value, branch));
+    };
+
+    const updateBranch = (value: string) => {
+        setBranch(value);
+        if (!shortCodeWasEdited) setShortCode(generatedUniversityCode(university, value));
+    };
 
     const refreshSubadmins = async (silent = false) => {
         if (!silent) setIsLoading(true);
@@ -154,10 +178,16 @@ export default function SuperAdminCreateSubadmin() {
             setUniversity("");
             setBranch("");
             setShortCode("");
+            setShortCodeWasEdited(false);
             setEditingId(null);
         } catch (error) {
-            const message = (error as { response?: { data?: { message?: string } } })
+            const serverMessage = (error as { response?: { data?: { message?: string } } })
                 .response?.data?.message;
+            const message = serverMessage === "This email is already in use. Enter another email address."
+                ? "An account already uses this email. Use a different email, or request removal of the unused student account and wait for Super Admin approval before reusing it."
+                : serverMessage?.startsWith("This email is already linked to a student credential")
+                    ? "This email is attached to a student credential. Use another email, or have the credential removed through the Super Admin review workflow before reusing it."
+                    : serverMessage;
             setErrors((current) => ({ ...current, form: message || "Unable to save this subadmin." }));
         } finally {
             setIsSaving(false);
@@ -170,6 +200,7 @@ export default function SuperAdminCreateSubadmin() {
         setUniversity(item.university);
         setBranch(item.branch || "");
         setShortCode(item.code);
+        setShortCodeWasEdited(false);
         setErrors({});
         setEditingId(item.id);
         setOpenMenuId(null);
@@ -262,23 +293,26 @@ export default function SuperAdminCreateSubadmin() {
                             <Field
                                 label="University name"
                                 value={university}
-                                onChange={setUniversity}
+                                onChange={updateUniversity}
                                 error={errors.university}
                             />
 
                             <Field
                                 label="Branch campus (optional)"
                                 value={branch}
-                                onChange={setBranch}
+                                onChange={updateBranch}
                             />
 
                             <div className="md:col-span-2">
                                 <Field
-                                    label="Display name / university short code"
+                                    label="University display name / short code"
                                     value={shortCode}
-                                    onChange={setShortCode}
+                                    onChange={(value) => {
+                                        setShortCodeWasEdited(true);
+                                        setShortCode(value);
+                                    }}
                                     error={errors.shortCode}
-                                    helper="Editable; use 1–10 letters or numbers."
+                                    helper="Generated from the university and branch; editable. Use 1–10 letters or numbers."
                                 />
                             </div>
 

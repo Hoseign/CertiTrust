@@ -367,6 +367,13 @@ class ApiService {
           'Authorization': 'Bearer $authToken',
       };
 
+  static String resolveChatAttachmentUrl(String path) {
+    if (!RegExp(r'^/chat/messages/\d+/attachment$').hasMatch(path)) {
+      throw FormatException('Invalid chat attachment path.');
+    }
+    return '$baseUrl$path';
+  }
+
   /// Fetch recent issued certificates for dashboard
   static Future<List<dynamic>> getCertificates() async {
     try {

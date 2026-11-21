@@ -26,7 +26,7 @@ The service tries `CERTITRUST_RPC_URL` first, then each comma-separated URL in `
 
 Keep `CERTITRUST_CHAIN_ENABLED=false` until the owner private key is configured securely in the backend environment and funded with Sepolia test ETH. Then set it to `true` locally and in Render. Never commit `.env`, paste a private key into chat, or put the signer key in a React `VITE_*` or Flutter `--dart-define` variable. After changing Render environment values, restart/redeploy the service.
 
-Chat attachments use the public Supabase Storage bucket named by `SUPABASE_CHAT_BUCKET` (default `chat-attachments`). The backend creates this bucket as public on first use when it does not exist. `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` must be configured on the Laravel backend; do not add the service-role key to web or mobile clients.
+Chat attachments use a private Supabase Storage bucket named by `SUPABASE_CHAT_BUCKET` (default `chat-attachments`). Laravel creates the bucket as private on the first upload if it does not exist, and changes an existing public bucket to private. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the Laravel backend; do not add the service-role key to web or mobile clients. Both clients load attachments through Laravel's authenticated chat endpoint.
 
 ## What The Integration Does
 

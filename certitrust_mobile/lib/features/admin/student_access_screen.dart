@@ -302,7 +302,9 @@ class _StudentAccessScreenState extends State<StudentAccessScreen>
       for (var index = 0; index < credentials.length; index++)
         'Credential #${int.tryParse(credentials[index]['degree_number']?.toString() ?? '') ?? index + 1}: ${credentials[index]['degree'] ?? 'Degree not recorded'} (${_credentialLevelLabel(credentials[index])})',
       if (credentials.length > 1) 'Multiple degrees: ${credentials.length}',
-      'Batch: ${student['batch_year'] ?? 'Year unavailable'}',
+      if (credentials.isEmpty) 'No credentials linked',
+      if (credentials.isNotEmpty && student['batch_year'] != null)
+        'Batch: ${student['batch_year']}',
       if (student['is_frozen'] == true)
         'Frozen by: ${student['freeze_owner_email'] ?? 'another administrator'}',
     ].join('\n');

@@ -140,6 +140,14 @@ export async function deleteStudent(userId: number) {
     return data;
 }
 
+export async function forceRemoveStudent(userId: number) {
+    const { data } = await apiClient.delete(`/admin/students/${userId}/force-remove`);
+    return data as {
+        message: string;
+        data: { junk_item_id: number };
+    };
+}
+
 export async function revokeCertificateRecord(certificateId: number) {
     const { data } = await apiClient.delete(`/admin/certificates/${certificateId}`);
     return data as {

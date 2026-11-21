@@ -2230,7 +2230,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                                           .height *
                                                       0.8,
                                                   child: Image.network(
-                                                    attachmentUrl,
+                                                    ApiService
+                                                        .resolveChatAttachmentUrl(
+                                                            attachmentUrl),
                                                     headers: ApiService
                                                         .chatAttachmentHeaders,
                                                     fit: BoxFit.contain,
@@ -2246,7 +2248,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                               width: 260,
                                               height: 320,
                                               child: Image.network(
-                                                attachmentUrl,
+                                                ApiService
+                                                    .resolveChatAttachmentUrl(
+                                                        attachmentUrl),
                                                 headers: ApiService
                                                     .chatAttachmentHeaders,
                                                 fit: BoxFit.contain,

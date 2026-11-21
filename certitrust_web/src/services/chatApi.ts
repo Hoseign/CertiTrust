@@ -32,6 +32,16 @@ export async function listChatPresence() {
     return data.data;
 }
 
+export async function fetchChatAttachment(attachmentUrl: string) {
+    if (!/^\/chat\/messages\/\d+\/attachment$/.test(attachmentUrl)) {
+        throw new Error("The chat attachment URL is invalid.");
+    }
+    const { data } = await apiClient.get<Blob>(attachmentUrl, {
+        responseType: "blob",
+    });
+    return data;
+}
+
 export async function sendChatMessage(payload: {
     message: string;
     recipientUserId: number;

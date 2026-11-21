@@ -427,7 +427,7 @@ class AuthController extends Controller
                 UniversityAccessControl::updateOrCreate(
                     ['university_code' => $universityCode],
                     [
-                        'students_frozen' => DB::raw($frozen ? 'TRUE' : 'FALSE'),
+                        'students_frozen' => $frozen,
                         'updated_by' => $request->user()->id,
                     ],
                 );
@@ -677,7 +677,7 @@ class AuthController extends Controller
                     'issue_date' => $latestCertificate?->issue_date,
                     'batch_year' => $latestCertificate?->issue_date
                         ? substr((string) $latestCertificate->issue_date, 0, 4)
-                        : $student->created_at?->format('Y'),
+                        : null,
                     'credential_search' => collect($certificates)
                         ->flatMap(fn ($certificate) => [
                             $certificate->student_id,
@@ -845,6 +845,60 @@ class AuthController extends Controller
             'message' => 'Student removal request sent to the Super Admin for approval.',
             'data' => ['request_id' => $requestId, 'status' => 'pending'],
         ], 202);
+    }
+
+    public function forceRemoveStudentAccount(Request $request, User $user)
+    {
+        $this->ensureSuperAdmin($request);
+        if (!in_array($user->role, ['student', 'user'], true)) {
+            return response()->json([
+                'message' => 'Only student accounts can be moved to Junk here.',
+            ], 422);
+        }
+        if (!Schema::hasTable('junk_items')) {
+            return response()->json([
+                'message' => 'The recycle bin is not available yet. Apply the pending database migrations before removing student accounts.',
+            ], 503);
+        }
+
+        $junkItemId = DB::transaction(function () use ($request, $user): int {
+            $student = User::lockForUpdate()->find($user->id);
+            if (!$student || !in_array($student->role, ['student', 'user'], true)) {
+                abort(404, 'The student account no longer exists.');
+            }
+
+            $junkItemId = $this->moveStudentToJunk(
+                $student,
+                'superadmin_forced_removal',
+                $request->user()?->email,
+            );
+            if (Schema::hasTable('student_deletion_requests')) {
+                DB::table('student_deletion_requests')
+                    ->where('student_user_id', $student->id)
+                    ->where('status', 'pending')
+                    ->update([
+                        'status' => 'approved',
+                        'reviewed_by' => $request->user()?->id,
+                        'reviewer_note' => 'Moved to Junk directly by the Super Admin.',
+                        'reviewed_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+            }
+
+            return $junkItemId;
+        });
+
+        $this->logAdminAction(
+            'force_removed_student_account',
+            $user->email,
+            $user->university_code,
+            ['junk_item_id' => $junkItemId, 'student_user_id' => $user->id],
+        );
+
+        return response()->json([
+            'message' => 'Student account and credentials were removed from active records and moved to Junk.',
+            'data' => ['junk_item_id' => $junkItemId],
+        ]);
     }
 
     public function purgeAccountsAndCredentials(Request $request)
@@ -1268,7 +1322,7 @@ class AuthController extends Controller
             UniversityAccessControl::updateOrCreate(
                 ['university_code' => $admin->university_code],
                 [
-                    'students_frozen' => DB::raw($frozen ? 'TRUE' : 'FALSE'),
+                    'students_frozen' => $frozen,
                     'updated_by' => $admin->id,
                 ],
             );

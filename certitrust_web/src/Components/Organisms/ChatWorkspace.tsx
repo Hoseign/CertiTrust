@@ -8,6 +8,7 @@ import { useChat } from "@/hooks/useChat";
 import {
     clearChatConversation,
     deleteChatMessage,
+    fetchChatAttachment,
     sendChatMessage,
     type ChatMessage,
 } from "@/services/chatApi";
@@ -41,6 +42,61 @@ function repliedMessage(message: ChatMessage) {
     return reply && typeof reply === "object" && !Array.isArray(reply)
         ? reply as Record<string, unknown>
         : null;
+}
+
+function ChatAttachmentPreview({
+    url,
+    type,
+}: {
+    url: string;
+    type: string;
+}) {
+    const [objectUrl, setObjectUrl] = useState<string | null>(null);
+    const [failed, setFailed] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        let createdUrl: string | null = null;
+        setObjectUrl(null);
+        setFailed(false);
+
+        if (url.startsWith("blob:")) {
+            setObjectUrl(url);
+            return () => {
+                cancelled = true;
+            };
+        }
+
+        void fetchChatAttachment(url)
+            .then((blob) => {
+                createdUrl = URL.createObjectURL(blob);
+                if (cancelled) URL.revokeObjectURL(createdUrl);
+                else setObjectUrl(createdUrl);
+            })
+            .catch(() => {
+                if (!cancelled) setFailed(true);
+            });
+
+        return () => {
+            cancelled = true;
+            if (createdUrl) URL.revokeObjectURL(createdUrl);
+        };
+    }, [url]);
+
+    if (failed) {
+        return <p role="alert" className="mt-2 text-xs opacity-80">Chat attachment could not be loaded. Reopen the conversation to retry.</p>;
+    }
+    if (!objectUrl) {
+        return <p className="mt-2 text-xs opacity-70">Loading attachment...</p>;
+    }
+    if (type === "video") {
+        return <video src={objectUrl} controls className="mt-2 max-h-64 max-w-full rounded-lg" />;
+    }
+    return (
+        <a href={objectUrl} target="_blank" rel="noreferrer" className="mt-2 block underline">
+            <img src={objectUrl} alt="Message attachment" className="max-h-64 max-w-full rounded-lg object-contain" />
+        </a>
+    );
 }
 
 export default function ChatWorkspace({
@@ -619,13 +675,11 @@ export default function ChatWorkspace({
                                                         </div>
                                                     )}
                                                     {message.message && <p className="whitespace-pre-wrap break-words text-sm">{message.message}</p>}
-                                                    {attachmentUrl && message.attachment_type === "video" && (
-                                                        <video src={attachmentUrl} controls className="mt-2 max-h-64 max-w-full rounded-lg" />
-                                                    )}
-                                                    {attachmentUrl && message.attachment_type !== "video" && (
-                                                        <a href={attachmentUrl} target="_blank" rel="noreferrer" className="mt-2 block underline">
-                                                            <img src={attachmentUrl} alt="Message attachment" className="max-h-64 max-w-full rounded-lg object-contain" />
-                                                        </a>
+                                                    {attachmentUrl && (
+                                                        <ChatAttachmentPreview
+                                                            url={attachmentUrl}
+                                                            type={message.attachment_type ?? "image"}
+                                                        />
                                                     )}
                                                     {message.is_report === true && <p className="mt-2 text-xs font-bold">Report</p>}
                                                     <div className="mt-1 flex justify-end gap-2 text-[10px] opacity-70">

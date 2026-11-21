@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
 import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
 import RecordFilterBar, { type RecordFilterValues } from "@/Components/Molecules/RecordFilterBar";
-import { listUniversityStudents, listUniversities, setUniversityAccess } from "../../services/adminApi";
+import { forceRemoveStudent as forceRemoveStudentApi, listUniversityStudents, listUniversities, setUniversityAccess } from "../../services/adminApi";
 import { updateStudentAccess as updateStudentAccessApi } from "../../services/certitrustApi";
 import { getAcademicLevel, getAcademicLevelLabel } from "../../utils/academicLevel";
 
@@ -31,6 +31,8 @@ export default function SuperAdminStudentAccess() {
     const [canManageUniversityFreeze, setCanManageUniversityFreeze] = useState(true);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [notice, setNotice] = useState("");
+    const [workingStudentId, setWorkingStudentId] = useState<string | null>(null);
     const [filters, setFilters] = useState<RecordFilterValues>({
         academicLevel: "",
         program: "",
@@ -61,12 +63,14 @@ export default function SuperAdminStudentAccess() {
                     email: String(record.email || ""),
                     studentId: String(record.student_id || "Not recorded"),
                     program: degree,
-                    degreeLevel: `Credential #${latestCredential?.degree_number || 1}`,
+                    degreeLevel: latestCredential
+                        ? `Credential #${latestCredential.degree_number || 1}`
+                        : "",
                     level: getAcademicLevel(
                         degree,
                         Number(latestCredential?.degree_number || 1),
                     ),
-                    year: String(record.batch_year || "Unknown"),
+                    year: latestCredential ? String(record.batch_year || "Unknown") : "Unknown",
                     universityCode,
                     frozen: Boolean(record.is_frozen),
                     canManageAccess: record.can_manage_access !== false,
@@ -150,6 +154,29 @@ export default function SuperAdminStudentAccess() {
         }
     };
 
+    const handleForceRemoveStudent = async (student: Student) => {
+        const confirmed = window.confirm(
+            `Move ${student.name} (${student.email}) and their credentials to Junk? This removes them from active records in both web and mobile. You can permanently delete the Junk snapshot separately.`,
+        );
+        if (!confirmed) return;
+
+        setWorkingStudentId(student.id);
+        setError("");
+        setNotice("");
+        try {
+            const result = await forceRemoveStudentApi(Number(student.id));
+            setNotice(result.message);
+            setMenuId(null);
+            await refresh(true);
+        } catch (requestError) {
+            const message = (requestError as { response?: { data?: { message?: string } } })
+                .response?.data?.message;
+            setError(message || "Unable to remove the student from active records.");
+        } finally {
+            setWorkingStudentId(null);
+        }
+    };
+
     return (
         <div className="flex min-h-screen bg-[#F5F7FB]">
 
@@ -176,6 +203,7 @@ export default function SuperAdminStudentAccess() {
                                 menu.
                             </p>
                             {error && <p role="alert" className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+                            {notice && <p role="status" className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
 
                             <div className="mb-8 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4">
                                 <div>
@@ -267,14 +295,18 @@ export default function SuperAdminStudentAccess() {
 
                                                     <div className="pl-1 text-[17px] text-[#0A192F] leading-8">
                                                         <p>{s.email}</p>
-                                                        <p>
-                                                            {s.degreeLevel}: {s.program} (
-                                                            {getAcademicLevelLabel(
-                                                                s.program,
-                                                                Number(s.degreeLevel.replace(/\D/g, "")) || 1,
-                                                            )})
-                                                        </p>
-                                                        <p>Batch: {s.year}</p>
+                                                        {s.degreeLevel ? (
+                                                            <p>
+                                                                {s.degreeLevel}: {s.program} (
+                                                                {getAcademicLevelLabel(
+                                                                    s.program,
+                                                                    Number(s.degreeLevel.replace(/\D/g, "")) || 1,
+                                                                )})
+                                                            </p>
+                                                        ) : (
+                                                            <p>No credentials linked</p>
+                                                        )}
+                                                        {s.year !== "Unknown" && <p>Batch: {s.year}</p>}
                                                     </div>
 
                                                     <div className="relative flex justify-end mt-8">
@@ -326,6 +358,15 @@ export default function SuperAdminStudentAccess() {
                                                                     </button>
                                                                     <button type="button" role="menuitem" disabled={!s.frozen || !s.canManageAccess} onClick={() => { void setFrozen(s.id, false); setMenuId(null); }} className="w-full text-left px-4 py-3 text-sm font-semibold text-emerald-700 hover:bg-gray-50 disabled:text-gray-300 disabled:hover:bg-transparent disabled:cursor-not-allowed">
                                                                         Restore student access
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        role="menuitem"
+                                                                        disabled={workingStudentId !== null}
+                                                                        onClick={() => void handleForceRemoveStudent(s)}
+                                                                        className="w-full text-left px-4 py-3 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:text-gray-300 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                                                                    >
+                                                                        {workingStudentId === s.id ? "Moving to Junk..." : "Move student to Junk"}
                                                                     </button>
                                                                     {s.freezeOwnerEmail && <p className="px-4 py-2 text-xs text-slate-500">Frozen by {s.freezeOwnerEmail}</p>}
                                                                 </div>

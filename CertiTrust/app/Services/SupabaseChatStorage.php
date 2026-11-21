@@ -67,7 +67,7 @@ class SupabaseChatStorage
                     ->post($baseUrl . '/storage/v1/bucket', [
                         'id' => $bucket,
                         'name' => $bucket,
-                        'public' => true,
+                        'public' => false,
                         'file_size_limit' => 50 * 1024 * 1024,
                         'allowed_mime_types' => self::ALLOWED_MIME_TYPES,
                     ]);
@@ -83,6 +83,26 @@ class SupabaseChatStorage
                     'check the chat attachment bucket',
                     $bucketResponse->status(),
                     $bucketResponse->json('message') ?? $bucketResponse->json('error'),
+                );
+            } elseif ($bucketResponse->json('public') === true) {
+                $updated = Http::connectTimeout(3)
+                    ->timeout(8)
+                    ->withHeaders($headers)
+                    ->put($baseUrl . '/storage/v1/bucket/' . rawurlencode($bucket), [
+                        'public' => false,
+                    ]);
+                if (!$updated->successful()) {
+                    return $this->storageError(
+                        'make the chat attachment bucket private',
+                        $updated->status(),
+                        $updated->json('message') ?? $updated->json('error'),
+                    );
+                }
+            } elseif ($bucketResponse->json('public') !== false) {
+                return $this->storageError(
+                    'verify the chat attachment bucket visibility',
+                    502,
+                    'Supabase did not report whether the bucket is private.',
                 );
             }
 
@@ -123,11 +143,7 @@ class SupabaseChatStorage
                 );
             }
 
-            return [
-                'url' => $baseUrl . '/storage/v1/object/public/'
-                    . rawurlencode($bucket) . '/'
-                    . implode('/', array_map('rawurlencode', explode('/', $objectName))),
-            ];
+            return ['path' => $objectName];
         } catch (ConnectionException $exception) {
             Log::warning('Supabase Storage could not receive a chat attachment.', [
                 'exception' => $exception->getMessage(),
@@ -140,32 +156,19 @@ class SupabaseChatStorage
         }
     }
 
-    public function download(string $publicUrl): array
+    public function download(string $attachmentReference): array
     {
         $baseUrl = rtrim((string) config('services.supabase.url'), '/');
         $serviceRoleKey = (string) config('services.supabase.service_role_key');
         $bucket = (string) config('services.supabase.chat_bucket', 'chat-attachments');
-        $url = parse_url($publicUrl);
-        $base = parse_url($baseUrl);
-        $publicPrefix = '/storage/v1/object/public/' . $bucket . '/';
-
-        if (
-            $baseUrl === ''
-            || $serviceRoleKey === ''
-            || !is_array($url)
-            || !is_array($base)
-            || strtolower((string) ($url['host'] ?? '')) !== strtolower((string) ($base['host'] ?? ''))
-            || !str_starts_with((string) ($url['path'] ?? ''), $publicPrefix)
-        ) {
-            return ['status' => 404, 'message' => 'Chat attachment not found.'];
+        if ($baseUrl === '' || $serviceRoleKey === '' || $bucket === '') {
+            return [
+                'status' => 503,
+                'message' => 'Chat file storage is not configured on the backend.',
+            ];
         }
-
-        $objectPath = substr($url['path'], strlen($publicPrefix));
-        $objectPath = implode('/', array_map(
-            'rawurlencode',
-            array_map('rawurldecode', explode('/', $objectPath)),
-        ));
-        if ($objectPath === '') {
+        $objectPath = $this->objectPath($attachmentReference, $baseUrl, $bucket);
+        if ($objectPath === null) {
             return ['status' => 404, 'message' => 'Chat attachment not found.'];
         }
 
@@ -175,6 +178,39 @@ class SupabaseChatStorage
         }
 
         try {
+            $bucketResponse = Http::connectTimeout(3)
+                ->timeout(8)
+                ->withHeaders($headers)
+                ->get($baseUrl . '/storage/v1/bucket/' . rawurlencode($bucket));
+            if (!$bucketResponse->successful()) {
+                return $this->storageError(
+                    'verify the chat attachment bucket privacy',
+                    $bucketResponse->status(),
+                    $bucketResponse->json('message') ?? $bucketResponse->json('error'),
+                );
+            }
+            if ($bucketResponse->json('public') === true) {
+                $updated = Http::connectTimeout(3)
+                    ->timeout(8)
+                    ->withHeaders($headers)
+                    ->put($baseUrl . '/storage/v1/bucket/' . rawurlencode($bucket), [
+                        'public' => false,
+                    ]);
+                if (!$updated->successful()) {
+                    return $this->storageError(
+                        'make the chat attachment bucket private',
+                        $updated->status(),
+                        $updated->json('message') ?? $updated->json('error'),
+                    );
+                }
+            } elseif ($bucketResponse->json('public') !== false) {
+                return $this->storageError(
+                    'verify the chat attachment bucket visibility',
+                    502,
+                    'Supabase did not report whether the bucket is private.',
+                );
+            }
+
             $response = Http::connectTimeout(3)
                 ->timeout(20)
                 ->withHeaders($headers)
@@ -195,6 +231,53 @@ class SupabaseChatStorage
 
             return ['status' => 502, 'message' => 'Chat file storage could not be reached.'];
         }
+    }
+
+    private function objectPath(string $reference, string $baseUrl, string $bucket): ?string
+    {
+        $path = $reference;
+        if (filter_var($reference, FILTER_VALIDATE_URL) !== false) {
+            $url = parse_url($reference);
+            $base = parse_url($baseUrl);
+            if (
+                !is_array($url)
+                || !is_array($base)
+                || strtolower((string) ($url['host'] ?? '')) !== strtolower((string) ($base['host'] ?? ''))
+            ) {
+                return null;
+            }
+
+            $bucketPath = rawurlencode($bucket);
+            $prefixes = [
+                '/storage/v1/object/public/' . $bucketPath . '/',
+                '/storage/v1/object/' . $bucketPath . '/',
+            ];
+            $path = (string) ($url['path'] ?? '');
+            foreach ($prefixes as $prefix) {
+                if (str_starts_with($path, $prefix)) {
+                    $path = substr($path, strlen($prefix));
+                    break;
+                }
+            }
+            if ($path === (string) ($url['path'] ?? '')) {
+                return null;
+            }
+        } elseif (str_contains($reference, '://')) {
+            return null;
+        }
+
+        $segments = array_map('rawurldecode', explode('/', trim($path, '/')));
+        if (
+            count($segments) < 2
+            || $segments[0] !== 'chat'
+            || in_array('', $segments, true)
+            || in_array('.', $segments, true)
+            || in_array('..', $segments, true)
+        ) {
+            return null;
+        }
+
+        return implode('/', array_map('rawurlencode', $segments));
     }
 
     private function storageError(

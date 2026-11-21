@@ -77,7 +77,7 @@ class ChatController extends Controller
 
         return response()->json([
             'data' => $visibleMessages->map(
-                fn (ChatMessage $message) => $this->messagePayload($request, $message),
+                fn (ChatMessage $message) => $this->messagePayload($message),
             ),
         ]);
     }
@@ -109,12 +109,11 @@ class ChatController extends Controller
         ]);
     }
 
-    private function messagePayload(Request $request, ChatMessage $message): array
+    private function messagePayload(ChatMessage $message): array
     {
         $payload = $message->toArray();
         if ($message->attachment_url) {
-            $path = route('chat.messages.attachment', ['chatMessage' => $message->id], false);
-            $payload['attachment_url'] = rtrim($request->getSchemeAndHttpHost(), '/') . $path;
+            $payload['attachment_url'] = '/chat/messages/' . $message->id . '/attachment';
         }
 
         return $payload;
@@ -453,12 +452,12 @@ class ChatController extends Controller
         if ($request->hasFile('attachment')) {
             $file = $request->file('attachment');
             $upload = $chatStorage->upload($file);
-            if (!isset($upload['url'])) {
+            if (!isset($upload['path'])) {
                 return response()->json([
                     'message' => $upload['message'] ?? 'Chat attachment could not be uploaded.',
                 ], $upload['status'] ?? 502);
             }
-            $attachmentUrl = $upload['url'];
+            $attachmentUrl = $upload['path'];
             $attachmentType = str_starts_with($file->getMimeType() ?? '', 'video/') ? 'video' : 'image';
         }
 
@@ -498,7 +497,7 @@ class ChatController extends Controller
 
         $message->load('replyTo:id,user_id,sender_name,message');
 
-        return response()->json(['data' => $this->messagePayload($request, $message)], 201);
+        return response()->json(['data' => $this->messagePayload($message)], 201);
     }
 
     private function contactsFor(User $user)
