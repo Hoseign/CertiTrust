@@ -18,7 +18,8 @@ const String kGoogleAndroidClientId =
     '839744246515-j4fdm4gro5nsp1lo9ike43jfdnruecc3.apps.googleusercontent.com';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final String? redirectAfterLogin;
+  const LoginScreen({super.key, this.redirectAfterLogin});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -27,6 +28,18 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   late final GoogleSignIn _googleSignIn;
+
+  String? get _institutionalInquiryDestination {
+    final uri = Uri.tryParse(widget.redirectAfterLogin ?? '');
+    final code = uri?.queryParameters['institution_code']?.trim() ?? '';
+    if (uri == null ||
+        uri.hasAuthority ||
+        uri.path != '/institutional-inquiry' ||
+        !RegExp(r'^[A-Za-z0-9]{1,10}$').hasMatch(code)) {
+      return null;
+    }
+    return '/institutional-inquiry?institution_code=${Uri.encodeQueryComponent(code.toUpperCase())}';
+  }
 
   @override
   void initState() {
@@ -88,11 +101,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (isAdmin) {
         if (!mounted) return;
-        context.go('/dashboard');
+        context.go(_institutionalInquiryDestination ?? '/dashboard');
         return;
       }
 
       if (!isRegisteredInCertificates) {
+        if (role == 'user') {
+          if (mounted) {
+            context.go(
+              _institutionalInquiryDestination ?? '/institutional-inquiry',
+            );
+          }
+          return;
+        }
         if (mounted) {
           _showWarningDialog(
             'Google Account Warning',
@@ -319,7 +340,10 @@ class _LoginScreenState extends State<LoginScreen> {
               (profile['profile_icon']?.toString().isNotEmpty ?? false);
 
       if (hasProfile) {
-        context.go('/dashboard', extra: matchingCert);
+        context.go(
+          _institutionalInquiryDestination ?? '/dashboard',
+          extra: matchingCert,
+        );
       } else {
         await _showStudentProfileSetup(matchingCert);
       }
@@ -431,7 +455,10 @@ class _LoginScreenState extends State<LoginScreen> {
     await Navigator.of(context, rootNavigator: true).push(dialogRoute);
     await dialogRoute.completed;
     if (saved && mounted) {
-      context.go('/dashboard', extra: matchingCertificate);
+      context.go(
+        _institutionalInquiryDestination ?? '/dashboard',
+        extra: matchingCertificate,
+      );
     }
   }
 

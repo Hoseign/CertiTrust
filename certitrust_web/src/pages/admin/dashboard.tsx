@@ -8,7 +8,7 @@ import {
     requestCertificateDeletion,
     type CertificateRecord,
 } from "../../services/certitrustApi";
-import { getSessionUser } from "../../services/authService";
+import { getSessionUser, resolveProfileImageUrl } from "../../services/authService";
 
 type Verified = {
     id: string;
@@ -30,7 +30,9 @@ export default function Dashboard() {
     const [recentOpen, setRecentOpen] = useState<boolean>(false);
     const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
     const [qrOpen, setQrOpen] = useState<boolean>(false);
+    const [failedLogoUrl, setFailedLogoUrl] = useState<string | null>(null);
     const qrWrapRef = useRef<HTMLDivElement>(null);
+    const logoUrl = resolveProfileImageUrl(getSessionUser()?.profile_image_url);
 
     const refresh = async () => {
         try {
@@ -145,15 +147,24 @@ export default function Dashboard() {
                         {/* Welcome Card */}
                         <section className="flex items-center gap-8 rounded-3xl bg-[#F1F4F8] p-8 md:p-10 shadow-[0_4px_12px_rgba(15,23,42,0.12)]">
                             <div className="flex h-24 w-24 flex-none items-center justify-center rounded-full bg-[#E0E3EE] text-[#003366]">
-                                <svg
-                                    width="46"
-                                    height="46"
-                                    viewBox="0 0 24 24"
-                                    fill="currentColor"
-                                >
-                                    <path d="M12 3 1 9l11 6 9-4.9V17h2V9L12 3z" />
-                                    <path d="M5 13.2v3.5c0 1.3 3.1 3.3 7 3.3s7-2 7-3.3v-3.5l-7 3.8-7-3.8z" />
-                                </svg>
+                                {logoUrl && failedLogoUrl !== logoUrl ? (
+                                    <img
+                                        src={logoUrl}
+                                        alt="University logo"
+                                        className="h-full w-full rounded-full object-cover"
+                                        onError={() => setFailedLogoUrl(logoUrl)}
+                                    />
+                                ) : (
+                                    <svg
+                                        width="46"
+                                        height="46"
+                                        viewBox="0 0 24 24"
+                                        fill="currentColor"
+                                    >
+                                        <path d="M12 3 1 9l11 6 9-4.9V17h2V9L12 3z" />
+                                        <path d="M5 13.2v3.5c0 1.3 3.1 3.3 7 3.3s7-2 7-3.3v-3.5l-7 3.8-7-3.8z" />
+                                    </svg>
+                                )}
                             </div>
 
                             <div className="min-w-0">
@@ -587,7 +598,7 @@ export default function Dashboard() {
                         </div>
 
                         <p className="mt-6 mb-0 text-center text-base text-gray-500 break-all">
-                            Code: {qrPayload}
+                            Credential code/hash: {qrPayload}
                         </p>
 
                         <div className="mt-10 flex flex-col items-end gap-4">

@@ -111,6 +111,26 @@ class ApiService {
   static bool get isSuperAdmin =>
       authEmail?.toLowerCase() == 'certitrust256@gmail.com';
 
+  static String? resolveProfileImageUrl(String? value) {
+    final raw = value?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    final parsed = Uri.tryParse(raw);
+    if (parsed?.hasScheme == true) {
+      return const ['http', 'https'].contains(parsed!.scheme.toLowerCase())
+          ? parsed.toString()
+          : null;
+    }
+
+    final apiOrigin = Uri.parse(baseUrl);
+    return apiOrigin
+        .replace(
+          path: raw.startsWith('/') ? raw : '/$raw',
+          query: null,
+          fragment: null,
+        )
+        .toString();
+  }
+
   static void startConnectionMonitoring() {
     _healthCheckTimer ??= Timer.periodic(
       const Duration(seconds: 30),
@@ -197,7 +217,8 @@ class ApiService {
     authEmail = prefs.getString('auth_email');
     authRole = prefs.getString('auth_role');
     authUniversity = prefs.getString('auth_university');
-    authProfileImageUrl = prefs.getString('auth_profile_image_url');
+    authProfileImageUrl =
+        resolveProfileImageUrl(prefs.getString('auth_profile_image_url'));
     authProfileIcon = prefs.getString('auth_profile_icon');
     isAccessFrozen = prefs.getBool('auth_access_frozen') ?? false;
     final frozenContactJson = prefs.getString('auth_frozen_by_contact');
@@ -292,7 +313,8 @@ class ApiService {
       authEmail = user['email']?.toString();
       authRole = user['role']?.toString() ?? 'student';
       authUniversity = user['university_code']?.toString();
-      authProfileImageUrl = user['profile_image_url']?.toString();
+      authProfileImageUrl =
+          resolveProfileImageUrl(user['profile_image_url']?.toString());
       authProfileIcon = user['profile_icon']?.toString();
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('auth_email', authEmail ?? '');
@@ -491,7 +513,8 @@ class ApiService {
         authRole = jsonResponse['role']?.toString();
         authUniversity = jsonResponse['university_code']?.toString();
         final user = jsonResponse['user'] as Map<String, dynamic>? ?? {};
-        authProfileImageUrl = user['profile_image_url']?.toString();
+        authProfileImageUrl =
+            resolveProfileImageUrl(user['profile_image_url']?.toString());
         authProfileIcon = user['profile_icon']?.toString();
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('auth_email', authEmail ?? '');
@@ -541,7 +564,8 @@ class ApiService {
           await _saveToken(jsonResponse['token']);
         }
         final profile = jsonResponse['profile'] as Map<String, dynamic>? ?? {};
-        authProfileImageUrl = profile['profile_image_url']?.toString();
+        authProfileImageUrl =
+            resolveProfileImageUrl(profile['profile_image_url']?.toString());
         authProfileIcon = profile['profile_icon']?.toString();
         return jsonResponse;
       } else {
@@ -584,7 +608,8 @@ class ApiService {
         body['message']?.toString() ?? 'Unable to update profile.',
       );
     }
-    authProfileImageUrl = body['profile_image_url']?.toString();
+    authProfileImageUrl =
+        resolveProfileImageUrl(body['profile_image_url']?.toString());
     authProfileIcon = body['profile_icon']?.toString();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('auth_profile_image_url', authProfileImageUrl ?? '');
@@ -1172,7 +1197,8 @@ class ApiService {
     if (response.statusCode != 200) {
       throw ApiRequestException(
         response.statusCode,
-        body['message']?.toString() ?? 'Unable to look up existing credentials.',
+        body['message']?.toString() ??
+            'Unable to look up existing credentials.',
       );
     }
     return body;
@@ -1257,6 +1283,26 @@ class ApiService {
       throw ApiRequestException(
         response.statusCode,
         message ?? 'Failed to load contacts [${response.statusCode}]',
+      );
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return List<Map<String, dynamic>>.from(body['data'] ?? const []);
+  }
+
+  static Future<List<Map<String, dynamic>>> searchInstitutionDirectory(
+      {String search = ''}) async {
+    final uri = Uri.parse('$baseUrl/chat/institutions').replace(
+      queryParameters: search.trim().isEmpty ? null : {'search': search.trim()},
+    );
+    final response = await http
+        .get(uri, headers: _getHeaders)
+        .timeout(const Duration(seconds: 30));
+    if (response.statusCode != 200) {
+      final body = jsonDecode(response.body);
+      final message = body is Map ? body['message']?.toString() : null;
+      throw ApiRequestException(
+        response.statusCode,
+        message ?? 'Failed to search the institutional directory.',
       );
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;

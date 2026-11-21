@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import Sidebar from "@/Components/Organisms/Sidebar";
 import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
-import { getCurrentUser, getSessionUser, updateProfile } from "../../services/authService";
+import { getCurrentUser, getSessionUser, resolveProfileImageUrl, updateProfile } from "../../services/authService";
 import type { AuthUser } from "../../services/authService";
 
 function initials(value: string) {
@@ -15,7 +15,9 @@ export default function Profile() {
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState("");
     const [notice, setNotice] = useState("");
+    const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const profileImageUrl = resolveProfileImageUrl(user?.profile_image_url);
 
     useEffect(() => {
         getCurrentUser()
@@ -94,11 +96,12 @@ export default function Profile() {
                     <div className="h-28 bg-gradient-to-r from-[#0A192F] to-[#2563EB]" />
                     <div className="px-5 pb-7 sm:px-8">
                         <div className="-mt-12 flex flex-col items-center text-center">
-                            {user?.profile_image_url ? (
+                            {profileImageUrl && profileImageUrl !== failedImageUrl ? (
                                 <img
-                                    src={user.profile_image_url}
+                                    src={profileImageUrl}
                                     alt="Profile"
                                     className="h-24 w-24 rounded-full border-4 border-white bg-white object-cover shadow-md"
+                                    onError={() => setFailedImageUrl(profileImageUrl)}
                                 />
                             ) : (
                                 <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-white bg-blue-50 text-2xl font-extrabold text-blue-700 shadow-md">

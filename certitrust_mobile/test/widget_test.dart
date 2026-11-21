@@ -23,6 +23,7 @@ import 'package:certitrust_mobile/features/dashboard/widgets/all_certificates_mo
 import 'package:certitrust_mobile/features/issuance/issue_screen.dart';
 import 'package:certitrust_mobile/features/navigation/role_pages.dart';
 import 'package:certitrust_mobile/features/qr_scanner/verify_screen.dart';
+import 'package:certitrust_mobile/features/qr_scanner/verification_confirmation_screen.dart';
 import 'package:certitrust_mobile/core/widgets/certitrust_loading_indicator.dart';
 import 'package:certitrust_mobile/core/utils/academic_degree.dart';
 import 'package:certitrust_mobile/services/api_service.dart';
@@ -779,6 +780,65 @@ void main() {
         );
       }),
     );
+  });
+
+  testWidgets('master QR verification counts distinct universities',
+      (WidgetTester tester) async {
+    final certificate = {
+      'multi_degree': true,
+      'student_name': 'PsuUser T. Student',
+      'student_id': '20260003',
+      'university_name': 'Multiple Universities',
+      'status': 'Verified',
+      'certificates': [
+        {
+          'degree': 'BS Education',
+          'university_code': 'PSU',
+          'university_name': 'Pangasinan State University (PSU)',
+          'status': 'Verified',
+        },
+        {
+          'degree': 'BS Information Technology',
+          'university_code': 'PSU',
+          'university_name': 'Pangasinan State University (PSU)',
+          'status': 'Verified',
+        },
+      ],
+    };
+
+    await tester.pumpWidget(MaterialApp(
+      home: VerificationConfirmationScreen(certificate: certificate),
+    ));
+
+    expect(find.text('1 University'), findsOneWidget);
+    expect(find.text('Pangasinan State University (PSU)'), findsOneWidget);
+    expect(
+        find.textContaining('verified across 1 university.'), findsOneWidget);
+    expect(find.text('Multiple Universities'), findsNothing);
+
+    final degrees =
+        (certificate['certificates'] as List).cast<Map<String, dynamic>>();
+    await tester.pumpWidget(MaterialApp(
+      home: VerificationConfirmationScreen(
+        certificate: {
+          ...certificate,
+          'certificates': [
+            degrees.first,
+            {
+              ...degrees.last,
+              'university_code': 'UCU',
+              'university_name': 'Urdaneta City University',
+            },
+          ],
+        },
+      ),
+    ));
+
+    expect(find.text('Multiple Universities'), findsWidgets);
+    expect(
+        find.textContaining('verified across 2 universities.'), findsOneWidget);
+    expect(find.text('1 University'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('mobile verification hides raw connection failure details',

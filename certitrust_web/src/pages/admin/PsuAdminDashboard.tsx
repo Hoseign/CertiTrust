@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import Sidebar from "@/Components/Organisms/Sidebar";
-import { getSessionUser } from "../../services/authService";
+import { getSessionUser, resolveProfileImageUrl } from "../../services/authService";
 import { listCertificates, listRecentVerifications, type CertificateRecord } from "../../services/certitrustApi";
 
 type Verified = {
@@ -16,6 +16,7 @@ export default function PsuAdminDashboard() {
     const [verified, setVerified] = useState<Verified[]>([]);
     const [recentCredential, setRecentCredential] = useState<CertificateRecord | null>(null);
     const [error, setError] = useState("");
+    const [failedLogoUrl, setFailedLogoUrl] = useState<string | null>(null);
 
     useEffect(() => {
         const refresh = async () => {
@@ -50,6 +51,7 @@ export default function PsuAdminDashboard() {
     const universityName = useMemo(() => {
         return getSessionUser()?.university_code || "PSU";
     }, []);
+    const logoUrl = resolveProfileImageUrl(getSessionUser()?.profile_image_url);
 
     return (
         <div className="min-h-screen bg-[#FAFAFD]">
@@ -80,10 +82,19 @@ export default function PsuAdminDashboard() {
 
                         <section className="flex items-center gap-8 rounded-3xl bg-[#F1F4F8] p-8 md:p-10 shadow-[0_4px_12px_rgba(15,23,42,0.12)]">
                             <div className="flex h-24 w-24 flex-none items-center justify-center rounded-full bg-[#E0E3EE] text-[#003366]">
-                                <svg width="46" height="46" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                                    <path d="M12 3 1 9l11 6 9-4.9V17h2V9L12 3z" />
-                                    <path d="M5 13.2v3.5c0 1.3 3.1 3.3 7 3.3s7-2 7-3.3v-3.5l-7 3.8-7-3.8z" />
-                                </svg>
+                                {logoUrl && failedLogoUrl !== logoUrl ? (
+                                    <img
+                                        src={logoUrl}
+                                        alt="University logo"
+                                        className="h-full w-full rounded-full object-cover"
+                                        onError={() => setFailedLogoUrl(logoUrl)}
+                                    />
+                                ) : (
+                                    <svg width="46" height="46" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                        <path d="M12 3 1 9l11 6 9-4.9V17h2V9L12 3z" />
+                                        <path d="M5 13.2v3.5c0 1.3 3.1 3.3 7 3.3s7-2 7-3.3v-3.5l-7 3.8-7-3.8z" />
+                                    </svg>
+                                )}
                             </div>
 
                             <div className="min-w-0">

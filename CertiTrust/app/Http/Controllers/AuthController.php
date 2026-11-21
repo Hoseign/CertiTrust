@@ -14,8 +14,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use App\Services\SupabaseProfileImageStorage;
 
 class AuthController extends Controller
 {
@@ -1365,7 +1365,7 @@ class AuthController extends Controller
         ]);
     }
 
-    public function bindSubadmin(Request $request)
+    public function bindSubadmin(Request $request, SupabaseProfileImageStorage $profileImageStorage)
     {
         $this->ensureSuperAdmin($request);
 
@@ -1376,6 +1376,7 @@ class AuthController extends Controller
             'display_name' => ['sometimes', 'nullable', 'string', 'max:30'],
             'email' => ['required', 'email'],
             'name' => ['nullable', 'string', 'max:255'],
+            'profile_image' => ['nullable', 'image', 'max:5120'],
         ]);
 
         $registeredUniversity = University::find($validated['university_code']);
@@ -1414,6 +1415,17 @@ class AuthController extends Controller
             ], 422);
         }
 
+        $profileImageUrl = null;
+        if ($request->hasFile('profile_image')) {
+            $upload = $profileImageStorage->upload($request->file('profile_image'));
+            if (!isset($upload['url'])) {
+                return response()->json([
+                    'message' => $upload['message'],
+                ], $upload['status']);
+            }
+            $profileImageUrl = $upload['url'];
+        }
+
         University::updateOrCreate(
             ['code' => $validated['university_code']],
             [
@@ -1430,13 +1442,17 @@ class AuthController extends Controller
         if ($existingAdmin) {
             $previousEmail = $existingAdmin->email;
             $emailChanged = strtolower($previousEmail) !== $email;
-            $existingAdmin->forceFill([
+            $adminUpdates = [
                 'email' => $email,
                 'name' => $validated['name'] ?? $existingAdmin->name ?? 'University Admin',
                 'role' => 'admin',
                 'university_code' => $validated['university_code'],
                 'google_id' => $emailChanged ? null : $existingAdmin->google_id,
-            ])->save();
+            ];
+            if ($profileImageUrl !== null) {
+                $adminUpdates['profile_image_url'] = $profileImageUrl;
+            }
+            $existingAdmin->forceFill($adminUpdates)->save();
             if ($emailChanged) {
                 $existingAdmin->tokens()->delete();
             }
@@ -1460,6 +1476,7 @@ class AuthController extends Controller
             'password' => Hash::make(Str::random(32)),
             'role' => 'admin',
             'university_code' => $validated['university_code'],
+            'profile_image_url' => $profileImageUrl,
         ]);
 
         $this->logAdminAction(
@@ -2120,7 +2137,7 @@ class AuthController extends Controller
         }
     }
 
-    public function updateProfile(Request $request)
+    public function updateProfile(Request $request, SupabaseProfileImageStorage $profileImageStorage)
     {
         $validated = $request->validate([
             'profile_icon' => ['nullable', 'in:girl,boy'],
@@ -2133,8 +2150,13 @@ class AuthController extends Controller
 
         $user = $request->user();
         if ($request->hasFile('profile_image')) {
-            $path = $request->file('profile_image')->store('profiles', 'public');
-            $validated['profile_image_url'] = Storage::disk('public')->url($path);
+            $upload = $profileImageStorage->upload($request->file('profile_image'));
+            if (!isset($upload['url'])) {
+                return response()->json([
+                    'message' => $upload['message'],
+                ], $upload['status']);
+            }
+            $validated['profile_image_url'] = $upload['url'];
             $validated['profile_icon'] = null;
         } else {
             $validated['profile_image_url'] = null;

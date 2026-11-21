@@ -28,6 +28,8 @@ Keep `CERTITRUST_CHAIN_ENABLED=false` until the owner private key is configured 
 
 Chat attachments use a private Supabase Storage bucket named by `SUPABASE_CHAT_BUCKET` (default `chat-attachments`). Laravel creates the bucket as private on the first upload if it does not exist, and changes an existing public bucket to private. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the Laravel backend; do not add the service-role key to web or mobile clients. Both clients load attachments through Laravel's authenticated chat endpoint.
 
+University logos use the subadmin's profile image and are stored in the public Supabase Storage bucket named by `SUPABASE_PROFILE_BUCKET` (default `profile-images`). Laravel creates the bucket if it does not exist and ensures it is public so the web and mobile dashboards can display the logo. The same backend-only `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` settings are used; no additional Render secret is required unless you want a non-default bucket name.
+
 ## What The Integration Does
 
 The React and Flutter clients submit certificate issuance to the existing authenticated Laravel batch endpoint. Laravel stores the record in PostgreSQL, submits `issueCertificate(string,string,string,string)` to Ethereum Sepolia, then saves the transaction hash and `blockchain_status` on the certificate row. The public certificate/QR lookup calls the deployed contract's `verifyCertificate(string)` method with the normalized SHA-256 hash and reads the method's fourth return value as the on-chain validity flag in `blockchain_verification`.

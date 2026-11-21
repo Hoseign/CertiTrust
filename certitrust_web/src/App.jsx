@@ -1,11 +1,12 @@
 
 import { lazy, Suspense } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './context/AuthContext.jsx'
 import { isSuperAdminSession } from './services/authService'
 import CertiTrustLoadingIndicator from '@/Components/Atoms/CertiTrustLoadingIndicator'
 
 const Dashboard = lazy(() => import('./pages/admin/dashboard'))
+const ChatWorkspace = lazy(() => import('@/Components/Organisms/ChatWorkspace'))
 const StudentAccess = lazy(() => import('./pages/admin/StudentAccess'))
 const PsuAdminDashboard = lazy(() => import('./pages/admin/PsuAdminDashboard'))
 const Certificates = lazy(() => import('./pages/admin/certificates'))
@@ -47,6 +48,7 @@ function getLandingPath(user) {
     if (isPSUAdmin) return '/psu-admin'
     if (user.role === 'admin') return '/admin-dashboard'
     if (user.role === 'student') return '/portal'
+    if (user.role === 'user') return '/institutional-chat'
     return '/login'
 }
 
@@ -83,6 +85,27 @@ function RoleAwareRoute({ adminPage, studentPage }) {
     return adminPage
 }
 
+function InstitutionalChatRoute() {
+    const { user, isAuthenticated } = useAuth();
+    const location = useLocation();
+    if (!isAuthenticated || !user) {
+        const returnPath = `${location.pathname}${location.search}`;
+        return <Navigate to={`/login?redirect=${encodeURIComponent(returnPath)}`} replace />;
+    }
+    if (!['admin', 'student', 'user'].includes(user.role)) {
+        return <Navigate to="/login" replace />;
+    }
+
+    const isSuperAdmin = isSuperAdminSession(user);
+    return (
+        <ChatWorkspace
+            isAdmin={user.role === 'admin'}
+            isSuperAdmin={isSuperAdmin}
+            isExternalVerifier={user.role === 'user'}
+        />
+    );
+}
+
 const admin = (element) => <ProtectedRoute role="admin">{element}</ProtectedRoute>
 const student = (element) => <ProtectedRoute role="student">{element}</ProtectedRoute>
 const superAdmin = (element) => <ProtectedRoute role="superadmin">{element}</ProtectedRoute>
@@ -103,6 +126,7 @@ function App() {
             <Route path="/login" element={isAuthenticated ? <Navigate to={getLandingPath(user)} replace /> : <AuthPage />} />
             <Route path="/splash" element={isAuthenticated ? <Navigate to={getLandingPath(user)} replace /> : <AuthPage />} />
             <Route path="/public-verification" element={<CertificateVerification publicAccess />} />
+            <Route path="/institutional-chat" element={<InstitutionalChatRoute />} />
 
             {/* Mobile-style shared routes */}
             <Route path="/dashboard" element={<RoleAwareRoute adminPage={admin(<Dashboard />)} studentPage={student(<StudentPortal />)} />} />

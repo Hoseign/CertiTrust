@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { verifyStudentId } from "../../services/authService";
 import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
@@ -31,7 +31,28 @@ declare global {
     }
 }
 
-function getLandingRoute(user: { email: string; role: string; university_code?: string | null }) {
+function institutionalChatRedirect(value: string | null) {
+    if (!value) return null;
+    try {
+        const target = new URL(value, window.location.origin);
+        const code = target.searchParams.get("institution_code")?.trim() ?? "";
+        if (
+            target.origin !== window.location.origin
+            || target.pathname !== "/institutional-chat"
+            || !/^[A-Za-z0-9]{1,10}$/.test(code)
+        ) return null;
+        return `/institutional-chat?institution_code=${encodeURIComponent(code.toUpperCase())}`;
+    } catch {
+        return null;
+    }
+}
+
+function getLandingRoute(
+    user: { email: string; role: string; university_code?: string | null },
+    redirect?: string | null,
+) {
+    const institutionalChat = institutionalChatRedirect(redirect ?? null);
+    if (institutionalChat) return institutionalChat;
     const email = user.email.trim().toLowerCase();
     const isSuperAdmin = email === "certitrust256@gmail.com";
     const isPsuAdmin =
@@ -43,11 +64,13 @@ function getLandingRoute(user: { email: string; role: string; university_code?: 
     if (isSuperAdmin) return "/superadmin";
     if (isPsuAdmin) return "/psu-admin";
     if (user.role === "admin") return "/admin-dashboard";
+    if (user.role === "user") return "/institutional-chat";
     return "/portal";
 }
 
 export default function AuthPage() {
     const navigate = useNavigate();
+    const location = useLocation();
     const { loginWithGoogle, logout } = useAuth();
     const googleCredentialHandlerRef = useRef<(response: GoogleTokenResponse) => void>(() => undefined);
     const [isGoogleReady, setIsGoogleReady] = useState(false);
@@ -129,8 +152,15 @@ export default function AuthPage() {
                     throw new Error(response.error_description || "Google did not return an access token.");
                 }
                 const user = await loginWithGoogle(undefined, response.access_token);
+                const requestedChat = institutionalChatRedirect(
+                    new URLSearchParams(location.search).get("redirect"),
+                );
                 if (user.access_frozen) {
                     navigate("/frozen-chat", { replace: true });
+                    return;
+                }
+                if (user.role === "user" && user.has_certificate !== true) {
+                    navigate(getLandingRoute(user, requestedChat), { replace: true });
                     return;
                 }
                 if (user.role !== "admin") {
@@ -146,7 +176,7 @@ export default function AuthPage() {
                     setNeedsStudentVerification(true);
                     return;
                 }
-                navigate(getLandingRoute(user), { replace: true });
+                navigate(getLandingRoute(user, requestedChat), { replace: true });
             } catch (error) {
                 const responseMessage = (
                     error as { response?: { data?: { message?: string } } }
@@ -206,7 +236,11 @@ export default function AuthPage() {
         setIsVerifyingStudent(true);
         try {
             await verifyStudentId(studentEmail, studentId.trim());
-            navigate("/portal", { replace: true });
+            navigate(
+                institutionalChatRedirect(new URLSearchParams(location.search).get("redirect"))
+                    || "/portal",
+                { replace: true },
+            );
         } catch (error) {
             const responseMessage = (
                 error as { response?: { data?: { message?: string } } }

@@ -76,8 +76,13 @@ export async function bindSubadmin(payload: {
     display_name: string;
     branch_campus?: string;
     name?: string;
+    profile_image?: File;
 }) {
-    const { data } = await apiClient.post("/admin/subadmins", payload);
+    const formData = new FormData();
+    Object.entries(payload).forEach(([key, value]) => {
+        if (value !== undefined) formData.append(key, value);
+    });
+    const { data } = await apiClient.post("/admin/subadmins", formData);
     return data;
 }
 

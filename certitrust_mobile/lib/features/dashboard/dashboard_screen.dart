@@ -233,6 +233,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _welcomeCard(ThemeData theme) {
+    final logoUrl = ApiService.authProfileImageUrl;
+
     return Card(
       elevation: 2,
       child: Padding(
@@ -241,8 +243,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
           CircleAvatar(
             radius: 30,
             backgroundColor: theme.colorScheme.primary.withAlpha(26),
-            child:
-                Icon(Icons.school, size: 36, color: theme.colorScheme.primary),
+            child: logoUrl == null || logoUrl.isEmpty
+                ? Icon(Icons.school,
+                    size: 36, color: theme.colorScheme.primary)
+                : ClipOval(
+                    child: Image.network(
+                      logoUrl,
+                      width: 60,
+                      height: 60,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Icon(
+                        Icons.school,
+                        size: 36,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                  ),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -386,7 +402,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _profileButton(BuildContext context) => IconButton(
         tooltip: 'Edit profile photo',
         icon: const Icon(Icons.account_circle_outlined),
-        onPressed: () => context.push('/profile'),
+        onPressed: () async {
+          await context.push('/profile');
+          if (mounted) setState(() {});
+        },
       );
 
   void _showConnectionDiagnostics(BuildContext context) {

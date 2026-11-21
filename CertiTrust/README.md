@@ -27,6 +27,14 @@ Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the Laravel backend enviro
 
 Diploma URLs are public so verification pages can show and download the attached files. Only the Laravel backend handles uploads and deletions.
 
+## University profile images
+
+The university logo is the university subadmin's profile image. The backend uploads it to the public Supabase Storage bucket configured by `SUPABASE_PROFILE_BUCKET` (default: `profile-images`), creating the bucket if needed. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the backend; the service-role key must never be added to the web or mobile app.
+
+## Institutional chat directory
+
+The authenticated `GET /api/chat/institutions?search=...` endpoint lists registered universities that have an assigned administrator desk. Laravel authorizes each conversation: students and external users can contact institutional desks, while university administrators can also contact verified desks and their own institution's registered students. Student profiles are never included in the public directory. Deploy the Laravel API together with the web and mobile updates; both clients use this API for search, messages, and authorization rather than writing chat data directly to Supabase.
+
 ## Learning Laravel
 
 Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.

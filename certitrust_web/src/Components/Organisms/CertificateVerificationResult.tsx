@@ -1,4 +1,6 @@
 import type { PublicCertificateResult } from "@/services/certitrustApi";
+import { useNavigate } from "react-router-dom";
+import { getSessionUser } from "@/services/authService";
 
 type CertificateVerificationResultProps = {
     result: PublicCertificateResult;
@@ -36,7 +38,46 @@ export default function CertificateVerificationResult({
     searchedCode,
     onVerifyAnother,
 }: CertificateVerificationResultProps) {
+    const navigate = useNavigate();
+    const sessionUser = getSessionUser();
     const certificates = result.certificates ?? [];
+    const issuingInstitutions = new Map<string, string>();
+    for (const certificate of result.multi_degree ? certificates : [result]) {
+        const code = certificate.university_code?.trim() ?? "";
+        if (code) {
+            issuingInstitutions.set(
+                code.toUpperCase(),
+                certificate.university_name?.trim() || code,
+            );
+        }
+    }
+    const universityNamesByIdentity = new Map<string, string>();
+    for (const certificate of certificates) {
+        const code = certificate.university_code?.trim() ?? "";
+        const name = certificate.university_name?.trim() ?? "";
+        const identity = (code || name).toLowerCase();
+        if (identity) universityNamesByIdentity.set(identity, name || code);
+    }
+    const topLevelCode = result.university_code?.trim() ?? "";
+    const topLevelName = result.university_name?.trim() ?? "";
+    const topLevelIdentity = (topLevelCode || topLevelName).toLowerCase();
+    if (
+        universityNamesByIdentity.size === 0
+        && topLevelIdentity
+        && !["multi", "multiple universities"].includes(topLevelIdentity)
+    ) {
+        universityNamesByIdentity.set(topLevelIdentity, topLevelName || topLevelCode);
+    }
+    const universityNames = [...universityNamesByIdentity.values()];
+    const universityCount = universityNames.length;
+    const universityCountLabel = universityCount > 0
+        ? `${universityCount} ${universityCount === 1 ? "university" : "universities"}`
+        : "multiple universities";
+    const universityLabel = universityCount === 1
+        ? "1 University"
+        : universityCount > 1
+            ? "Multiple Universities"
+            : result.university_name || result.university_code || "University information unavailable";
     const isVerified = result.multi_degree
         ? certificates.length > 0 && certificates.every(isCredentialVerified)
         : isCredentialVerified(result);
@@ -55,7 +96,11 @@ export default function CertificateVerificationResult({
         : hasValidDatabaseStatus && blockchainStatuses.some((status) => status.toLowerCase() === "not_configured")
             ? "Credential Found · Blockchain Not Configured"
             : "Credential Found · Not Verified";
-    const institution = result.university_name || result.university_code || "Not available";
+    const institution = result.multi_degree && universityCount === 1
+        ? universityNames[0]
+        : result.multi_degree && universityCount > 1
+            ? "Multiple Universities"
+            : result.university_name || result.university_code || "Not available";
     const incompleteMessage = !hasValidDatabaseStatus
         ? `The database marks this record as "${databaseStatus}". It cannot be considered a valid credential.`
         : blockchainStatuses.some((status) => status.toLowerCase() === "not_configured")
@@ -91,7 +136,9 @@ export default function CertificateVerificationResult({
                 </h1>
                 <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-600">
                     {isVerified
-                        ? `This credential was verified on Ethereum Sepolia and is recorded as issued by ${institution}.`
+                        ? result.multi_degree
+                            ? `This shared credential was verified on Ethereum Sepolia across ${universityCountLabel}.`
+                            : `This credential was verified on Ethereum Sepolia and is recorded as issued by ${institution}.`
                         : incompleteMessage}
                 </p>
             </div>
@@ -112,9 +159,13 @@ export default function CertificateVerificationResult({
 
                 {result.multi_degree && certificates.length > 0 ? (
                     <div className="space-y-3">
-                        <p className="text-sm font-semibold text-slate-600">
-                            Shared credential · {result.degree_count ?? certificates.length} degrees
-                        </p>
+                        <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                            <p className="font-bold text-[#0A192F]">{universityLabel}</p>
+                            {universityCount === 1 && <p className="mt-1 text-sm text-slate-600">{institution}</p>}
+                            <p className="mt-1 text-sm font-semibold text-slate-600">
+                                Shared credential · {result.degree_count ?? certificates.length} degrees
+                            </p>
+                        </div>
                         {certificates.map((certificate, index) => (
                             <article
                                 key={certificate.certificate_code || certificate.cert_hash || index}
@@ -213,6 +264,33 @@ export default function CertificateVerificationResult({
                     >
                         View Ethereum Sepolia transaction
                     </a>
+                )}
+
+                {issuingInstitutions.size > 0 && (
+                    <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-4 text-left">
+                        <p className="font-bold text-[#0A192F]">Questions about this credential?</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            {[...issuingInstitutions.entries()].map(([code, name]) => (
+                                <button
+                                    type="button"
+                                    key={code}
+                                    onClick={() => {
+                                        const chatPath = `/institutional-chat?institution_code=${encodeURIComponent(code)}`;
+                                        navigate(
+                                            sessionUser
+                                                ? chatPath
+                                                : `/login?redirect=${encodeURIComponent(chatPath)}`,
+                                        );
+                                    }}
+                                    className="min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-800"
+                                >
+                                    {issuingInstitutions.size > 1
+                                        ? `Message ${name} Registrar Desk`
+                                        : "Message Issuing University"}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                 )}
 
                 <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">

@@ -13,6 +13,19 @@ export type ChatMessage = {
     [field: string]: unknown;
 };
 
+export type InstitutionalDesk = {
+    code: string;
+    acronym: string;
+    university_name: string;
+    branch_campus?: string | null;
+    desk_user_id: number;
+    desk_name: string;
+    desk_email: string;
+    logo_url?: string | null;
+    verified_registrar_desk: boolean;
+    is_active: boolean;
+};
+
 export async function listChatMessages(withUserId?: number) {
     const { data } = await apiClient.get<{ data: ChatMessage[] }>("/chat/messages", {
         params: withUserId ? { with_user_id: withUserId } : undefined,
@@ -23,6 +36,14 @@ export async function listChatMessages(withUserId?: number) {
 export async function listChatContacts(search?: string) {
     const { data } = await apiClient.get<{ data: Record<string, unknown>[] }>("/chat/contacts", {
         params: search ? { search } : undefined,
+    });
+    return data.data;
+}
+
+export async function searchInstitutionDirectory(search: string) {
+    const query = search.trim();
+    const { data } = await apiClient.get<{ data: InstitutionalDesk[] }>("/chat/institutions", {
+        params: query ? { search: query } : undefined,
     });
     return data.data;
 }

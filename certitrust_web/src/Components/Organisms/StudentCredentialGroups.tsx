@@ -48,7 +48,7 @@ function CredentialDetails({ record }: { record: CertificateRecord }) {
                 <div><dt className="text-slate-500">Verification</dt><dd>{record.blockchain_status || record.status}</dd></div>
             </dl>
             <div className="mt-4 flex flex-wrap gap-2">
-                <a href={`/public-verification?hash=${encodeURIComponent(record.cert_hash)}`} className="inline-flex min-h-9 items-center rounded-md border border-slate-300 px-3 text-sm font-bold">Verify this record</a>
+                <a href={`/public-verification?hash=${encodeURIComponent(record.cert_hash || record.certificate_code)}`} className="inline-flex min-h-9 items-center rounded-md border border-slate-300 px-3 text-sm font-bold">Verify this record</a>
                 {diplomaUrl && <button type="button" onClick={() => setShowDiploma((visible) => !visible)} className="min-h-9 rounded-md border border-slate-300 px-3 text-sm font-bold">{showDiploma ? "Hide diploma" : "View your diploma"}</button>}
                 <button type="button" onClick={() => setShowQr(true)} className="min-h-9 rounded-md border border-slate-300 px-3 text-sm font-bold">View QR code</button>
             </div>
@@ -59,7 +59,7 @@ function CredentialDetails({ record }: { record: CertificateRecord }) {
             {showQr && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4" role="presentation" onClick={() => setShowQr(false)}>
                 <section role="dialog" aria-modal="true" aria-label={`${record.degree} verification QR code`} className="w-full max-w-sm rounded-xl bg-white p-5 text-center shadow-xl" onClick={(event) => event.stopPropagation()}>
                     <h3 className="text-lg font-bold text-[#0A192F]">Credential QR code</h3>
-                    <div ref={qrRef} className="my-4 flex justify-center"><QRCodeCanvas value={`${window.location.origin}/public-verification?hash=${encodeURIComponent(record.cert_hash)}`} size={240} includeMargin /></div>
+                    <div ref={qrRef} className="my-4 flex justify-center"><QRCodeCanvas value={record.cert_hash || record.certificate_code} size={240} includeMargin /></div>
                     <p className="break-all font-mono text-xs text-slate-500">{record.cert_hash}</p>
                     <div className="mt-4 flex flex-wrap justify-center gap-2">
                         <button type="button" onClick={() => {

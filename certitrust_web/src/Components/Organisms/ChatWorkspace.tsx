@@ -9,15 +9,19 @@ import {
     clearChatConversation,
     deleteChatMessage,
     fetchChatAttachment,
+    searchInstitutionDirectory,
     sendChatMessage,
     type ChatMessage,
+    type InstitutionalDesk,
 } from "@/services/chatApi";
-import { getSessionUser } from "@/services/authService";
+import { getSessionUser, resolveProfileImageUrl } from "@/services/authService";
 
 type ChatWorkspaceProps = {
     isAdmin: boolean;
     isSuperAdmin?: boolean;
     initialContactId?: number;
+    initialInstitutionCode?: string;
+    isExternalVerifier?: boolean;
 };
 
 function field(record: Record<string, unknown>, key: string, fallback = "") {
@@ -103,6 +107,8 @@ export default function ChatWorkspace({
     isAdmin,
     isSuperAdmin = false,
     initialContactId,
+    initialInstitutionCode,
+    isExternalVerifier = false,
 }: ChatWorkspaceProps) {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
@@ -110,10 +116,18 @@ export default function ChatWorkspace({
     const requestedContactId = Number.isFinite(requestedId) && requestedId > 0
         ? requestedId
         : initialContactId;
+    const requestedInstitutionCode = (
+        searchParams.get("institution_code") || initialInstitutionCode || ""
+    ).trim();
     const [selectedId, setSelectedId] = useState<number | undefined>(
         requestedContactId,
     );
     const [query, setQuery] = useState("");
+    const [directoryQuery, setDirectoryQuery] = useState("");
+    const [directoryResults, setDirectoryResults] = useState<InstitutionalDesk[]>([]);
+    const [directoryLoading, setDirectoryLoading] = useState(false);
+    const [directoryError, setDirectoryError] = useState("");
+    const [directoryContact, setDirectoryContact] = useState<Record<string, unknown> | null>(null);
     const [draft, setDraft] = useState("");
     const [attachment, setAttachment] = useState<File | undefined>();
     const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
@@ -156,6 +170,72 @@ export default function ChatWorkspace({
         setSelectedId(requestedContactId);
     }, [requestedContactId]);
 
+    useEffect(() => {
+        const search = directoryQuery.trim();
+        if (search.length < 2) {
+            setDirectoryResults([]);
+            setDirectoryLoading(false);
+            setDirectoryError("");
+            return;
+        }
+
+        let active = true;
+        setDirectoryLoading(true);
+        const timer = window.setTimeout(() => {
+            void searchInstitutionDirectory(search)
+                .then((results) => {
+                    if (active) {
+                        setDirectoryResults(results);
+                        setDirectoryError("");
+                    }
+                })
+                .catch((requestError: unknown) => {
+                    if (active) {
+                        setDirectoryResults([]);
+                        setDirectoryError(
+                            (requestError as { response?: { data?: { message?: string } } })
+                                .response?.data?.message || "Unable to search the institutional directory.",
+                        );
+                    }
+                })
+                .finally(() => {
+                    if (active) setDirectoryLoading(false);
+                });
+        }, 300);
+        return () => {
+            active = false;
+            window.clearTimeout(timer);
+        };
+    }, [directoryQuery]);
+
+    useEffect(() => {
+        if (!requestedInstitutionCode) return;
+        let active = true;
+        void searchInstitutionDirectory(requestedInstitutionCode)
+            .then((results) => {
+                if (!active) return;
+                const institution = results.find(
+                    (item) => item.code.toUpperCase() === requestedInstitutionCode.toUpperCase(),
+                );
+                if (!institution) {
+                    setActionError("No verified registrar desk was found for this institution.");
+                    return;
+                }
+                openInstitution(institution);
+            })
+            .catch((requestError: unknown) => {
+                if (active) {
+                    setActionError(
+                        (requestError as { response?: { data?: { message?: string } } })
+                            .response?.data?.message || "Unable to open the institutional inquiry.",
+                    );
+                }
+            });
+        return () => {
+            active = false;
+        };
+    }, [requestedInstitutionCode]);
+
     useEffect(() => () => {
         for (const url of localObjectUrls.current) URL.revokeObjectURL(url);
         localObjectUrls.current.clear();
@@ -168,9 +248,9 @@ export default function ChatWorkspace({
         });
     }, [messages, isSending]);
 
-    const selectedContact = contacts.find(
-        (contact) => Number(contact.id) === selectedId,
-    );
+    const selectedContact = directoryContact && Number(directoryContact.id) === selectedId
+        ? directoryContact
+        : contacts.find((contact) => Number(contact.id) === selectedId);
     const filteredContacts = useMemo(() => {
         const normalizedQuery = query.trim().toLowerCase();
         if (!normalizedQuery) return contacts;
@@ -187,6 +267,35 @@ export default function ChatWorkspace({
         const id = Number(contact.id);
         if (!Number.isFinite(id) || id <= 0) return;
         setSelectedId(id);
+        setDirectoryContact(null);
+        setDraft("");
+        setAttachment(undefined);
+        setReplyTo(null);
+        setActionError("");
+        setSearchParams({ with_user_id: String(id) });
+    };
+
+    const openInstitution = (institution: InstitutionalDesk) => {
+        const id = Number(institution.desk_user_id);
+        if (!Number.isFinite(id) || id <= 0) return;
+        const contact: Record<string, unknown> = {
+            id,
+            name: institution.university_name,
+            email: institution.desk_email,
+            university_code: institution.code,
+            university_name: institution.university_name,
+            university_acronym: institution.acronym,
+            profile_image_url: institution.logo_url,
+            is_active: institution.is_active,
+            last_seen_label: institution.is_active ? "Online" : "Verified registrar desk",
+            role_label: "Verified Registrar Desk",
+            is_institutional_desk: true,
+            verified_registrar_desk: true,
+        };
+        setDirectoryContact(contact);
+        setDirectoryQuery("");
+        setDirectoryResults([]);
+        setSelectedId(id);
         setDraft("");
         setAttachment(undefined);
         setReplyTo(null);
@@ -196,6 +305,7 @@ export default function ChatWorkspace({
 
     const closeConversation = () => {
         setSelectedId(undefined);
+        setDirectoryContact(null);
         setDraft("");
         setAttachment(undefined);
         setReplyTo(null);
@@ -400,22 +510,25 @@ export default function ChatWorkspace({
         }
     };
 
-    const heading = isAdmin ? "AnsQ" : "AskQ";
+    const heading = isExternalVerifier ? "Institutional Inquiry" : isAdmin ? "AnsQ" : "AskQ";
     const showContactList = !selectedId;
+    const profileContactImage = profileContact
+        ? resolveProfileImageUrl(field(profileContact, "profile_image_url"))
+        : null;
 
     return (
-        <div className="min-h-screen bg-[#F6F8FC] md:grid md:grid-cols-[286px_minmax(0,1fr)]">
-            {isSuperAdmin ? <SuperAdminSideBar /> : isAdmin ? <Sidebar /> : <StudentSidebar />}
-            <main className="flex h-screen min-h-[560px] min-w-0 flex-col p-3 sm:p-5 md:p-7">
+        <div className={`min-h-screen bg-[#F6F8FC] ${isExternalVerifier ? "" : "md:grid md:grid-cols-[286px_minmax(0,1fr)]"}`}>
+            {!isExternalVerifier && (isSuperAdmin ? <SuperAdminSideBar /> : isAdmin ? <Sidebar /> : <StudentSidebar />)}
+            <main className={`flex h-screen min-h-[560px] min-w-0 flex-col p-3 sm:p-5 md:p-7 ${isExternalVerifier ? "mx-auto w-full max-w-7xl" : ""}`}>
                 <header className="mb-4 flex shrink-0 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-                    <button
+                    {!isExternalVerifier && <button
                         type="button"
                         data-toggle-sidebar
                         aria-label="Open navigation"
                         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 md:hidden"
                     >
                         ☰
-                    </button>
+                    </button>}
                     {selectedContact && !showContactList && (
                         <button
                             type="button"
@@ -451,8 +564,10 @@ export default function ChatWorkspace({
                             )}
                         {selectedContact && (
                             <p className="mt-1 truncate text-xs text-slate-500">
-                                {field(selectedContact, "last_seen_label",
-                                    selectedContact.is_active === true ? "Online" : "Last active: unknown")}
+                                {selectedContact.is_institutional_desk === true
+                                    ? `${field(selectedContact, "university_acronym", field(selectedContact, "university_code"))} · Verified Registrar Desk`
+                                    : field(selectedContact, "last_seen_label",
+                                        selectedContact.is_active === true ? "Online" : "Last active: unknown")}
                             </p>
                         )}
                     </div>
@@ -513,6 +628,58 @@ export default function ChatWorkspace({
                 <section className="flex min-h-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <aside className={`${showContactList ? "flex" : "hidden"} w-full shrink-0 flex-col border-r border-slate-200 md:flex md:w-80 lg:w-96`}>
                         <div className="border-b border-slate-100 p-4">
+                            <label className="mb-2 block text-sm font-bold text-slate-800" htmlFor="institution-directory-search">
+                                Search Universities / Registrar Desk
+                            </label>
+                            <input
+                                id="institution-directory-search"
+                                type="search"
+                                value={directoryQuery}
+                                onChange={(event) => setDirectoryQuery(event.target.value)}
+                                placeholder="Search a university name or acronym"
+                                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-600/10"
+                            />
+                            {(directoryLoading || directoryError || directoryResults.length > 0
+                                || directoryQuery.trim().length >= 2) && (
+                                <div className="mt-2 max-h-56 overflow-y-auto rounded-xl border border-slate-100">
+                                    {directoryLoading && <p className="p-3 text-xs text-slate-500">Searching verified institutions...</p>}
+                                    {directoryError && <p role="alert" className="p-3 text-xs text-red-700">{directoryError}</p>}
+                                    {!directoryLoading && !directoryError && directoryResults.length === 0
+                                        && directoryQuery.trim().length >= 2 && (
+                                            <p className="p-3 text-xs text-slate-500">No verified registrar desks found.</p>
+                                        )}
+                                    {directoryResults.map((institution) => {
+                                        const logoUrl = resolveProfileImageUrl(institution.logo_url);
+                                        return (
+                                            <button
+                                                type="button"
+                                                key={institution.code}
+                                                onClick={() => openInstitution(institution)}
+                                                className="flex w-full items-center gap-3 border-b border-slate-100 p-3 text-left last:border-b-0 hover:bg-blue-50"
+                                            >
+                                                <span className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-50 text-xs font-extrabold text-blue-800">
+                                                    {institution.acronym}
+                                                    {logoUrl && (
+                                                        <img
+                                                            src={logoUrl}
+                                                            alt=""
+                                                            className="absolute inset-0 h-full w-full object-cover"
+                                                            onError={(event) => { event.currentTarget.style.display = "none"; }}
+                                                        />
+                                                    )}
+                                                </span>
+                                                <span className="min-w-0 flex-1">
+                                                    <span className="block truncate text-sm font-bold text-slate-900">{institution.university_name}</span>
+                                                    <span className="mt-0.5 inline-flex rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-extrabold text-slate-700">{institution.acronym}</span>
+                                                    <span className="mt-1 block text-[11px] font-semibold text-emerald-700">✓ Verified Registrar Desk</span>
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                        <div className="border-b border-slate-100 p-4">
                             <label className="sr-only" htmlFor="conversation-search">Search conversations</label>
                             <input
                                 id="conversation-search"
@@ -534,6 +701,7 @@ export default function ChatWorkspace({
                                 const id = Number(contact.id);
                                 const name = field(contact, "name", field(contact, "email", "Contact"));
                                 const unread = Number(contact.unread_count) || 0;
+                                const profileImage = resolveProfileImageUrl(field(contact, "profile_image_url"));
                                 return (
                                     <button
                                         type="button"
@@ -542,9 +710,8 @@ export default function ChatWorkspace({
                                         className={`flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50 ${selectedId === id ? "bg-blue-50" : ""}`}
                                     >
                                         <span className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-50 font-bold text-blue-700">
-                                            {field(contact, "profile_image_url")
-                                                ? <img src={field(contact, "profile_image_url")} alt="" className="h-full w-full object-cover" />
-                                                : initials(name)}
+                                            {initials(name)}
+                                            {profileImage && <img src={profileImage} alt="" className="absolute inset-0 h-full w-full object-cover" onError={(event) => { event.currentTarget.hidden = true; }} />}
                                             {contact.is_active === true && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-green-500" />}
                                         </span>
                                         <span className="min-w-0 flex-1">
@@ -553,6 +720,11 @@ export default function ChatWorkspace({
                                                 {unread > 0 && <span className="rounded-full bg-blue-700 px-2 py-0.5 text-xs font-bold text-white">{unread}</span>}
                                             </span>
                                             <span className="block truncate text-xs text-slate-500">{field(contact, "role_label", "Contact")}</span>
+                                            {contact.is_institutional_desk === true && (
+                                                <span className="mt-1 inline-flex rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
+                                                    {field(contact, "university_acronym", field(contact, "university_code"))} · Verified Desk
+                                                </span>
+                                            )}
                                             <span className="mt-1 block truncate text-xs text-slate-500">
                                                 {contact.last_message_from_me === true ? "You: " : ""}
                                                 {field(contact, "last_message_preview", "No messages yet")}
@@ -777,8 +949,8 @@ export default function ChatWorkspace({
                 <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4" onClick={() => setProfileContact(null)}>
                     <section role="dialog" aria-modal="true" aria-label="Contact information" className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
                         <div className="flex items-center gap-3">
-                            {field(profileContact, "profile_image_url")
-                                ? <img src={field(profileContact, "profile_image_url")} alt="" className="h-14 w-14 rounded-full object-cover" />
+                            {profileContactImage
+                                ? <img src={profileContactImage} alt="" className="h-14 w-14 rounded-full object-cover" />
                                 : <div className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-50 font-bold text-blue-700">{initials(field(profileContact, "name", "Contact"))}</div>}
                             <div className="min-w-0">
                                 <h2 className="truncate font-bold text-slate-900">{field(profileContact, "name", "Contact")}</h2>

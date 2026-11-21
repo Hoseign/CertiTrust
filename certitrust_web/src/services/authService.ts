@@ -1,4 +1,4 @@
-import { apiClient, clearAuthSession, getAuthToken } from "./apiClient";
+import { API_BASE_URL, apiClient, clearAuthSession, getAuthToken } from "./apiClient";
 
 export type AuthUser = {
     id: number;
@@ -120,6 +120,18 @@ export function getSessionUser(): AuthUser | null {
         return JSON.parse(value) as AuthUser;
     } catch {
         clearAuthSession();
+        return null;
+    }
+}
+
+export function resolveProfileImageUrl(value?: string | null) {
+    const raw = value?.trim();
+    if (!raw) return null;
+    try {
+        const apiOrigin = new URL(API_BASE_URL).origin;
+        const url = new URL(raw, `${apiOrigin}/`);
+        return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+    } catch {
         return null;
     }
 }

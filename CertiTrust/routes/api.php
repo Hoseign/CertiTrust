@@ -123,6 +123,7 @@ Route::middleware(['auth:sanctum', EnsureAccountIsNotFrozen::class])->group(func
     Route::get('/chat/messages/{chatMessage}/attachment', [ChatController::class, 'attachment'])
         ->name('chat.messages.attachment');
     Route::get('/chat/contacts', [ChatController::class, 'contacts']);
+    Route::get('/chat/institutions', [ChatController::class, 'institutions']);
     Route::get('/chat/presence', [ChatController::class, 'presence']);
     Route::post('/chat/messages', [ChatController::class, 'store']);
     Route::delete('/chat/messages/{chatMessage}', [ChatController::class, 'destroy']);

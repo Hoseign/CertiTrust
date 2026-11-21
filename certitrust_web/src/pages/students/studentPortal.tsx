@@ -66,11 +66,8 @@ export default function StudentPortal() {
         [records, user.studentId],
     );
 
-    const getVerificationUrl = (credential: CredentialRecord) => {
-        return `${window.location.origin}/certificate-verification?studentId=${encodeURIComponent(
-            credential.studentId
-        )}&certificateId=${encodeURIComponent(credential.id)}`;
-    };
+    const getVerificationCode = (credential: CredentialRecord) =>
+        credential.certificateHash || credential.id;
 
     const handleVerify = async () => {
         const id = studentIdInput.trim();
@@ -513,13 +510,13 @@ export default function StudentPortal() {
                                 Credential QR Code
                             </h2>
                             <p className="mt-1 text-sm text-slate-500">
-                                Scan to open this credential's verification link.
+                                Scan with the CertiTrust mobile app to verify this credential.
                             </p>
                         </div>
 
                         <div className="mx-auto mt-6 flex w-fit items-center justify-center rounded-xl border border-slate-200 bg-white p-4">
                             <QRCodeSVG
-                                value={getVerificationUrl(qrRecord)}
+                                value={getVerificationCode(qrRecord)}
                                 size={220}
                                 level="H"
                                 includeMargin
@@ -536,22 +533,22 @@ export default function StudentPortal() {
 
                             <p className="mt-3 text-xs font-semibold text-slate-400">Certificate Hash</p>
                             <p className="mt-1 break-all font-mono text-[10px] text-slate-600">
-                                {qrRecord.certificateHash}
+                                {getVerificationCode(qrRecord)}
                             </p>
                         </div>
 
                         <button
                             type="button"
                             onClick={() => {
-                                const link = getVerificationUrl(qrRecord);
+                                const code = getVerificationCode(qrRecord);
                                 void navigator.clipboard
-                                    .writeText(link)
-                                    .then(() => showToast("Verification link copied."))
-                                    .catch(() => showToast("Unable to copy link. Please try again."));
+                                    .writeText(code)
+                                    .then(() => showToast("Verification code copied."))
+                                    .catch(() => showToast("Unable to copy code. Please try again."));
                             }}
                             className="mt-4 min-h-11 w-full rounded-xl bg-[#1D4ED8] px-4 font-bold text-white transition hover:bg-blue-700"
                         >
-                            Copy Verification Link
+                            Copy Verification Code
                         </button>
 
                         <button

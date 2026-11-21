@@ -2385,4 +2385,80 @@ class AdminSubadminManagementTest extends TestCase
             && !$request->hasHeader('Authorization')
             && $request->body() === $fileBytes);
     }
+
+    public function test_subadmin_and_profile_images_are_stored_in_public_supabase_storage(): void
+    {
+        $serviceRoleKey = 'sb_secret_test-service-role-key';
+        config([
+            'services.supabase.url' => 'https://test-project.supabase.co',
+            'services.supabase.service_role_key' => $serviceRoleKey,
+            'services.supabase.profile_bucket' => 'profile-images',
+        ]);
+        $bucketChecks = 0;
+        Http::fake(function (HttpRequest $request) use (&$bucketChecks) {
+            if ($request->method() === 'GET'
+                && $request->url() === 'https://test-project.supabase.co/storage/v1/bucket/profile-images') {
+                $bucketChecks++;
+                return $bucketChecks === 1
+                    ? Http::response(['message' => 'Bucket not found'], 404)
+                    : Http::response(['public' => true], 200);
+            }
+            if ($request->method() === 'POST'
+                && $request->url() === 'https://test-project.supabase.co/storage/v1/bucket') {
+                return Http::response([], 200);
+            }
+            if ($request->method() === 'POST'
+                && str_contains($request->url(), '/storage/v1/object/profile-images/')) {
+                return Http::response([], 200);
+            }
+
+            return Http::response([], 404);
+        });
+
+        $superAdmin = User::create([
+            'name' => 'CertiTrust Super Admin',
+            'email' => 'certitrust256@gmail.com',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+        ]);
+
+        $createdAdmin = $this->actingAs($superAdmin, 'sanctum')
+            ->post('/api/admin/subadmins', [
+                'name' => 'PSU Admin',
+                'email' => 'psu-logo-admin@example.edu',
+                'university_code' => 'PSU',
+                'university_name' => 'Pangasinan State University',
+                'display_name' => 'PSU',
+                'profile_image' => UploadedFile::fake()->image('university-logo.png'),
+            ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('data.profile_image_url', fn (string $url) => str_contains(
+                $url,
+                '/storage/v1/object/public/profile-images/profiles/',
+            ));
+
+        $admin = User::findOrFail($createdAdmin->json('data.id'));
+        $this->assertStringContainsString(
+            '/storage/v1/object/public/profile-images/profiles/',
+            $admin->profile_image_url,
+        );
+
+        $updatedProfile = $this->actingAs($admin, 'sanctum')
+            ->post('/api/user/profile', [
+                'profile_image' => UploadedFile::fake()->image('updated-logo.png'),
+            ], ['Accept' => 'application/json'])
+            ->assertOk()
+            ->assertJsonPath('profile_image_url', fn (string $url) => str_contains(
+                $url,
+                '/storage/v1/object/public/profile-images/profiles/',
+            ));
+
+        $this->assertSame($updatedProfile->json('profile_image_url'), $admin->fresh()->profile_image_url);
+        Http::assertSent(fn (HttpRequest $request) => $request->method() === 'POST'
+            && $request->url() === 'https://test-project.supabase.co/storage/v1/bucket'
+            && $request->data()['public'] === true);
+        Http::assertSent(fn (HttpRequest $request) => $request->method() === 'POST'
+            && str_contains($request->url(), '/storage/v1/object/profile-images/profiles/')
+            && $request->hasHeader('apikey', $serviceRoleKey));
+    }
 }

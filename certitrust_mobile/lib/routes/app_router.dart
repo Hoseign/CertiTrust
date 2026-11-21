@@ -15,6 +15,19 @@ import '../features/admin/super_admin_junk_screen.dart';
 import '../features/qr_scanner/verification_confirmation_screen.dart';
 
 class AppRouter {
+  static String? _institutionalInquiryPath(String? value) {
+    if (value == null) return null;
+    final uri = Uri.tryParse(value);
+    final code = uri?.queryParameters['institution_code']?.trim() ?? '';
+    if (uri == null ||
+        uri.hasAuthority ||
+        uri.path != '/institutional-inquiry' ||
+        !RegExp(r'^[A-Za-z0-9]{1,10}$').hasMatch(code)) {
+      return null;
+    }
+    return '/institutional-inquiry?institution_code=${Uri.encodeQueryComponent(code.toUpperCase())}';
+  }
+
   static final GoRouter router = GoRouter(
     initialLocation: '/splash',
     redirect: (context, state) {
@@ -44,12 +57,19 @@ class AppRouter {
           !isScanning &&
           !isVerificationResult &&
           !isSplash) {
-        return '/';
+        final destination = _institutionalInquiryPath(state.uri.toString());
+        return destination == null
+            ? '/'
+            : '/?redirect=${Uri.encodeQueryComponent(destination)}';
       }
 
       // Restore an existing Laravel session when the app is opened again.
       if (isLoggedIn && isLoggingIn) {
-        return ApiService.isAccessFrozen ? frozenChatLocation : '/dashboard';
+        return ApiService.isAccessFrozen
+            ? frozenChatLocation
+            : _institutionalInquiryPath(
+                    state.uri.queryParameters['redirect']) ??
+                '/dashboard';
       }
       if (isLoggedIn && isSplash && ApiService.isAccessFrozen) {
         return frozenChatLocation;
@@ -68,7 +88,16 @@ class AppRouter {
       ),
       GoRoute(
         path: '/',
-        builder: (context, state) => const LoginScreen(),
+        builder: (context, state) => LoginScreen(
+          redirectAfterLogin: state.uri.queryParameters['redirect'],
+        ),
+      ),
+      GoRoute(
+        path: '/institutional-inquiry',
+        builder: (context, state) => ChatScreen(
+          isAdmin: ApiService.authRole == 'admin',
+          initialInstitutionCode: state.uri.queryParameters['institution_code'],
+        ),
       ),
       GoRoute(
         path: '/admin-management',

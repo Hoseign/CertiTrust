@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import SuperAdminSideBar from "@/Components/Organisms/SuperAdminSideBar";
 import CertiTrustLoadingIndicator from "@/Components/Atoms/CertiTrustLoadingIndicator";
@@ -91,6 +92,7 @@ export default function SuperAdminCreateSubadmin() {
     const [branch, setBranch] = useState("");
     const [shortCode, setShortCode] = useState("");
     const [shortCodeWasEdited, setShortCodeWasEdited] = useState(false);
+    const [universityLogo, setUniversityLogo] = useState<File | null>(null);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [subadmins, setSubadmins] = useState<Subadmin[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -171,7 +173,7 @@ export default function SuperAdminCreateSubadmin() {
                 branch_campus: branch.trim(),
             };
             if (editingId) await updateSubadmin(Number(editingId), payload);
-            else await bindSubadmin(payload);
+            else await bindSubadmin({ ...payload, profile_image: universityLogo ?? undefined });
             await refreshSubadmins();
             setDisplayName("");
             setEmail("");
@@ -179,6 +181,7 @@ export default function SuperAdminCreateSubadmin() {
             setBranch("");
             setShortCode("");
             setShortCodeWasEdited(false);
+            setUniversityLogo(null);
             setEditingId(null);
         } catch (error) {
             const serverMessage = (error as { response?: { data?: { message?: string } } })
@@ -201,6 +204,7 @@ export default function SuperAdminCreateSubadmin() {
         setBranch(item.branch || "");
         setShortCode(item.code);
         setShortCodeWasEdited(false);
+        setUniversityLogo(null);
         setErrors({});
         setEditingId(item.id);
         setOpenMenuId(null);
@@ -315,6 +319,39 @@ export default function SuperAdminCreateSubadmin() {
                                     helper="Generated from the university and branch; editable. Use 1–10 letters or numbers."
                                 />
                             </div>
+
+                            <label className="md:col-span-2">
+                                <span className="mb-2 block text-sm font-semibold text-[#0A192F]">
+                                    University logo (optional)
+                                </span>
+                                <input
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp,image/gif"
+                                    disabled={Boolean(editingId) || isSaving}
+                                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                                        const file = event.target.files?.[0] ?? null;
+                                        event.target.value = "";
+                                        if (!file) return;
+                                        if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
+                                            setErrors((current) => ({ ...current, logo: "Choose a JPG, PNG, WebP, or GIF image." }));
+                                        } else if (file.size > 5 * 1024 * 1024) {
+                                            setErrors((current) => ({ ...current, logo: "Image must be 5 MB or smaller." }));
+                                        } else {
+                                            setUniversityLogo(file);
+                                            setErrors((current) => ({ ...current, logo: "" }));
+                                        }
+                                    }}
+                                    className="block w-full rounded-xl border border-gray-300 p-3 text-sm text-gray-700 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:font-semibold file:text-blue-700 disabled:bg-gray-100"
+                                />
+                                <span className="mt-2 block text-sm text-gray-600">
+                                    {editingId
+                                        ? "Change an existing university logo from the subadmin's Profile."
+                                        : universityLogo
+                                            ? `Selected: ${universityLogo.name}`
+                                            : "Choose an image up to 5 MB. It will appear on the university dashboard."}
+                                </span>
+                                {errors.logo && <span role="alert" className="mt-1 block text-sm text-red-600">{errors.logo}</span>}
+                            </label>
 
                         </div>
 

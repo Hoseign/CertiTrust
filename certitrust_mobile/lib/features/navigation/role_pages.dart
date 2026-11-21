@@ -201,14 +201,16 @@ class _RecordsScreenState extends State<RecordsScreen>
             .toList()
           ..sort();
         if (hashes.isEmpty) {
-          throw StateError('No linked credentials were found for this student.');
+          throw StateError(
+              'No linked credentials were found for this student.');
         }
         hash = HashUtil.generateStringHash(hashes.join('|'));
       }
 
       final portfolioStudentId = records
-              .map((record) => record['student_id']?.toString().trim() ?? '')
-              .firstWhere((value) => value.isNotEmpty, orElse: () => studentId ?? 'N/A');
+          .map((record) => record['student_id']?.toString().trim() ?? '')
+          .firstWhere((value) => value.isNotEmpty,
+              orElse: () => studentId ?? 'N/A');
       if (!context.mounted) return;
       showQRCodeDialog(
         context,
@@ -226,7 +228,8 @@ class _RecordsScreenState extends State<RecordsScreen>
   }
 
   String _degreeType(Map<String, dynamic> record) {
-    final degree = (record['degree'] ?? record['course_or_event'] ?? '').toString();
+    final degree =
+        (record['degree'] ?? record['course_or_event'] ?? '').toString();
     return AcademicDegree.classify(degree, degreeNumber: _degreeNumber(record));
   }
 
@@ -281,16 +284,22 @@ class _RecordsScreenState extends State<RecordsScreen>
       children: students.entries.map((student) {
         final recordsByDegree = <String, List<Map<String, dynamic>>>{};
         for (final record in student.value) {
-          final degree = (record['degree'] ?? record['course_or_event'] ?? 'Credential')
-              .toString();
+          final degree =
+              (record['degree'] ?? record['course_or_event'] ?? 'Credential')
+                  .toString();
           final university = record['university_code']?.toString() ?? '';
-          recordsByDegree.putIfAbsent('$degree|$university', () => []).add(record);
+          recordsByDegree
+              .putIfAbsent('$degree|$university', () => [])
+              .add(record);
         }
         final first = student.value.first;
-        final name = (first['student_name'] ?? first['recipient_name'] ?? 'Student').toString();
+        final name =
+            (first['student_name'] ?? first['recipient_name'] ?? 'Student')
+                .toString();
         final id = student.value
             .map((record) => record['student_id']?.toString().trim() ?? '')
-            .firstWhere((studentId) => studentId.isNotEmpty, orElse: () => 'N/A');
+            .firstWhere((studentId) => studentId.isNotEmpty,
+                orElse: () => 'N/A');
         final studentEmails = student.value
             .map((record) => (record['student_email'] ?? record['email'])
                 ?.toString()
@@ -300,7 +309,8 @@ class _RecordsScreenState extends State<RecordsScreen>
             .where((email) => email.isNotEmpty)
             .toSet();
         final studentIds = student.value
-            .map((record) => record['student_id']?.toString().trim().toLowerCase())
+            .map((record) =>
+                record['student_id']?.toString().trim().toLowerCase())
             .whereType<String>()
             .where((studentId) => studentId.isNotEmpty)
             .toSet();
@@ -309,8 +319,12 @@ class _RecordsScreenState extends State<RecordsScreen>
               ?.toString()
               .trim()
               .toLowerCase();
-          final linkedId = record['student_id']?.toString().trim().toLowerCase();
-          if (email != null && studentEmails.contains(email) && linkedId != null && linkedId.isNotEmpty) {
+          final linkedId =
+              record['student_id']?.toString().trim().toLowerCase();
+          if (email != null &&
+              studentEmails.contains(email) &&
+              linkedId != null &&
+              linkedId.isNotEmpty) {
             studentIds.add(linkedId);
           }
         }
@@ -319,7 +333,8 @@ class _RecordsScreenState extends State<RecordsScreen>
               ?.toString()
               .trim()
               .toLowerCase();
-          final recordId = record['student_id']?.toString().trim().toLowerCase();
+          final recordId =
+              record['student_id']?.toString().trim().toLowerCase();
           return (email != null && studentEmails.contains(email)) ||
               (recordId != null && studentIds.contains(recordId));
         });
@@ -339,11 +354,13 @@ class _RecordsScreenState extends State<RecordsScreen>
             title: Row(
               children: [
                 Expanded(
-                  child: Text(name,
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  child:
+                      Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
                 ),
                 if ((ApiService.isSuperAdmin || _isSchoolAdmin) &&
-                    (ApiService.isSuperAdmin || studentEmails.isNotEmpty || studentIds.isNotEmpty))
+                    (ApiService.isSuperAdmin ||
+                        studentEmails.isNotEmpty ||
+                        studentIds.isNotEmpty))
                   IconButton(
                     tooltip: 'View student master QR code',
                     visualDensity: VisualDensity.compact,
@@ -356,14 +373,18 @@ class _RecordsScreenState extends State<RecordsScreen>
                   ),
               ],
             ),
-            subtitle: Text('${recordsByDegree.length} degree(s)${id == 'N/A' ? '' : ' · $id'}'),
+            subtitle: Text(
+                '${recordsByDegree.length} degree(s)${id == 'N/A' ? '' : ' · $id'}'),
             children: recordsByDegree.entries.map((degreeGroup) {
               final parts = degreeGroup.key.split('|');
               return ExpansionTile(
                 key: PageStorageKey('degree-${student.key}-${degreeGroup.key}'),
                 leading: const Icon(Icons.school_outlined),
-                title: Text(parts.first, maxLines: 2, overflow: TextOverflow.ellipsis),
-                subtitle: Text(parts.length > 1 && parts[1].isNotEmpty ? parts[1] : 'Institution not listed'),
+                title: Text(parts.first,
+                    maxLines: 2, overflow: TextOverflow.ellipsis),
+                subtitle: Text(parts.length > 1 && parts[1].isNotEmpty
+                    ? parts[1]
+                    : 'Institution not listed'),
                 children: degreeGroup.value
                     .map((record) => _recordCard(context, record))
                     .toList(),
@@ -816,143 +837,157 @@ class _RecordsScreenState extends State<RecordsScreen>
                                   child: Column(
                                     children: [
                                       Wrap(
-                                    spacing: 12,
-                                    runSpacing: 12,
-                                    children: [
-                                      SizedBox(
-                                        width: fieldWidth,
-                                        child: buildFilterField(
-                                          label: 'Academic Level',
-                                          value: _selectedAcademicLevel,
-                                          items: academicLevels,
-                                          onChanged: (value) => setState(() {
-                                            _selectedAcademicLevel =
-                                                value ?? '';
-                                          }),
-                                        ),
-                                      ),
-                                      SizedBox(
-                                        width: fieldWidth,
-                                        child: buildFilterField(
-                                          label: 'Program / Degree Title',
-                                          value: _selectedProgram ?? '',
-                                          items: [
-                                            const DropdownMenuItem(
-                                              value: '',
-                                              child: Text('All Programs'),
+                                        spacing: 12,
+                                        runSpacing: 12,
+                                        children: [
+                                          SizedBox(
+                                            width: fieldWidth,
+                                            child: buildFilterField(
+                                              label: 'Academic Level',
+                                              value: _selectedAcademicLevel,
+                                              items: academicLevels,
+                                              onChanged: (value) =>
+                                                  setState(() {
+                                                _selectedAcademicLevel =
+                                                    value ?? '';
+                                              }),
                                             ),
-                                            for (final program in programs)
-                                              DropdownMenuItem(
-                                                value: program,
-                                                child: Text(
-                                                  program,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                          ],
-                                          onChanged: (value) => setState(() {
-                                            _selectedProgram =
-                                                value == null || value.isEmpty
-                                                    ? null
-                                                    : value;
-                                          }),
-                                        ),
-                                      ),
-                                      SizedBox(
-                                        width: fieldWidth,
-                                        child: buildFilterField(
-                                          label: 'Batch / Academic Year',
-                                          value: _selectedBatchYear ?? '',
-                                          items: allYears,
-                                          onChanged: (value) => setState(() {
-                                            _selectedBatchYear =
-                                                value == null || value.isEmpty
-                                                    ? null
-                                                    : value;
-                                          }),
-                                        ),
-                                      ),
-                                      SizedBox(
-                                        width: fieldWidth,
-                                        child: buildFilterField(
-                                          label: 'Degree Sequence',
-                                          value: _selectedDegreeNumber
-                                                  ?.toString() ??
-                                              '',
-                                          items: [
-                                            const DropdownMenuItem(
-                                              value: '',
-                                              child: Text('All Degrees'),
-                                            ),
-                                            for (final number in degreeNumbers)
-                                              DropdownMenuItem(
-                                                value: number.toString(),
-                                                child:
-                                                    Text('Credential #$number'),
-                                              ),
-                                          ],
-                                          onChanged: (value) => setState(() {
-                                            _selectedDegreeNumber =
-                                                value == null || value.isEmpty
-                                                    ? null
-                                                    : int.tryParse(value);
-                                          }),
-                                        ),
-                                      ),
-                                      SizedBox(
-                                        width: fieldWidth,
-                                        child: buildFilterField(
-                                          label: 'Verification Status',
-                                          value: _selectedStatus ?? '',
-                                          items: [
-                                            const DropdownMenuItem(
-                                              value: '',
-                                              child: Text('All Statuses'),
-                                            ),
-                                            for (final status in statuses)
-                                              DropdownMenuItem(
-                                                value: status,
-                                                child: Text(status),
-                                              ),
-                                          ],
-                                          onChanged: (value) => setState(() {
-                                            _selectedStatus =
-                                                value == null || value.isEmpty
-                                                    ? null
-                                                    : value;
-                                          }),
-                                        ),
-                                      ),
-                                      if (ApiService.isSuperAdmin)
-                                        SizedBox(
-                                          width: fieldWidth,
-                                          child: buildFilterField(
-                                            label: 'University',
-                                            value:
-                                                _selectedUniversityCode ?? '',
-                                            items: [
-                                              const DropdownMenuItem(
-                                                value: '',
-                                                child: Text('All Universities'),
-                                              ),
-                                              for (final code
-                                                  in universityCodes)
-                                                DropdownMenuItem(
-                                                  value: code,
-                                                  child: Text(code),
-                                                ),
-                                            ],
-                                            onChanged: (value) => setState(() {
-                                              _selectedUniversityCode =
-                                                  value == null || value.isEmpty
-                                                      ? null
-                                                      : value;
-                                            }),
                                           ),
-                                        ),
-                                    ],
-                                  ),
+                                          SizedBox(
+                                            width: fieldWidth,
+                                            child: buildFilterField(
+                                              label: 'Program / Degree Title',
+                                              value: _selectedProgram ?? '',
+                                              items: [
+                                                const DropdownMenuItem(
+                                                  value: '',
+                                                  child: Text('All Programs'),
+                                                ),
+                                                for (final program in programs)
+                                                  DropdownMenuItem(
+                                                    value: program,
+                                                    child: Text(
+                                                      program,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                              ],
+                                              onChanged: (value) =>
+                                                  setState(() {
+                                                _selectedProgram =
+                                                    value == null ||
+                                                            value.isEmpty
+                                                        ? null
+                                                        : value;
+                                              }),
+                                            ),
+                                          ),
+                                          SizedBox(
+                                            width: fieldWidth,
+                                            child: buildFilterField(
+                                              label: 'Batch / Academic Year',
+                                              value: _selectedBatchYear ?? '',
+                                              items: allYears,
+                                              onChanged: (value) =>
+                                                  setState(() {
+                                                _selectedBatchYear =
+                                                    value == null ||
+                                                            value.isEmpty
+                                                        ? null
+                                                        : value;
+                                              }),
+                                            ),
+                                          ),
+                                          SizedBox(
+                                            width: fieldWidth,
+                                            child: buildFilterField(
+                                              label: 'Degree Sequence',
+                                              value: _selectedDegreeNumber
+                                                      ?.toString() ??
+                                                  '',
+                                              items: [
+                                                const DropdownMenuItem(
+                                                  value: '',
+                                                  child: Text('All Degrees'),
+                                                ),
+                                                for (final number
+                                                    in degreeNumbers)
+                                                  DropdownMenuItem(
+                                                    value: number.toString(),
+                                                    child: Text(
+                                                        'Credential #$number'),
+                                                  ),
+                                              ],
+                                              onChanged: (value) =>
+                                                  setState(() {
+                                                _selectedDegreeNumber =
+                                                    value == null ||
+                                                            value.isEmpty
+                                                        ? null
+                                                        : int.tryParse(value);
+                                              }),
+                                            ),
+                                          ),
+                                          SizedBox(
+                                            width: fieldWidth,
+                                            child: buildFilterField(
+                                              label: 'Verification Status',
+                                              value: _selectedStatus ?? '',
+                                              items: [
+                                                const DropdownMenuItem(
+                                                  value: '',
+                                                  child: Text('All Statuses'),
+                                                ),
+                                                for (final status in statuses)
+                                                  DropdownMenuItem(
+                                                    value: status,
+                                                    child: Text(status),
+                                                  ),
+                                              ],
+                                              onChanged: (value) =>
+                                                  setState(() {
+                                                _selectedStatus =
+                                                    value == null ||
+                                                            value.isEmpty
+                                                        ? null
+                                                        : value;
+                                              }),
+                                            ),
+                                          ),
+                                          if (ApiService.isSuperAdmin)
+                                            SizedBox(
+                                              width: fieldWidth,
+                                              child: buildFilterField(
+                                                label: 'University',
+                                                value:
+                                                    _selectedUniversityCode ??
+                                                        '',
+                                                items: [
+                                                  const DropdownMenuItem(
+                                                    value: '',
+                                                    child: Text(
+                                                        'All Universities'),
+                                                  ),
+                                                  for (final code
+                                                      in universityCodes)
+                                                    DropdownMenuItem(
+                                                      value: code,
+                                                      child: Text(code),
+                                                    ),
+                                                ],
+                                                onChanged: (value) =>
+                                                    setState(() {
+                                                  _selectedUniversityCode =
+                                                      value == null ||
+                                                              value.isEmpty
+                                                          ? null
+                                                          : value;
+                                                }),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
                                       Align(
                                         alignment: Alignment.centerRight,
                                         child: TextButton(
@@ -982,8 +1017,8 @@ class _RecordsScreenState extends State<RecordsScreen>
               );
             }
             if (!_showMultipleDegreeOrganizer && visibleRecords.isNotEmpty) {
-              content.add(_groupedStudentRecords(
-                  context, visibleRecords, allRecords));
+              content.add(
+                  _groupedStudentRecords(context, visibleRecords, allRecords));
             }
             if (!_showMultipleDegreeOrganizer && visibleRecords.isEmpty) {
               content.add(const Padding(
@@ -1039,6 +1074,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoadingPortfolio = true;
   Map<String, dynamic>? _portfolio;
   String? _portfolioError;
+  String? _failedImageUrl;
 
   @override
   void initState() {
@@ -1063,10 +1099,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
     try {
       final portfolio = await ApiService.getStudentPortfolio();
-      if (mounted) setState(() {
-        _portfolio = portfolio;
-        _portfolioError = null;
-      });
+      if (mounted)
+        setState(() {
+          _portfolio = portfolio;
+          _portfolioError = null;
+        });
     } catch (error) {
       if (mounted) setState(() => _portfolioError = '$error');
     } finally {
@@ -1092,13 +1129,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _pickPhoto() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      withData: true,
-    );
-    final file = result?.files.single;
-    if (file?.bytes == null || !mounted) return;
-    await _saveProfile(imageBytes: file!.bytes, imageName: file.name);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+      if (result == null || !mounted) return;
+      final file = result.files.single;
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not read the selected image.')),
+        );
+        return;
+      }
+      if (bytes.length > 5 * 1024 * 1024) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Choose an image that is 5 MB or smaller.')),
+        );
+        return;
+      }
+      await _saveProfile(imageBytes: bytes, imageName: file.name);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open the image gallery: $error')),
+        );
+      }
+    }
   }
 
   Future<void> _saveProfile(
@@ -1111,10 +1169,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         imageName: imageName,
       );
       if (mounted) {
+        setState(() => _failedImageUrl = null);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Profile photo updated.')),
         );
-        setState(() {});
       }
     } catch (error) {
       if (mounted) {
@@ -1131,7 +1189,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final imageUrl = ApiService.authProfileImageUrl;
     final defaultLogo = _defaultLogo;
-    final ImageProvider? avatarImage = imageUrl != null && imageUrl.isNotEmpty
+    final hasNetworkImage = imageUrl != null &&
+        imageUrl.isNotEmpty &&
+        imageUrl != _failedImageUrl;
+    final ImageProvider? avatarImage = hasNetworkImage
         ? NetworkImage(imageUrl)
         : defaultLogo != null
             ? AssetImage(defaultLogo)
@@ -1147,6 +1208,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
               radius: 50,
               backgroundImage: avatarImage,
               backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+              onBackgroundImageError: hasNetworkImage
+                  ? (error, stackTrace) {
+                      if (mounted) setState(() => _failedImageUrl = imageUrl);
+                    }
+                  : null,
               child: avatarImage == null
                   ? Icon(
                       ApiService.authProfileIcon == 'girl'
@@ -1217,7 +1283,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       '${_portfolio?['degree_count'] ?? 0} credential(s) across institutions',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
-                    if (_portfolio?['student_id']?.toString().isNotEmpty == true)
+                    if (_portfolio?['student_id']?.toString().isNotEmpty ==
+                        true)
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
@@ -1243,7 +1310,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         padding: EdgeInsets.all(12),
                         child: Center(child: CertiTrustLoadingIndicator()),
                       )
-                    else if (_portfolioHash != null && _portfolioHash!.isNotEmpty) ...[
+                    else if (_portfolioHash != null &&
+                        _portfolioHash!.isNotEmpty) ...[
                       const SizedBox(height: 14),
                       Center(
                         child: Container(
@@ -1282,7 +1350,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ] else
                       const Padding(
                         padding: EdgeInsets.only(top: 12),
-                        child: Text('No credentials are linked to this account yet.'),
+                        child: Text(
+                            'No credentials are linked to this account yet.'),
                       ),
                   ],
                 ),
@@ -1301,11 +1370,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 class ChatScreen extends StatefulWidget {
   final bool isAdmin;
   final String? initialContactId;
+  final String? initialInstitutionCode;
   final bool restrictedMode;
   const ChatScreen({
     super.key,
     required this.isAdmin,
     this.initialContactId,
+    this.initialInstitutionCode,
     this.restrictedMode = false,
   });
 
@@ -1323,6 +1394,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final Map<String, double> _messageDragOffsets = {};
   List<Map<String, dynamic>> _items = [];
   String? _pendingInitialContactId;
+  String? _pendingInstitutionCode;
   Object? _loadError;
   int _loadGeneration = 0;
   bool _isLoading = true;
@@ -1335,6 +1407,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _pendingInitialContactId = widget.initialContactId;
+    _pendingInstitutionCode = widget.initialInstitutionCode;
     _loadItems();
     _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _loadItems(periodic: true);
@@ -1387,8 +1460,26 @@ class _ChatScreenState extends State<ChatScreen> {
         items = await ApiService.getChatContacts(search: search);
         if (!mounted || generation != _loadGeneration) return;
         final initialContactId = _pendingInitialContactId;
+        final institutionCode = _pendingInstitutionCode;
         _pendingInitialContactId = null;
-        if (initialContactId != null || widget.restrictedMode) {
+        _pendingInstitutionCode = null;
+        if (institutionCode != null && institutionCode.isNotEmpty) {
+          final institutions = await ApiService.searchInstitutionDirectory(
+              search: institutionCode);
+          final institution = institutions.where(
+            (item) =>
+                item['code']?.toString().toUpperCase() ==
+                institutionCode.toUpperCase(),
+          ).firstOrNull;
+          if (institution == null) {
+            throw Exception(
+                'No verified registrar desk was found for $institutionCode.');
+          }
+          final contact = _contactForInstitution(institution);
+          _selectedContact = contact;
+          items = await ApiService.getChatMessagesForStudent(
+              contact['id'].toString());
+        } else if (initialContactId != null || widget.restrictedMode) {
           final contactById = initialContactId == null
               ? null
               : items
@@ -1508,6 +1599,41 @@ class _ChatScreenState extends State<ChatScreen> {
       _loadError = null;
     });
     _loadItems();
+  }
+
+  Map<String, dynamic> _contactForInstitution(
+      Map<String, dynamic> institution) {
+    final code = institution['code']?.toString() ?? '';
+    final acronym = institution['acronym']?.toString() ?? code;
+    final name = institution['university_name']?.toString() ?? code;
+    return {
+      'id': institution['desk_user_id'],
+      'name': name,
+      'email': institution['desk_email'],
+      'university_code': code,
+      'university_name': name,
+      'university_acronym': acronym,
+      'profile_image_url':
+          ApiService.resolveProfileImageUrl(institution['logo_url']?.toString()),
+      'is_active': institution['is_active'] == true,
+      'last_seen_label': institution['is_active'] == true
+          ? 'Online'
+          : 'Verified registrar desk',
+      'role_label': 'Verified Registrar Desk',
+      'is_institutional_desk': true,
+      'verified_registrar_desk': true,
+    };
+  }
+
+  Future<void> _showInstitutionInquiry() async {
+    final institution = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => const _InstitutionInquirySheet(),
+    );
+    if (!mounted || institution == null) return;
+    _openContact(_contactForInstitution(institution));
   }
 
   void _closeConversation() {
@@ -1808,7 +1934,9 @@ class _ChatScreenState extends State<ChatScreen> {
   void _showUserProfile(Map<String, dynamic>? profile) {
     if (profile == null) return;
     final name = profile['name']?.toString() ?? 'Profile';
-    final imageUrl = profile['profile_image_url']?.toString();
+    final imageUrl = ApiService.resolveProfileImageUrl(
+      profile['profile_image_url']?.toString(),
+    );
     final imageAsset = profile['profile_logo']?.toString();
     final ImageProvider? avatarImage = imageUrl != null && imageUrl.isNotEmpty
         ? NetworkImage(imageUrl)
@@ -1897,7 +2025,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   final unreadCount =
                       int.tryParse(contact['unread_count']?.toString() ?? '') ??
                           0;
-                  final imageUrl = contact['profile_image_url']?.toString();
+                  final imageUrl = ApiService.resolveProfileImageUrl(
+                    contact['profile_image_url']?.toString(),
+                  );
                   final imageAsset = contact['profile_logo']?.toString();
                   final ImageProvider? avatarImage =
                       imageUrl != null && imageUrl.isNotEmpty
@@ -1935,6 +2065,14 @@ class _ChatScreenState extends State<ChatScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(contact['role_label']?.toString() ?? ''),
+                          if (contact['is_institutional_desk'] == true)
+                            Text(
+                              '${contact['university_acronym'] ?? contact['university_code'] ?? ''} • Verified Desk',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           if (contact['student_id'] != null)
                             Text('Student ID: ${contact['student_id']}'),
                           if (lastMessage.isNotEmpty)
@@ -2354,8 +2492,10 @@ class _ChatScreenState extends State<ChatScreen> {
                         ],
                       ),
                       Text(
-                        _selectedContact!['last_seen_label']?.toString() ??
-                            'Last active: unknown',
+                        _selectedContact!['is_institutional_desk'] == true
+                            ? '${_selectedContact!['university_acronym'] ?? _selectedContact!['university_code'] ?? ''} • Verified Registrar Desk'
+                            : _selectedContact!['last_seen_label']?.toString() ??
+                                'Last active: unknown',
                         style: const TextStyle(
                             fontSize: 12, fontWeight: FontWeight.normal),
                       ),
@@ -2367,8 +2507,16 @@ class _ChatScreenState extends State<ChatScreen> {
                     icon: const Icon(Icons.arrow_back),
                     onPressed: _closeConversation)
                 : null,
-            actions: _selectedContact != null && !widget.restrictedMode
+            actions: widget.restrictedMode
                 ? [
+                    IconButton(
+                      tooltip: 'Log out',
+                      icon: const Icon(Icons.logout),
+                      onPressed: _logoutRestrictedAccount,
+                    ),
+                  ]
+                : _selectedContact != null
+                    ? [
                     if (!widget.isAdmin &&
                         _selectedContact!['role_label'] ==
                             'School administrator')
@@ -2398,15 +2546,13 @@ class _ChatScreenState extends State<ChatScreen> {
                       ],
                     ),
                   ]
-                : widget.restrictedMode
-                    ? [
+                    : [
                         IconButton(
-                          tooltip: 'Log out',
-                          icon: const Icon(Icons.logout),
-                          onPressed: _logoutRestrictedAccount,
+                          tooltip: 'New Institutional Inquiry',
+                          icon: const Icon(Icons.account_balance_outlined),
+                          onPressed: _showInstitutionInquiry,
                         ),
-                      ]
-                    : null,
+                      ],
           ),
           body: Column(children: [
             Expanded(
@@ -2501,6 +2647,184 @@ class _ChatScreenState extends State<ChatScreen> {
           bottomNavigationBar: widget.restrictedMode
               ? null
               : RoleBottomNavigationBar(isAdmin: widget.isAdmin),
+        ),
+      );
+}
+
+class _InstitutionInquirySheet extends StatefulWidget {
+  const _InstitutionInquirySheet();
+
+  @override
+  State<_InstitutionInquirySheet> createState() =>
+      _InstitutionInquirySheetState();
+}
+
+class _InstitutionInquirySheetState extends State<_InstitutionInquirySheet> {
+  final _searchController = TextEditingController();
+  Timer? _debounce;
+  List<Map<String, dynamic>> _institutions = [];
+  String? _error;
+  bool _isLoading = false;
+  int _searchGeneration = 0;
+
+  void _search(String value) {
+    final generation = ++_searchGeneration;
+    _debounce?.cancel();
+    final query = value.trim();
+    if (query.length < 2) {
+      setState(() {
+        _institutions = [];
+        _error = null;
+        _isLoading = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _error = null;
+      _isLoading = true;
+    });
+    _debounce = Timer(const Duration(milliseconds: 300), () async {
+      try {
+        final institutions =
+            await ApiService.searchInstitutionDirectory(search: query);
+        if (!mounted || generation != _searchGeneration) return;
+        setState(() {
+          _institutions = institutions;
+          _isLoading = false;
+        });
+      } catch (error) {
+        if (!mounted || generation != _searchGeneration) return;
+        setState(() {
+          _institutions = [];
+          _error = error.toString();
+          _isLoading = false;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            8,
+            16,
+            MediaQuery.viewInsetsOf(context).bottom + 16,
+          ),
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.72,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'New Institutional Inquiry',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  onChanged: _search,
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    labelText: 'Search universities or registrar desks',
+                    hintText: 'Try PSU or Pangasinan State University',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                if (_isLoading) const LinearProgressIndicator(),
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      'Could not search the directory: $_error',
+                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    ),
+                  ),
+                Expanded(
+                  child: _institutions.isEmpty
+                      ? Center(
+                          child: Text(
+                            _error != null
+                                ? 'Try your search again.'
+                                : 'Type at least two characters to find a verified registrar desk.',
+                            textAlign: TextAlign.center,
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.only(top: 8),
+                          itemCount: _institutions.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final institution = _institutions[index];
+                            final logoUrl =
+                                institution['logo_url']?.toString();
+                            final acronym =
+                                institution['acronym']?.toString() ??
+                                    institution['code']?.toString() ??
+                                    '';
+                            return ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor:
+                                    Theme.of(context).colorScheme.primaryContainer,
+                                child: logoUrl == null || logoUrl.isEmpty
+                                    ? const Icon(Icons.account_balance)
+                                    : ClipOval(
+                                        child: Image.network(
+                                          logoUrl,
+                                          width: 40,
+                                          height: 40,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) =>
+                                              const Icon(Icons.account_balance),
+                                        ),
+                                      ),
+                              ),
+                              title: Text(
+                                institution['university_name']?.toString() ??
+                                    'Institution',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Wrap(
+                                  spacing: 8,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Chip(
+                                      label: Text(acronym),
+                                      visualDensity: VisualDensity.compact,
+                                      materialTapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    const Text(
+                                      '✓ Verified Desk',
+                                      style: TextStyle(
+                                        color: Colors.green,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              onTap: () => Navigator.pop(context, institution),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
         ),
       );
 }

@@ -23,6 +23,43 @@ class VerificationConfirmationScreen extends StatelessWidget {
         : <Map<String, dynamic>>[];
     final isMultipleDegree =
         certificate['multi_degree'] == true && degreeCertificates.isNotEmpty;
+    final universitiesByIdentity = <String, String>{};
+    for (final degree in degreeCertificates) {
+      final code = degree['university_code']?.toString().trim() ?? '';
+      final name = degree['university_name']?.toString().trim() ?? '';
+      final identity = (code.isNotEmpty ? code : name).toLowerCase();
+      if (identity.isNotEmpty) {
+        universitiesByIdentity.putIfAbsent(
+            identity, () => name.isNotEmpty ? name : code);
+      }
+    }
+    if (universitiesByIdentity.isEmpty) {
+      final code = certificate['university_code']?.toString().trim() ?? '';
+      final name = certificate['university_name']?.toString().trim() ?? '';
+      final identity = (code.isNotEmpty ? code : name).toLowerCase();
+      if (identity.isNotEmpty &&
+          identity != 'multi' &&
+          identity != 'multiple universities') {
+        universitiesByIdentity[identity] = name.isNotEmpty ? name : code;
+      }
+    }
+    final universities = universitiesByIdentity.values.toList();
+    final issuingInstitutions = <String, String>{};
+    final institutionCertificates =
+        isMultipleDegree ? degreeCertificates : [certificate];
+    for (final credential in institutionCertificates) {
+      final code = credential['university_code']?.toString().trim() ?? '';
+      final name = credential['university_name']?.toString().trim() ?? '';
+      if (code.isNotEmpty) {
+        issuingInstitutions.putIfAbsent(
+          code.toUpperCase(),
+          () => name.isNotEmpty ? name : code,
+        );
+      }
+    }
+    final universityCount = universities.length;
+    final universityLabel =
+        '$universityCount ${universityCount == 1 ? 'University' : 'Universities'}';
     final school = isMultipleDegree
         ? 'MULTI'
         : (certificate['university_code'] ??
@@ -35,14 +72,22 @@ class VerificationConfirmationScreen extends StatelessWidget {
         : school == 'UCU'
             ? 'Urdaneta City University'
             : school == 'MULTI'
-                ? 'Multiple Universities'
+                ? universityCount == 1
+                    ? universities.single
+                    : universityCount > 1
+                        ? 'Multiple Universities'
+                        : 'University information unavailable'
                 : 'Verified academic institution';
     final registeredSchoolName = certificate['university_name']?.toString();
     final branchCampus = certificate['branch_campus']?.toString();
     final schoolName = [
-      registeredSchoolName == null || registeredSchoolName.trim().isEmpty
-          ? fallbackSchoolName
-          : registeredSchoolName,
+      isMultipleDegree && universityCount > 0
+          ? universityCount == 1
+              ? universities.single
+              : 'Multiple Universities'
+          : registeredSchoolName == null || registeredSchoolName.trim().isEmpty
+              ? fallbackSchoolName
+              : registeredSchoolName,
       if (branchCampus != null && branchCampus.trim().isNotEmpty) branchCampus,
     ].join(' • ');
     final schoolLogo = school == 'PSU'
@@ -97,7 +142,13 @@ class VerificationConfirmationScreen extends StatelessWidget {
                   Image.asset(schoolLogo, height: 92, fit: BoxFit.contain),
                   const SizedBox(height: 12),
                   Text(
-                    school == 'MULTI' ? schoolName : school,
+                    school == 'MULTI'
+                        ? universityCount == 1
+                            ? universityLabel
+                            : universityCount > 1
+                                ? 'Multiple Universities'
+                                : schoolName
+                        : school,
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
@@ -112,7 +163,7 @@ class VerificationConfirmationScreen extends StatelessWidget {
                   Text(
                       isVerified
                           ? isMultipleDegree
-                              ? 'These ${degreeCertificates.length} credentials belong to ${certificate['student_name'] ?? 'the student'} and were verified across ${degreeCertificates.map((degree) => degree['university_code']).whereType<String>().toSet().length} universities.'
+                              ? 'These ${degreeCertificates.length} credentials belong to ${certificate['student_name'] ?? 'the student'} and were verified across ${universityCount > 0 ? '$universityCount ${universityCount == 1 ? 'university' : 'universities'}' : 'multiple universities'}.'
                               : 'This credential proves that ${certificate['student_name'] ?? certificate['recipient_name'] ?? 'the student'} graduated from $schoolName and was verified by CertiTrust.'
                           : 'This credential record was found, but its status is not valid.',
                       textAlign: TextAlign.center,
@@ -251,6 +302,39 @@ class VerificationConfirmationScreen extends StatelessWidget {
                           ),
                         ),
                     ],
+                  ],
+                  if (issuingInstitutions.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Questions about this credential?',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    for (final entry in issuingInstitutions.entries)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              final destination =
+                                  '/institutional-inquiry?institution_code=${Uri.encodeQueryComponent(entry.key)}';
+                              if (ApiService.isAuthenticated) {
+                                context.push(destination);
+                              } else {
+                                context.go(
+                                  '/?redirect=${Uri.encodeQueryComponent(destination)}',
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.account_balance_outlined),
+                            label: Text('Message ${entry.value} Registrar Desk'),
+                          ),
+                        ),
+                      ),
                   ],
                   const SizedBox(height: 18),
                   Container(
