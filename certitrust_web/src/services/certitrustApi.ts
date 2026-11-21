@@ -15,6 +15,9 @@ export type CertificateRecord = {
     cert_hash: string;
     university_code?: string | null;
     university_name?: string | null;
+    display_name?: string | null;
+    branch_campus?: string | null;
+    university_logo_url?: string | null;
     created_at?: string;
     diploma_url?: string | null;
     diploma_file_name?: string | null;
@@ -23,6 +26,7 @@ export type CertificateRecord = {
 };
 
 export type PublicCertificateResult = Partial<CertificateRecord> & {
+    recipient_name?: string;
     status: string;
     course_or_event?: string;
     university_name?: string;
@@ -30,7 +34,12 @@ export type PublicCertificateResult = Partial<CertificateRecord> & {
     multi_degree?: boolean;
     degree_count?: number;
     certificates?: (Partial<CertificateRecord> & {
+        recipient_name?: string;
         status: string;
+        university_name?: string | null;
+        display_name?: string | null;
+        branch_campus?: string | null;
+        university_logo_url?: string | null;
         blockchain_verification?: { status: string; verified: boolean; network?: string };
     })[];
 };

@@ -13,7 +13,7 @@ import {
     lookupStudentCredentials,
     type CertificateRecord,
 } from "../../services/certitrustApi";
-import { getAcademicLevel } from "../../utils/academicLevel";
+import { getAcademicLevel, PROGRAM_SUGGESTIONS } from "../../utils/academicLevel";
 
 type Certificate = {
     id: string;
@@ -115,6 +115,7 @@ export default function Certificates() {
     const [fullName, setFullName] = useState<string>("");
     const [institutionalEmail, setInstitutionalEmail] = useState<string>("");
     const [degreeProgram, setDegreeProgram] = useState<string>("");
+    const [isDegreeSuggestionsOpen, setIsDegreeSuggestionsOpen] = useState(false);
     const [fileName, setFileName] = useState<string>("");
     const [diplomaUrl, setDiplomaUrl] = useState<string>("");
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -130,6 +131,13 @@ export default function Certificates() {
     const { certificates: apiCertificates, loading, error, refresh } = useCertificates();
     const { issueBatch, isIssuing } = useCertificateBatch();
     const certificates = useMemo(() => apiCertificates.map(mapCertificate), [apiCertificates]);
+    const degreeSuggestions = useMemo(() => {
+        const query = degreeProgram.toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (!query) return PROGRAM_SUGGESTIONS;
+        return PROGRAM_SUGGESTIONS.filter((program) =>
+            program.toLowerCase().replace(/[^a-z0-9]/g, "").includes(query)
+        );
+    }, [degreeProgram]);
     const [activeCertificate, setActiveCertificate] = useState<Certificate | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<Certificate | null>(null);
     const [deleteReason, setDeleteReason] = useState<string>("");
@@ -216,6 +224,7 @@ export default function Certificates() {
         setFullName("");
         setInstitutionalEmail("");
         setDegreeProgram("");
+        setIsDegreeSuggestionsOpen(false);
         setDegreeSuggestion(null);
         setIsAdditionalDegree(false);
         setDegreeNumber(1);
@@ -226,6 +235,7 @@ export default function Certificates() {
     };
 
     const openIssueModal = () => {
+        setIsDegreeSuggestionsOpen(false);
         document.getElementById("issueModal")?.classList.add("show");
     };
 
@@ -744,13 +754,64 @@ export default function Certificates() {
                             <label className="text-[#172033] font-bold text-sm">
                                 Degree / Program Title
                             </label>
-                            <input
-                                type="text"
-                                value={degreeProgram}
-                                onChange={(e) => setDegreeProgram(e.target.value)}
-                                placeholder="Degree / Program Title"
-                                className="w-full min-h-12 border border-slate-200 rounded-xl bg-white px-4 py-3 outline-none focus:border-[#1D4ED8] focus:ring-4 focus:ring-[#1D4ED8]/10 transition"
-                            />
+                            <div
+                                className="relative"
+                                onBlur={(event) => {
+                                    const nextTarget = event.relatedTarget;
+                                    if (
+                                        !(nextTarget instanceof Node) ||
+                                        !event.currentTarget.contains(nextTarget)
+                                    ) {
+                                        setIsDegreeSuggestionsOpen(false);
+                                    }
+                                }}
+                            >
+                                <input
+                                    type="text"
+                                    value={degreeProgram}
+                                    onFocus={() => setIsDegreeSuggestionsOpen(true)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Escape") setIsDegreeSuggestionsOpen(false);
+                                    }}
+                                    onChange={(e) => {
+                                        setDegreeProgram(e.target.value);
+                                        setIsDegreeSuggestionsOpen(true);
+                                    }}
+                                    placeholder="Search or enter a degree / program"
+                                    aria-label="Degree / Program Title"
+                                    aria-autocomplete="list"
+                                    aria-expanded={isDegreeSuggestionsOpen && degreeSuggestions.length > 0}
+                                    aria-controls="degree-program-options"
+                                    className="w-full min-h-12 border border-slate-200 rounded-xl bg-white px-4 py-3 outline-none focus:border-[#1D4ED8] focus:ring-4 focus:ring-[#1D4ED8]/10 transition"
+                                />
+                                {isDegreeSuggestionsOpen && degreeSuggestions.length > 0 && (
+                                    <div
+                                        id="degree-program-options"
+                                        role="listbox"
+                                        className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+                                    >
+                                        {degreeSuggestions.map((program) => (
+                                            <button
+                                                key={program}
+                                                type="button"
+                                                role="option"
+                                                aria-selected={degreeProgram === program}
+                                                onPointerDown={(event) => event.preventDefault()}
+                                                onClick={() => {
+                                                    setDegreeProgram(program);
+                                                    setIsDegreeSuggestionsOpen(false);
+                                                }}
+                                                className="block w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-blue-50 focus:bg-blue-50 focus:outline-none"
+                                            >
+                                                {program}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            <p className="text-xs text-slate-500">
+                                Choose a suggestion or enter a custom program.
+                            </p>
                         </div>
 
                         {/* Select Diploma File */}

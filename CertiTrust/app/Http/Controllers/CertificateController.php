@@ -560,6 +560,13 @@ class CertificateController extends Controller
     private function universityDetails(?string $universityCode): array
     {
         $university = $universityCode ? University::find($universityCode) : null;
+        $universityLogoUrl = $university
+            ? User::query()
+                ->where('role', 'admin')
+                ->where('university_code', $university->code)
+                ->whereRaw('LOWER(TRIM(email)) <> ?', ['certitrust256@gmail.com'])
+                ->value('profile_image_url')
+            : null;
 
         return [
             'university_name' => $university?->university_name
@@ -567,6 +574,7 @@ class CertificateController extends Controller
                 ?: 'Verified academic institution',
             'branch_campus' => $university?->branch_campus,
             'display_name' => $university?->display_name ?: $universityCode,
+            'university_logo_url' => $universityLogoUrl,
         ];
     }
 

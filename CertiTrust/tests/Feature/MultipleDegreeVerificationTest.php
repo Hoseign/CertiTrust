@@ -205,6 +205,14 @@ class MultipleDegreeVerificationTest extends TestCase
             'branch_campus' => 'Main Campus',
             'display_name' => 'UOCM',
         ]);
+        User::create([
+            'name' => 'UOCM Registrar',
+            'email' => 'registrar@uocm.example.edu',
+            'password' => bcrypt('secret'),
+            'role' => 'admin',
+            'university_code' => 'UOCM',
+            'profile_image_url' => 'https://storage.example.edu/uocm/logo.png',
+        ]);
         $certificate = Certificate::create([
             'certificate_code' => 'CERT-UOC-MAIN',
             'recipient_name' => 'Jordan Student',
@@ -224,6 +232,7 @@ class MultipleDegreeVerificationTest extends TestCase
             ->assertJsonPath('data.university_name', 'University of Cebu')
             ->assertJsonPath('data.branch_campus', 'Main Campus')
             ->assertJsonPath('data.display_name', 'UOCM')
+            ->assertJsonPath('data.university_logo_url', 'https://storage.example.edu/uocm/logo.png')
             ->assertJsonMissingPath('data.student_email')
             ->assertJsonMissingPath('data.email');
     }

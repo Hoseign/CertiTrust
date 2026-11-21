@@ -1,6 +1,6 @@
 import type { PublicCertificateResult } from "@/services/certitrustApi";
+import { getSessionUser, resolveProfileImageUrl } from "@/services/authService";
 import { useNavigate } from "react-router-dom";
-import { getSessionUser } from "@/services/authService";
 
 type CertificateVerificationResultProps = {
     result: PublicCertificateResult;
@@ -33,6 +33,23 @@ async function downloadDiploma(url: string, fileName: string) {
     }
 }
 
+function DetailRow({
+    label,
+    value,
+}: {
+    label: string;
+    value?: string | number | null;
+}) {
+    return (
+        <div className="grid gap-1 border-b border-slate-100 py-3 sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-4">
+            <dt className="text-sm font-bold text-[#0A192F]">{label}</dt>
+            <dd className="break-words text-sm text-slate-700">
+                {value === null || value === undefined || value === "" ? "N/A" : value}
+            </dd>
+        </div>
+    );
+}
+
 export default function CertificateVerificationResult({
     result,
     searchedCode,
@@ -41,8 +58,12 @@ export default function CertificateVerificationResult({
     const navigate = useNavigate();
     const sessionUser = getSessionUser();
     const certificates = result.certificates ?? [];
+    const isMultipleDegree = certificates.length > 1;
+    const singleCertificate = certificates.length === 1
+        ? certificates[0]
+        : result;
     const issuingInstitutions = new Map<string, string>();
-    for (const certificate of result.multi_degree ? certificates : [result]) {
+    for (const certificate of isMultipleDegree ? certificates : [singleCertificate]) {
         const code = certificate.university_code?.trim() ?? "";
         if (code) {
             issuingInstitutions.set(
@@ -51,15 +72,18 @@ export default function CertificateVerificationResult({
             );
         }
     }
+
     const universityNamesByIdentity = new Map<string, string>();
     for (const certificate of certificates) {
         const code = certificate.university_code?.trim() ?? "";
         const name = certificate.university_name?.trim() ?? "";
         const identity = (code || name).toLowerCase();
-        if (identity) universityNamesByIdentity.set(identity, name || code);
+        if (identity && !universityNamesByIdentity.has(identity)) {
+            universityNamesByIdentity.set(identity, name || code);
+        }
     }
-    const topLevelCode = result.university_code?.trim() ?? "";
-    const topLevelName = result.university_name?.trim() ?? "";
+    const topLevelCode = singleCertificate.university_code?.trim() ?? "";
+    const topLevelName = singleCertificate.university_name?.trim() ?? "";
     const topLevelIdentity = (topLevelCode || topLevelName).toLowerCase();
     if (
         universityNamesByIdentity.size === 0
@@ -68,39 +92,61 @@ export default function CertificateVerificationResult({
     ) {
         universityNamesByIdentity.set(topLevelIdentity, topLevelName || topLevelCode);
     }
+
     const universityNames = [...universityNamesByIdentity.values()];
     const universityCount = universityNames.length;
     const universityCountLabel = universityCount > 0
         ? `${universityCount} ${universityCount === 1 ? "university" : "universities"}`
         : "multiple universities";
-    const universityLabel = universityCount === 1
-        ? "1 University"
-        : universityCount > 1
-            ? "Multiple Universities"
-            : result.university_name || result.university_code || "University information unavailable";
-    const isVerified = result.multi_degree
-        ? certificates.length > 0 && certificates.every(isCredentialVerified)
+    const schoolCode = (isMultipleDegree ? "MULTI" : topLevelCode || "Verified Institution").toUpperCase();
+    const fallbackSchoolName = schoolCode === "PSU"
+        ? "Pangasinan State University"
+        : schoolCode === "UCU"
+            ? "Urdaneta City University"
+            : schoolCode === "MULTI"
+                ? universityCount === 1
+                    ? universityNames[0]
+                    : universityCount > 1
+                        ? "Multiple Universities"
+                        : "University information unavailable"
+                : "Verified academic institution";
+    const schoolName = [
+        isMultipleDegree
+            ? fallbackSchoolName
+            : topLevelName || fallbackSchoolName,
+        !isMultipleDegree ? singleCertificate.branch_campus?.trim() : "",
+    ].filter(Boolean).join(" • ");
+    const schoolLabel = isMultipleDegree
+        ? universityCount === 1
+            ? "1 University"
+            : universityCount > 1
+                ? "Multiple Universities"
+                : schoolName
+        : schoolCode;
+    const schoolLogo = isMultipleDegree
+        ? "/certitrustlogo.png"
+        : resolveProfileImageUrl(singleCertificate.university_logo_url) || "/certitrustlogo.png";
+
+    const isVerified = certificates.length > 0
+        ? certificates.every(isCredentialVerified)
         : isCredentialVerified(result);
-    const databaseStatuses = result.multi_degree
+    const databaseStatuses = certificates.length > 0
         ? certificates.map((certificate) => String(certificate.status ?? "unknown"))
         : [String(result.status ?? "unknown")];
-    const blockchainStatuses = result.multi_degree
+    const blockchainStatuses = certificates.length > 0
         ? certificates.map((certificate) => String(certificate.blockchain_verification?.status ?? "unknown"))
         : [String(result.blockchain_verification?.status ?? "unknown")];
     const databaseStatus = [...new Set(databaseStatuses)].join(", ") || "unknown";
     const blockchainStatus = [...new Set(blockchainStatuses)].join(", ") || "unknown";
     const hasValidDatabaseStatus = databaseStatuses.length > 0
         && databaseStatuses.every((status) => ["verified", "valid"].includes(status.toLowerCase()));
-    const statusLabel = isVerified
-        ? "Legitimate Credential"
-        : hasValidDatabaseStatus && blockchainStatuses.some((status) => status.toLowerCase() === "not_configured")
-            ? "Credential Found · Blockchain Not Configured"
-            : "Credential Found · Not Verified";
-    const institution = result.multi_degree && universityCount === 1
-        ? universityNames[0]
-        : result.multi_degree && universityCount > 1
-            ? "Multiple Universities"
-            : result.university_name || result.university_code || "Not available";
+    const statusLabel = isVerified ? "Legitimate Credential" : "Credential Not Verified";
+    const studentName = singleCertificate.student_name
+        || singleCertificate.recipient_name
+        || "the student";
+    const verifiedMessage = isMultipleDegree
+        ? `These ${certificates.length} credentials belong to ${result.student_name || "the student"} and were verified across ${universityCountLabel}.`
+        : `This credential proves that ${studentName} graduated from ${schoolName} and was verified by CertiTrust.`;
     const incompleteMessage = !hasValidDatabaseStatus
         ? `The database marks this record as "${databaseStatus}". It cannot be considered a valid credential.`
         : blockchainStatuses.some((status) => status.toLowerCase() === "not_configured")
@@ -111,163 +157,193 @@ export default function CertificateVerificationResult({
                     ? "The database record exists, but the blockchain verification check failed. Do not treat it as on-chain verified until the transaction and network configuration are checked."
                     : `The database record exists, but the blockchain check returned "${blockchainStatus}". The credential cannot be confirmed on-chain yet.`;
 
-    const details: [string, string | undefined][] = [
-        ["Certificate ID", result.certificate_code],
-        ["Student Name", result.student_name],
-        ["Student ID", result.student_id],
-        ["Degree and Program", result.degree || result.course_or_event],
-        ["Issuing Institution", institution],
-        ["Issue Date", result.issue_date],
-        ["Database Status", result.status],
-        ["Ethereum Sepolia", result.blockchain_verification?.status || "unknown"],
-    ];
+    const network = (
+        singleCertificate.blockchain_verification?.network
+        || singleCertificate.blockchain_network
+        || ""
+    ).toLowerCase();
+    const transactionUrl = singleCertificate.blockchain_tx_hash
+        ? network.includes("sepolia")
+            ? `https://sepolia.etherscan.io/tx/${singleCertificate.blockchain_tx_hash}`
+            : network.includes("amoy")
+                ? `https://amoy.polygonscan.com/tx/${singleCertificate.blockchain_tx_hash}`
+                : null
+        : null;
 
     return (
-        <section className="mx-auto w-full max-w-4xl space-y-5">
-            <div className={`rounded-2xl border bg-white p-6 text-center shadow-sm md:p-8 ${isVerified ? "border-emerald-200" : "border-amber-200"}`}>
-                <div className={`mx-auto flex h-16 w-16 items-center justify-center rounded-full text-3xl font-bold ${isVerified ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}>
-                    {isVerified ? "✓" : "!"}
+        <section className="mx-auto w-full max-w-3xl">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
+                <div className="flex flex-col items-center text-center">
+                    <div className={`flex h-20 w-20 items-center justify-center rounded-full text-5xl font-bold ${isVerified ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"}`}>
+                        {isVerified ? "✓" : "!"}
+                    </div>
+                    <h1 className={`mt-3 text-2xl font-extrabold ${isVerified ? "text-emerald-700" : "text-red-700"}`}>
+                        {statusLabel}
+                    </h1>
+                    <div className="my-5 h-px w-full bg-slate-200" />
+                    <img
+                        src={schoolLogo}
+                        alt={`${schoolName} logo`}
+                        className="h-24 w-24 object-contain"
+                        onError={(event) => {
+                            const image = event.currentTarget;
+                            if (image.dataset.fallbackApplied) {
+                                image.hidden = true;
+                                return;
+                            }
+                            image.dataset.fallbackApplied = "true";
+                            image.src = "/certitrustlogo.png";
+                        }}
+                    />
+                    <p className={`mt-3 text-xl font-extrabold ${isMultipleDegree ? "text-blue-700" : "text-red-600"}`}>
+                        {schoolLabel}
+                    </p>
+                    <p className="mt-1 font-semibold text-[#0A192F]">{schoolName}</p>
+                    <p className="mx-auto mt-3 max-w-2xl text-sm font-semibold leading-6 text-slate-700">
+                        {isVerified ? verifiedMessage : incompleteMessage}
+                    </p>
                 </div>
-                <p className={`mt-4 text-xs font-extrabold uppercase tracking-widest ${isVerified ? "text-emerald-700" : "text-amber-700"}`}>
-                    {statusLabel}
-                </p>
-                <h1 className="mt-2 text-2xl font-extrabold text-[#0A192F]">
-                    {result.student_name || "Credential result"}
-                </h1>
-                <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                    {isVerified
-                        ? result.multi_degree
-                            ? `This shared credential was verified on Ethereum Sepolia across ${universityCountLabel}.`
-                            : `This credential was verified on Ethereum Sepolia and is recorded as issued by ${institution}.`
-                        : incompleteMessage}
-                </p>
-            </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-7">
-                <h2 className="mb-5 break-words text-lg font-extrabold text-[#0A192F]">Credential Details</h2>
-
-                <dl className="mb-5 grid gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 sm:grid-cols-2">
-                    <div>
-                        <dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Student Name</dt>
-                        <dd className="mt-1 break-words text-sm font-bold text-[#0A192F]">{result.student_name || "Not available"}</dd>
-                    </div>
-                    <div>
-                        <dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Student ID</dt>
-                        <dd className="mt-1 break-words text-sm font-bold text-[#0A192F]">{result.student_id || "Not available"}</dd>
-                    </div>
-                </dl>
-
-                {result.multi_degree && certificates.length > 0 ? (
-                    <div className="space-y-3">
-                        <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-                            <p className="font-bold text-[#0A192F]">{universityLabel}</p>
-                            {universityCount === 1 && <p className="mt-1 text-sm text-slate-600">{institution}</p>}
-                            <p className="mt-1 text-sm font-semibold text-slate-600">
-                                Shared credential · {result.degree_count ?? certificates.length} degrees
-                            </p>
-                        </div>
-                        {certificates.map((certificate, index) => (
-                            <article
-                                key={certificate.certificate_code || certificate.cert_hash || index}
-                                className="rounded-xl border border-slate-200 bg-[#F6F8FC] p-4"
-                            >
-                                <h3 className="font-bold text-[#0A192F]">
-                                    Degree {certificate.degree_number ?? index + 1}: {certificate.degree || certificate.course_or_event || "Academic credential"}
-                                </h3>
-                                <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-                                    {[
-                                        ["Certificate ID", certificate.certificate_code],
-                                        ["Issuing Institution", certificate.university_name || certificate.university_code],
-                                        ["Status", certificate.status],
-                                        ["Ethereum Sepolia", certificate.blockchain_verification?.status || "unknown"],
-                                        ["SHA-256 Hash", certificate.cert_hash],
-                                    ].map(([label, value]) => (
-                                        <div key={label}>
-                                            <dt className="text-xs font-bold uppercase text-slate-500">{label}</dt>
-                                            <dd className="mt-1 break-all text-sm font-semibold text-[#0A192F]">{value || "Not available"}</dd>
-                                        </div>
-                                    ))}
-                                </dl>
-                                {certificate.diploma_url ? (
-                                    <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
-                                        <h4 className="mb-2 text-sm font-bold text-[#0A192F]">Diploma image</h4>
-                                        <a href={certificate.diploma_url} target="_blank" rel="noreferrer">
-                                            <img src={certificate.diploma_url} alt={`${certificate.degree || "Degree"} diploma`} className="max-h-80 w-full object-contain" />
-                                        </a>
-                                        <button
-                                            type="button"
-                                            onClick={() => void downloadDiploma(
-                                                certificate.diploma_url!,
-                                                certificate.diploma_file_name || `${certificate.certificate_code || `degree-${index + 1}`}-diploma`,
-                                            )}
-                                            className="mt-3 min-h-10 rounded-lg bg-[#1D4ED8] px-4 text-sm font-bold text-white transition-colors hover:bg-blue-800"
+                <div className="mt-6">
+                    {isMultipleDegree ? (
+                        <>
+                            <dl>
+                                <DetailRow label="Student name" value={result.student_name || result.recipient_name} />
+                                <DetailRow label="Student ID" value={result.student_id} />
+                            </dl>
+                            <div className="mt-4 space-y-3">
+                                {certificates.map((certificate, index) => {
+                                    const universityCode = certificate.university_code?.toUpperCase() ?? "";
+                                    const universityName = certificate.university_name
+                                        || universityCode
+                                        || "Verified academic institution";
+                                    const displayName = certificate.display_name || universityCode;
+                                    const campus = certificate.branch_campus?.trim();
+                                    return (
+                                        <article
+                                            key={certificate.certificate_code || certificate.cert_hash || index}
+                                            className="rounded-xl border border-slate-200 bg-[#F6F8FC] p-4"
                                         >
-                                            Download Diploma
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <p className="mt-4 text-sm text-slate-500">No diploma image is attached to this degree.</p>
-                                )}
-                            </article>
-                        ))}
-                    </div>
-                ) : (
-                    <dl className="grid gap-3 sm:grid-cols-2">
-                        {details.map(([label, value]) => (
-                            <div key={label} className="rounded-xl border border-slate-200 bg-[#F6F8FC] p-4">
-                                <dt className="text-xs font-bold uppercase text-slate-500">{label}</dt>
-                                <dd className="mt-1 break-words text-sm font-semibold text-[#0A192F]">{value || "Not available"}</dd>
+                                            <h2 className="font-bold text-[#0A192F]">
+                                                {certificate.degree_number
+                                                    ? `Degree ${certificate.degree_number}`
+                                                    : "Degree credential"}
+                                            </h2>
+                                            <dl className="mt-2">
+                                                <DetailRow
+                                                    label="University"
+                                                    value={[
+                                                        universityCode
+                                                            ? `${universityName} (${displayName || universityCode})`
+                                                            : universityName,
+                                                        campus,
+                                                    ].filter(Boolean).join(" • ")}
+                                                />
+                                                <DetailRow
+                                                    label="Degree and program"
+                                                    value={certificate.degree || certificate.course_or_event}
+                                                />
+                                                <DetailRow label="Issue date" value={certificate.issue_date} />
+                                                <DetailRow label="Status" value={certificate.status} />
+                                            </dl>
+                                            {certificate.diploma_url ? (
+                                                <div className="mt-3">
+                                                    <a href={certificate.diploma_url} target="_blank" rel="noreferrer">
+                                                        <img
+                                                            src={certificate.diploma_url}
+                                                            alt={`${certificate.degree || "Degree"} diploma`}
+                                                            className="max-h-80 w-full rounded-lg object-contain"
+                                                        />
+                                                    </a>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void downloadDiploma(
+                                                            certificate.diploma_url!,
+                                                            certificate.diploma_file_name || `${certificate.certificate_code || `degree-${index + 1}`}-diploma`,
+                                                        )}
+                                                        className="mt-2 min-h-10 rounded-lg px-3 text-sm font-bold text-blue-700 hover:bg-blue-50"
+                                                    >
+                                                        Download Diploma
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <p className="mt-3 text-sm text-slate-500">
+                                                    No diploma image was attached to this credential.
+                                                </p>
+                                            )}
+                                        </article>
+                                    );
+                                })}
                             </div>
-                        ))}
-                    </dl>
-                )}
-
-                {!result.multi_degree && result.diploma_url && (
-                    <div className="mt-5 rounded-xl border border-slate-200 bg-[#F6F8FC] p-4">
-                        <h3 className="mb-3 font-bold text-[#0A192F]">Diploma image</h3>
-                        <a href={result.diploma_url} target="_blank" rel="noreferrer">
-                            <img src={result.diploma_url} alt={`${result.degree || result.course_or_event || "Credential"} diploma`} className="max-h-[32rem] w-full object-contain" />
-                        </a>
-                        <button
-                            type="button"
-                            onClick={() => void downloadDiploma(
-                                result.diploma_url!,
-                                result.diploma_file_name || `${result.certificate_code || "credential"}-diploma`,
-                            )}
-                            className="mt-3 min-h-10 rounded-lg bg-[#1D4ED8] px-4 text-sm font-bold text-white transition-colors hover:bg-blue-800"
-                        >
-                            Download Diploma
-                        </button>
-                    </div>
-                )}
+                        </>
+                    ) : (
+                        <>
+                            <dl>
+                                <DetailRow
+                                    label="Student name"
+                                    value={singleCertificate.student_name || singleCertificate.recipient_name}
+                                />
+                                <DetailRow label="Student ID" value={singleCertificate.student_id} />
+                                <DetailRow
+                                    label="Degree and program"
+                                    value={singleCertificate.degree || singleCertificate.course_or_event}
+                                />
+                                <DetailRow label="Issue date" value={singleCertificate.issue_date} />
+                            </dl>
+                            {isVerified && singleCertificate.diploma_url ? (
+                                <div className="mt-5">
+                                    <h2 className="font-bold text-[#0A192F]">Attached diploma image</h2>
+                                    <a href={singleCertificate.diploma_url} target="_blank" rel="noreferrer">
+                                        <img
+                                            src={singleCertificate.diploma_url}
+                                            alt={`${singleCertificate.degree || singleCertificate.course_or_event || "Credential"} diploma`}
+                                            className="mt-2 max-h-96 w-full rounded-lg object-contain"
+                                        />
+                                    </a>
+                                    <button
+                                        type="button"
+                                        onClick={() => void downloadDiploma(
+                                            singleCertificate.diploma_url!,
+                                            singleCertificate.diploma_file_name || `${singleCertificate.certificate_code || "credential"}-diploma`,
+                                        )}
+                                        className="mt-2 min-h-10 rounded-lg px-3 text-sm font-bold text-blue-700 hover:bg-blue-50"
+                                    >
+                                        Download Diploma
+                                    </button>
+                                </div>
+                            ) : isVerified ? (
+                                <p className="mt-5 text-sm text-slate-600">
+                                    No diploma image was attached to this credential.
+                                </p>
+                            ) : null}
+                        </>
+                    )}
+                </div>
 
                 {!isVerified && (
-                    <div role="status" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
-                        <p className="font-bold">Verification is incomplete</p>
+                    <div role="status" className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-950">
+                        <p className="font-bold">Verification failed for this credential</p>
                         <p className="mt-1">
                             Database status: <strong>{databaseStatus}</strong>
                             {" · "}
                             Blockchain status: <strong>{blockchainStatus}</strong>
                         </p>
-                        <p className="mt-1">
-                            A database record alone does not prove on-chain authenticity.
-                        </p>
                     </div>
                 )}
 
-                {result.blockchain_tx_hash && (
+                {transactionUrl && (
                     <a
                         className="mt-5 inline-block break-all text-sm font-semibold text-blue-700 underline"
-                        href={`https://amoy.polygonscan.com/tx/${result.blockchain_tx_hash}`}
+                        href={transactionUrl}
                         target="_blank"
                         rel="noreferrer"
                     >
-                        View Ethereum Sepolia transaction
+                        View blockchain transaction
                     </a>
                 )}
 
                 {issuingInstitutions.size > 0 && (
-                    <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-4 text-left">
+                    <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-4">
                         <p className="font-bold text-[#0A192F]">Questions about this credential?</p>
                         <div className="mt-3 flex flex-wrap gap-2">
                             {[...issuingInstitutions.entries()].map(([code, name]) => (
@@ -293,7 +369,16 @@ export default function CertificateVerificationResult({
                     </div>
                 )}
 
-                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className={`mt-5 flex items-center gap-3 rounded-xl p-4 ${isVerified ? "bg-emerald-50 text-emerald-900" : "bg-red-50 text-red-900"}`}>
+                    <span className="text-xl" aria-hidden="true">{isVerified ? "✓" : "!"}</span>
+                    <p className="font-semibold">
+                        {isVerified
+                            ? "Verified on the CertiTrust ledger"
+                            : "Verification failed for this credential"}
+                    </p>
+                </div>
+
+                <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <p className="mb-2 text-xs font-bold uppercase text-slate-500">Scanned / searched code</p>
                     <p className="break-all font-mono text-xs leading-6 text-[#0A192F]">
                         {result.cert_hash || searchedCode}
